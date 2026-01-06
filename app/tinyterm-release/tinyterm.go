@@ -10,6 +10,7 @@ import (
 	"image/color"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"tinygo.org/x/drivers"
 	"tinygo.org/x/tinyfont"
@@ -98,8 +99,30 @@ func (t *Terminal) Configure(config *Config) {
 
 // Write some data to the terminal.
 func (t *Terminal) Write(buf []byte) (int, error) {
-	for _, b := range buf {
-		t.putchar(b)
+	for i := 0; i < len(buf); {
+		b := buf[i]
+		if t.state != stateInput {
+			t.putchar(b)
+			i++
+			continue
+		}
+
+		switch b {
+		case 0x1b, '\r', '\n':
+			t.putchar(b)
+			i++
+			continue
+		default:
+		}
+
+		r, sz := utf8.DecodeRune(buf[i:])
+		if r == utf8.RuneError && sz == 1 {
+			t.drawrune(rune(b))
+			i++
+			continue
+		}
+		t.drawrune(r)
+		i += sz
 	}
 	return len(buf), nil
 }
@@ -150,7 +173,7 @@ func (t *Terminal) putchar(b byte) {
 			t.lf()
 			return
 		default:
-			t.drawchar(b)
+			t.drawrune(rune(b))
 			return
 		}
 
@@ -304,14 +327,14 @@ func (t *Terminal) selectGraphicRendition() {
 	}
 }
 
-func (t *Terminal) drawchar(b byte) {
+func (t *Terminal) drawrune(r rune) {
 	if t.next == t.cols {
 		t.lf()
 	}
 	x := t.next * t.fontWidth
 	y := t.scroll + t.fontOffset
 	t.display.FillRectangle(x, t.scroll, t.fontWidth, t.fontHeight, t.attrs.bgcol)
-	tinyfont.DrawChar(t.display, t.font, x, y, rune(b), t.attrs.fgcol)
+	tinyfont.DrawChar(t.display, t.font, x, y, r, t.attrs.fgcol)
 	t.next += 1
 }
 
