@@ -5,6 +5,7 @@ import (
 	"spark/sparkos/kernel"
 	"spark/sparkos/services/logger"
 	"spark/sparkos/services/term"
+	"spark/sparkos/services/termkbd"
 	timesvc "spark/sparkos/services/time"
 	"spark/sparkos/services/ui"
 	"spark/sparkos/tasks/termdemo"
@@ -52,6 +53,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 
 	if cfg.TermDemo {
 		k.AddTask(term.New(h.Display(), termEP.Restrict(kernel.RightRecv)))
+		k.AddTask(termkbd.New(h.Input(), termEP.Restrict(kernel.RightSend)))
 		k.AddTask(termdemo.New(timeEP.Restrict(kernel.RightSend), termEP.Restrict(kernel.RightSend)))
 	} else {
 		k.AddTask(ui.New(h.Display(), h.Input()))
