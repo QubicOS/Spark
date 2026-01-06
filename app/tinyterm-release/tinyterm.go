@@ -48,7 +48,7 @@ type Terminal struct {
 	params  *bytes.Buffer
 	attrs   sgrAttrs
 
-	font       *tinyfont.Font
+	font       tinyfont.Fonter
 	fontWidth  int16
 	fontHeight int16
 	fontOffset int16
@@ -59,7 +59,7 @@ type Terminal struct {
 // Config contains the configuration for a Terminal.
 type Config struct {
 	// the font to be used for the terminal
-	Font *tinyfont.Font
+	Font tinyfont.Fonter
 
 	// font height for the terminal
 	FontHeight int16
