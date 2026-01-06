@@ -8,6 +8,8 @@ const (
 	MsgSleep
 	MsgWake
 	MsgError
+	MsgTermWrite
+	MsgTermClear
 )
 
 // ErrCode is a generic error category for MsgError responses.
@@ -57,6 +59,10 @@ func (k Kind) String() string {
 		return "wake"
 	case MsgError:
 		return "error"
+	case MsgTermWrite:
+		return "term_write"
+	case MsgTermClear:
+		return "term_clear"
 	default:
 		return "unknown"
 	}
