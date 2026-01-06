@@ -62,6 +62,8 @@ type Task struct {
 	message string
 	hint    string
 	ghost   string
+	cands   []string
+	best    string
 	editVar string
 
 	graphExpr string
@@ -429,6 +431,8 @@ func (t *Task) submit(ctx *kernel.Context) {
 	t.cursor = 0
 	t.ghost = ""
 	t.hint = ""
+	t.cands = nil
+	t.best = ""
 	t.evalLine(ctx, line, true)
 }
 
@@ -476,6 +480,118 @@ func (t *Task) handleCommand(cmd string) {
 	default:
 		t.setMessage("unknown command: :" + cmd)
 	}
+}
+
+func (t *Task) handleServiceCommand(ctx *kernel.Context, cmdline string) {
+	_ = ctx
+	fields := strings.Fields(cmdline)
+	if len(fields) == 0 {
+		return
+	}
+	cmd := fields[0]
+
+	t.appendLine("$" + cmdline)
+	switch cmd {
+	case "help":
+		t.appendLine("service commands:")
+		for _, s := range serviceCommands() {
+			t.appendLine("  $" + s)
+		}
+	case "about":
+		t.appendLine("Vector: CAS + plotter + REPL.")
+	case "clear":
+		t.lines = nil
+		t.setMessage("cleared")
+	case "resetview":
+		t.xMin, t.xMax = -10, 10
+		t.yMin, t.yMax = -10, 10
+		t.normalizeView()
+		t.setMessage("view reset")
+	case "autoscale":
+		t.autoscalePlots()
+		t.setMessage("autoscale")
+	case "vars":
+		vars := t.stackVars()
+		if len(vars) == 0 {
+			t.appendLine("vars: (none)")
+			return
+		}
+		for _, name := range vars {
+			t.appendLine(name + " = " + t.formatValue(t.e.vars[name]))
+		}
+	case "funcs":
+		if len(t.e.funcs) == 0 {
+			t.appendLine("funcs: (none)")
+			return
+		}
+		names := make([]string, 0, len(t.e.funcs))
+		for name := range t.e.funcs {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			f := t.e.funcs[name]
+			t.appendLine(fmt.Sprintf("%s(%s) = %s", name, f.param, NodeString(f.body)))
+		}
+	case "del":
+		if len(fields) != 2 {
+			t.appendLine("usage: $del name")
+			return
+		}
+		name := fields[1]
+		if _, ok := t.e.vars[name]; ok {
+			delete(t.e.vars, name)
+			t.appendLine("deleted var: " + name)
+			return
+		}
+		if _, ok := t.e.funcs[name]; ok {
+			delete(t.e.funcs, name)
+			t.appendLine("deleted func: " + name)
+			return
+		}
+		t.appendLine("not found: " + name)
+	default:
+		t.appendLine("unknown service command: $" + cmd)
+	}
+}
+
+func serviceCommands() []string {
+	return []string{
+		"help",
+		"about",
+		"clear",
+		"resetview",
+		"autoscale",
+		"vars",
+		"funcs",
+		"del",
+	}
+}
+
+func completeServiceFromPrefix(prefix string) []string {
+	var out []string
+	for _, s := range serviceCommands() {
+		if strings.HasPrefix(s, prefix) {
+			out = append(out, s)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func pickBestCompletion(prefix string, cands []string) string {
+	for _, s := range cands {
+		if s == prefix {
+			return s
+		}
+	}
+	best := cands[0]
+	for _, s := range cands[1:] {
+		if len(s) < len(best) || (len(s) == len(best) && s < best) {
+			best = s
+		}
+	}
+	return best
 }
 
 func (t *Task) setGraphFromExpr(src string, ex node) {
@@ -845,6 +961,8 @@ func (t *Task) switchTab(newTab tab) {
 	case tabPlot:
 		t.hint = ""
 		t.ghost = ""
+		t.cands = nil
+		t.best = ""
 		if t.graph == nil && len(t.plots) == 0 {
 			t.setMessage("no plot yet (enter sin(x) then Ctrl+G/F2)")
 			return
@@ -863,6 +981,8 @@ func (t *Task) switchTab(newTab tab) {
 	case tabStack:
 		t.hint = ""
 		t.ghost = ""
+		t.cands = nil
+		t.best = ""
 		t.stackSel = 0
 		t.stackTop = 0
 		t.setMessage("Up/Down select | Enter edit | F1 term | F2 plot")
@@ -895,6 +1015,10 @@ func (t *Task) evalLine(ctx *kernel.Context, line string, recordHistory bool) {
 
 	if strings.HasPrefix(line, ":") {
 		t.handleCommand(strings.TrimSpace(line[1:]))
+		return
+	}
+	if strings.HasPrefix(line, "$") {
+		t.handleServiceCommand(ctx, strings.TrimSpace(line[1:]))
 		return
 	}
 
@@ -1048,6 +1172,8 @@ func (t *Task) handleEditKey(ctx *kernel.Context, k key) {
 func (t *Task) updateHint() {
 	t.hint = ""
 	t.ghost = ""
+	t.cands = nil
+	t.best = ""
 
 	if t.tab != tabTerminal {
 		return
@@ -1059,6 +1185,10 @@ func (t *Task) updateHint() {
 	line := string(t.input)
 	if strings.HasPrefix(line, ":") {
 		t.updateCommandHint(line)
+		return
+	}
+	if strings.HasPrefix(line, "$") {
+		t.updateServiceHint(line)
 		return
 	}
 
@@ -1076,7 +1206,9 @@ func (t *Task) updateHint() {
 		return
 	}
 
-	best := cands[0]
+	best := pickBestCompletion(prefix, cands)
+	t.cands = cands
+	t.best = best
 	if best != prefix && end == len(t.input) && t.cursor == end && strings.HasPrefix(best, prefix) {
 		t.ghost = best[len(prefix):]
 	}
@@ -1100,6 +1232,19 @@ func (t *Task) updateCommandHint(line string) {
 	start := 1
 	for start < len(t.input) && t.input[start] == ' ' {
 		start++
+	}
+	if start >= len(t.input) {
+		cands := t.completeFromPrefix("", true)
+		if len(cands) == 0 {
+			return
+		}
+		best := pickBestCompletion("", cands)
+		t.cands = cands
+		t.best = best
+		if t.cursor == len(t.input) && best != "" {
+			t.ghost = best
+		}
+		return
 	}
 	end := start
 	for end < len(t.input) && isIdentContinue(t.input[end]) {
@@ -1139,7 +1284,75 @@ func (t *Task) updateCommandHint(line string) {
 	if len(cands) == 0 {
 		return
 	}
-	best := cands[0]
+	best := pickBestCompletion(prefix, cands)
+	t.cands = cands
+	t.best = best
+	if best != prefix && t.cursor == prefixEnd && prefixEnd == len(t.input) {
+		t.ghost = best[len(prefix):]
+	}
+	if len(cands) > 1 && t.hint == "" {
+		t.hint = fmt.Sprintf("Tab: complete (%d)", len(cands))
+	}
+}
+
+func (t *Task) updateServiceHint(line string) {
+	_ = line
+	start := 1
+	for start < len(t.input) && t.input[start] == ' ' {
+		start++
+	}
+	if start >= len(t.input) {
+		cands := completeServiceFromPrefix("")
+		if len(cands) == 0 {
+			return
+		}
+		best := pickBestCompletion("", cands)
+		t.cands = cands
+		t.best = best
+		if t.cursor == len(t.input) && best != "" {
+			t.ghost = best
+		}
+		return
+	}
+	end := start
+	for end < len(t.input) && isIdentContinue(t.input[end]) {
+		end++
+	}
+	if start >= end {
+		return
+	}
+	prefixEnd := end
+	if t.cursor >= start && t.cursor < end {
+		prefixEnd = t.cursor
+	}
+	cmd := string(t.input[start:prefixEnd])
+	switch cmd {
+	case "help":
+		t.hint = "$help"
+	case "about":
+		t.hint = "$about"
+	case "clear":
+		t.hint = "$clear"
+	case "resetview":
+		t.hint = "$resetview"
+	case "autoscale":
+		t.hint = "$autoscale"
+	case "vars":
+		t.hint = "$vars"
+	case "funcs":
+		t.hint = "$funcs"
+	case "del":
+		t.hint = "$del name"
+	}
+
+	prefix := cmd
+	cands := completeServiceFromPrefix(prefix)
+	if len(cands) == 0 {
+		return
+	}
+	best := pickBestCompletion(prefix, cands)
+	t.cands = cands
+	t.best = best
 	if best != prefix && t.cursor == prefixEnd && prefixEnd == len(t.input) {
 		t.ghost = best[len(prefix):]
 	}
@@ -1156,6 +1369,12 @@ func (t *Task) autocomplete() {
 	isCmd := len(t.input) > 0 && t.input[0] == ':'
 	if isCmd {
 		t.autocompleteCommand()
+		t.updateHint()
+		return
+	}
+	isSvc := len(t.input) > 0 && t.input[0] == '$'
+	if isSvc {
+		t.autocompleteService()
 		t.updateHint()
 		return
 	}
@@ -1197,6 +1416,30 @@ func (t *Task) autocompleteCommand() {
 	t.applyCompletion(start, end, prefix, cands)
 }
 
+func (t *Task) autocompleteService() {
+	start := 1
+	for start < len(t.input) && t.input[start] == ' ' {
+		start++
+	}
+	end := start
+	for end < len(t.input) && isIdentContinue(t.input[end]) {
+		end++
+	}
+	if start >= end {
+		return
+	}
+	prefixEnd := end
+	if t.cursor >= start && t.cursor < end {
+		prefixEnd = t.cursor
+	}
+	prefix := string(t.input[start:prefixEnd])
+	if prefix == "" {
+		return
+	}
+	cands := completeServiceFromPrefix(prefix)
+	t.applyCompletion(start, end, prefix, cands)
+}
+
 func (t *Task) applyCompletion(start, end int, prefix string, cands []string) {
 	if len(cands) == 0 {
 		t.setHint("no completions")
@@ -1212,14 +1455,6 @@ func (t *Task) applyCompletion(start, end int, prefix string, cands []string) {
 	if len(cands) == 1 {
 		t.replaceInputRange(start, end, cands[0])
 		return
-	}
-
-	if len(cands) > 0 {
-		show := cands
-		if len(show) > 6 {
-			show = show[:6]
-		}
-		t.setHint("candidates: " + strings.Join(show, " "))
 	}
 }
 
