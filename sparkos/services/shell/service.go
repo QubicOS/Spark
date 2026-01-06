@@ -617,7 +617,6 @@ func (s *Service) ls(ctx *kernel.Context, args []string) error {
 		mode := "----------"
 		if e.Type == proto.VFSEntryDir {
 			mode = "drwxr-xr-x"
-			name += "/"
 		} else if e.Type == proto.VFSEntryFile {
 			mode = "-rw-r--r--"
 		} else {
