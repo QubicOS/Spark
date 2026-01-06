@@ -1,10 +1,8 @@
 package vector
 
 import (
-	"fmt"
 	"image/color"
 	"math"
-	"sort"
 
 	"spark/hal"
 	"spark/sparkos/fonts/const2bitcolor"
@@ -15,14 +13,18 @@ import (
 )
 
 var (
-	// Vector palette.
-	colorCrail  = color.RGBA{R: 0xC1, G: 0x5F, B: 0x3C, A: 0xFF} // #C15F3C
-	colorCloudy = color.RGBA{R: 0xB1, G: 0xAD, B: 0xA1, A: 0xFF} // #B1ADA1
-	colorPampas = color.RGBA{R: 0xF4, G: 0xF3, B: 0xEE, A: 0xFF} // #F4F3EE
-	colorWhite  = color.RGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF} // #FFFFFF
-
-	colorInk     = color.RGBA{R: 0x1B, G: 0x1B, B: 0x1B, A: 0xFF}
-	colorInkSoft = color.RGBA{R: 0x3A, G: 0x3A, B: 0x3A, A: 0xFF}
+	colorBG       = color.RGBA{R: 0x00, G: 0x00, B: 0x00, A: 0xFF}
+	colorFG       = color.RGBA{R: 0xEE, G: 0xEE, B: 0xEE, A: 0xFF}
+	colorDim      = color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xFF}
+	colorHeaderBG = color.RGBA{R: 0x22, G: 0x22, B: 0x22, A: 0xFF}
+	colorStatusBG = color.RGBA{R: 0x22, G: 0x22, B: 0x22, A: 0xFF}
+	colorPanelBG  = color.RGBA{R: 0x08, G: 0x08, B: 0x08, A: 0xFF}
+	colorGrid     = color.RGBA{R: 0x22, G: 0x22, B: 0x22, A: 0xFF}
+	colorAxis     = color.RGBA{R: 0x55, G: 0x55, B: 0x55, A: 0xFF}
+	colorPlot0    = color.RGBA{R: 0x4A, G: 0xD1, B: 0xFF, A: 0xFF}
+	colorPlot1    = color.RGBA{R: 0xFF, G: 0xD1, B: 0x4A, A: 0xFF}
+	colorPlot2    = color.RGBA{R: 0x7F, G: 0xFF, B: 0x7F, A: 0xFF}
+	colorPlot3    = color.RGBA{R: 0xFF, G: 0x7F, B: 0xFF, A: 0xFF}
 )
 
 type fbDisplay struct {
@@ -155,25 +157,26 @@ func (t *Task) render() {
 		return
 	}
 
-	_ = t.d.FillRectangle(0, 0, w, h, colorPampas)
+	_ = t.d.FillRectangle(0, 0, w, h, colorBG)
 
 	headerY := int16(0)
-	_ = t.d.FillRectangle(0, headerY, w, t.fontHeight, colorCrail)
-	t.drawStringClipped(0, headerY, t.headerText(), colorWhite, t.cols)
+	_ = t.d.FillRectangle(0, headerY, w, t.fontHeight, colorHeaderBG)
+	t.drawStringClipped(0, headerY, t.headerText(), colorFG, t.cols)
 
 	panelY := t.fontHeight
 	viewH := int16(t.viewRows) * t.fontHeight
-	panelH := viewH
+	_ = t.d.FillRectangle(0, panelY, w, viewH, colorPanelBG)
 
-	if t.mode == modeGraph {
-		t.renderGraphFull(panelY, w, panelH)
-	} else {
-		t.renderSplit(panelY, w, panelH)
+	switch t.mode {
+	case modeGraph:
+		t.renderGraph(panelY, w, int(viewH))
+	default:
+		t.renderHistory(panelY)
 	}
 
 	statusY := int16(t.rows-1) * t.fontHeight
-	_ = t.d.FillRectangle(0, statusY, w, t.fontHeight, colorWhite)
-	t.drawStringClipped(0, statusY, t.statusText(), colorInk, t.cols)
+	_ = t.d.FillRectangle(0, statusY, w, t.fontHeight, colorStatusBG)
+	t.drawStringClipped(0, statusY, t.statusText(), colorFG, t.cols)
 
 	if t.showHelp {
 		t.renderHelp()
@@ -182,147 +185,42 @@ func (t *Task) render() {
 	_ = t.fb.Present()
 }
 
-func (t *Task) renderSplit(panelY, w, h int16) {
-	leftW := w * 2 / 5
-	if leftW < 160 {
-		leftW = 160
-	}
-	if leftW > w-120 {
-		leftW = w - 120
-	}
-	rightX := leftW + 1
-	rightW := w - rightX
-
-	t.drawPanel(0, panelY, leftW, h, "Notebook", true)
-	t.drawPanel(rightX, panelY, rightW, h, "Plot", false)
-
-	innerX := int16(1)
-	innerY := panelY + t.fontHeight + 1
-	innerW := leftW - 2
-	innerH := h - t.fontHeight - 2
-	t.renderNotebook(innerX, innerY, innerW, innerH)
-
-	plotX := rightX + 1
-	plotY := panelY + t.fontHeight + 1
-	plotW := rightW - 2
-	plotH := h - t.fontHeight - 2
-	t.renderPlot(plotX, plotY, plotW, plotH)
-}
-
-func (t *Task) renderGraphFull(panelY, w, h int16) {
-	t.drawPanel(0, panelY, w, h, "Plot", false)
-	plotX := int16(1)
-	plotY := panelY + t.fontHeight + 1
-	plotW := w - 2
-	plotH := h - t.fontHeight - 2
-	t.renderPlot(plotX, plotY, plotW, plotH)
-}
-
-func (t *Task) drawPanel(x, y, w, h int16, title string, showVars bool) {
-	_ = t.d.FillRectangle(x, y, w, h, colorWhite)
-	_ = t.d.FillRectangle(x, y, w, 1, colorCloudy)
-	_ = t.d.FillRectangle(x, y+h-1, w, 1, colorCloudy)
-	_ = t.d.FillRectangle(x, y, 1, h, colorCloudy)
-	_ = t.d.FillRectangle(x+w-1, y, 1, h, colorCloudy)
-	_ = t.d.FillRectangle(x, y, w, t.fontHeight+1, colorPampas)
-
-	cols := int(w / t.fontWidth)
-	if cols < 1 {
-		return
-	}
-	t.drawStringClipped(x+t.fontWidth, y+1, title, colorInkSoft, cols-2)
-	if showVars {
-		t.drawStringClipped(x+w-16*t.fontWidth, y+1, "vars", colorCloudy, 14)
-	}
-}
-
-func (t *Task) renderNotebook(x, y, w, h int16) {
-	cols := int(w / t.fontWidth)
-	if cols <= 0 {
-		return
-	}
-	rows := int(h / t.fontHeight)
-	if rows <= 0 {
-		return
-	}
-
-	varRows := 4
-	if varRows > rows-2 {
-		varRows = rows - 2
-	}
-	t.renderVars(x, y, cols, varRows)
-
-	histY := y + int16(varRows)*t.fontHeight
-	histRows := rows - varRows
-	t.renderHistory(x, histY, cols, histRows)
-}
-
-func (t *Task) renderHistory(x, y int16, cols, rows int) {
-	maxLines := rows
+func (t *Task) renderHistory(panelY int16) {
+	maxLines := t.viewRows
 	start := 0
 	if len(t.lines) > maxLines {
 		start = len(t.lines) - maxLines
 	}
-	yy := y
+	y := panelY
 	for i := start; i < len(t.lines); i++ {
-		t.drawStringClipped(x, yy, t.lines[i], colorInk, cols)
-		yy += t.fontHeight
+		t.drawStringClipped(0, y, t.lines[i], colorFG, t.cols)
+		y += t.fontHeight
 	}
 }
 
-func (t *Task) renderVars(x, y int16, cols, rows int) {
-	if rows <= 0 || cols <= 0 {
+func (t *Task) renderGraph(panelY int16, w int16, viewHPx int) {
+	if t.graph == nil && len(t.plots) == 0 {
+		t.drawStringClipped(0, panelY, "graph: no expression (enter `sin(x)` and press Enter)", colorDim, t.cols)
 		return
 	}
 
-	keys := make([]string, 0, len(t.e.vars))
-	for k := range t.e.vars {
-		if k == "pi" || k == "e" {
-			continue
-		}
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	if len(keys) > rows {
-		keys = keys[len(keys)-rows:]
-	}
-	for i := 0; i < len(keys) && i < rows; i++ {
-		k := keys[i]
-		v := t.e.vars[k]
-		t.drawStringClipped(x, y+int16(i)*t.fontHeight, fmt.Sprintf("%s = %s", k, t.formatValue(v)), colorInkSoft, cols)
-	}
-}
+	px0 := int16(0)
+	py0 := panelY
+	pw := w
+	ph := int16(viewHPx)
 
-func (t *Task) renderPlot(x, y, w, h int16) {
-	if (t.graph == nil && len(t.plots) == 0) || w <= 2 || h <= 2 {
-		cols := int(w / t.fontWidth)
-		if cols > 0 {
-			t.drawStringClipped(x, y, "No plot yet. Use: x=range(-1,1); y=sin(x); g", colorCloudy, cols)
-		}
-		return
-	}
+	_ = t.d.FillRectangle(px0, py0, pw, ph, colorBG)
 
-	_ = t.d.FillRectangle(x, y, w, h, colorWhite)
-	t.drawGrid(x, y, w, h)
-	t.drawAxes(x, y, w, h)
-	t.drawPlots(x, y, w, h)
+	t.drawGrid(px0, py0, pw, ph)
+	t.drawAxes(px0, py0, pw, ph)
+	t.drawPlots(px0, py0, pw, ph)
 }
 
 func (t *Task) drawGrid(px0, py0, pw, ph int16) {
-	if pw <= 1 || ph <= 1 {
-		return
-	}
-	div := int16(10)
-	for i := int16(1); i < div; i++ {
-		x := px0 + (pw*i)/div
-		for y := int16(0); y < ph; y++ {
-			t.d.SetPixel(x, py0+y, colorPampas)
-		}
-		yy := py0 + (ph*i)/div
-		for x2 := int16(0); x2 < pw; x2++ {
-			t.d.SetPixel(px0+x2, yy, colorPampas)
-		}
-	}
+	_ = px0
+	_ = py0
+	_ = pw
+	_ = ph
 }
 
 func (t *Task) drawAxes(px0, py0, pw, ph int16) {
@@ -332,13 +230,13 @@ func (t *Task) drawAxes(px0, py0, pw, ph int16) {
 	if t.xMin <= 0 && t.xMax >= 0 {
 		x := int16((0 - t.xMin) / (t.xMax - t.xMin) * float64(pw-1))
 		for y := int16(0); y < ph; y++ {
-			t.d.SetPixel(px0+x, py0+y, colorCloudy)
+			t.d.SetPixel(px0+x, py0+y, colorAxis)
 		}
 	}
 	if t.yMin <= 0 && t.yMax >= 0 {
 		y := int16((t.yMax - 0) / (t.yMax - t.yMin) * float64(ph-1))
 		for x := int16(0); x < pw; x++ {
-			t.d.SetPixel(px0+x, py0+y, colorCloudy)
+			t.d.SetPixel(px0+x, py0+y, colorAxis)
 		}
 	}
 }
@@ -356,12 +254,7 @@ func (t *Task) drawPlots(px0, py0, pw, ph int16) {
 		plots = []plot{{src: t.graphExpr, expr: t.graph}}
 	}
 
-	colors := []color.RGBA{
-		colorCrail,
-		colorInkSoft,
-		colorCloudy,
-		color.RGBA{R: 0x2A, G: 0x7F, B: 0x62, A: 0xFF},
-	}
+	colors := []color.RGBA{colorPlot0, colorPlot1, colorPlot2, colorPlot3}
 	for i, p := range plots {
 		c := colors[i%len(colors)]
 		if len(p.xs) != 0 && len(p.ys) == len(p.xs) {
@@ -513,12 +406,11 @@ func (t *Task) renderHelp() {
 	pw := int16(boxCols) * t.fontWidth
 	ph := int16(boxRows) * t.fontHeight
 
-	_ = t.d.FillRectangle(px, py, pw, ph, colorCloudy)
-	_ = t.d.FillRectangle(px+1, py+1, pw-2, ph-2, colorWhite)
-	_ = t.d.FillRectangle(px+1, py+1, pw-2, t.fontHeight+2, colorPampas)
+	_ = t.d.FillRectangle(px, py, pw, ph, colorHeaderBG)
+	_ = t.d.FillRectangle(px+t.fontWidth, py+t.fontHeight, pw-2*t.fontWidth, ph-2*t.fontHeight, colorPanelBG)
 
 	title := "Vector  (H/Esc close, Up/Down scroll)"
-	t.drawStringClipped(px+t.fontWidth, py+t.fontHeight, title, colorInk, innerCols)
+	t.drawStringClipped(px+t.fontWidth, py+t.fontHeight, title, colorFG, innerCols)
 
 	start := t.helpTop
 	end := start + contentRows
@@ -528,9 +420,9 @@ func (t *Task) renderHelp() {
 	for i := start; i < end; i++ {
 		row := i - start
 		y := py + int16(2+row)*t.fontHeight
-		fg := colorInk
+		fg := colorFG
 		if lines[i] == "" || lines[i] == "Calculator" || lines[i] == "Graph" {
-			fg = colorCloudy
+			fg = colorDim
 		}
 		t.drawStringClipped(px+t.fontWidth, y, lines[i], fg, innerCols)
 	}
