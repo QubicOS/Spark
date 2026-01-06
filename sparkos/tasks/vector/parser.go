@@ -239,25 +239,13 @@ func (p *parser) parseTop() (action, error) {
 		}
 
 		if p.cur.kind == tokLParen {
-			p.next()
-			if p.cur.kind != tokIdent {
-				return action{}, fmt.Errorf("%w: expected parameter name", ErrParse)
-			}
-			param := p.cur.text
-			p.next()
-			if p.cur.kind != tokRParen {
-				return action{}, fmt.Errorf("%w: expected ')'", ErrParse)
-			}
-			p.next()
-			if p.cur.kind != tokAssign {
-				return action{}, fmt.Errorf("%w: expected '='", ErrParse)
-			}
-			p.next()
-			ex, err := p.parseExpr()
-			if err != nil {
+			// This can be either a function definition `f(x)=...` or a regular call `f(...)`.
+			// Only treat it as a definition if it matches the full `ident ( ident ) =` shape.
+			if act, ok, err := p.tryParseFuncDef(name, identTok, afterIdentPos); err != nil {
 				return action{}, err
+			} else if ok {
+				return act, nil
 			}
-			return action{kind: actionAssignFunc, funcName: name, funcParam: param, expr: ex}, nil
 		}
 
 		p.l.i = afterIdentPos
@@ -272,6 +260,39 @@ func (p *parser) parseTop() (action, error) {
 }
 
 func (p *parser) next() { p.cur = p.l.next() }
+
+func (p *parser) tryParseFuncDef(name string, identTok token, afterIdentPos int) (action, bool, error) {
+	restore := func() {
+		p.cur = identTok
+		p.l.i = afterIdentPos
+	}
+
+	if p.cur.kind != tokLParen {
+		return action{}, false, nil
+	}
+	p.next()
+	if p.cur.kind != tokIdent {
+		restore()
+		return action{}, false, nil
+	}
+	param := p.cur.text
+	p.next()
+	if p.cur.kind != tokRParen {
+		restore()
+		return action{}, false, nil
+	}
+	p.next()
+	if p.cur.kind != tokAssign {
+		restore()
+		return action{}, false, nil
+	}
+	p.next()
+	ex, err := p.parseExpr()
+	if err != nil {
+		return action{}, false, err
+	}
+	return action{kind: actionAssignFunc, funcName: name, funcParam: param, expr: ex}, true, nil
+}
 
 func (p *parser) parseExpr() (node, error) {
 	return p.parseSum()
