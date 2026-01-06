@@ -2,9 +2,12 @@ package shell
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"unicode/utf8"
 
+	"spark/internal/buildinfo"
+	logclient "spark/sparkos/client/logger"
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
 )
@@ -322,13 +325,31 @@ func (s *Service) submit(ctx *kernel.Context) {
 
 	switch cmd {
 	case "help":
-		_ = s.writeString(ctx, "commands: help clear echo ticks\n")
+		for _, c := range builtinCommandHelp {
+			_ = s.writeString(ctx, fmt.Sprintf("%-10s %s\n", c.Name, c.Desc))
+		}
 	case "clear":
 		_ = s.sendToTerm(ctx, proto.MsgTermClear, nil)
 	case "echo":
 		_ = s.writeString(ctx, strings.Join(args, " ")+"\n")
 	case "ticks":
 		_ = s.writeString(ctx, fmt.Sprintf("%d\n", ctx.NowTick()))
+	case "version":
+		_ = s.writeString(ctx, fmt.Sprintf("%s %s %s\n", buildinfo.Version, buildinfo.Commit, buildinfo.Date))
+	case "uname":
+		_ = s.writeString(ctx, fmt.Sprintf("%s %s\n", runtime.GOOS, runtime.GOARCH))
+	case "panic":
+		panic("shell panic")
+	case "log":
+		if len(args) == 0 {
+			_ = s.writeString(ctx, "usage: log <line>\n")
+			break
+		}
+		logLine := strings.Join(args, " ")
+		res := logclient.Log(ctx, s.logCap, logLine)
+		if res != kernel.SendOK {
+			_ = s.writeString(ctx, "logger: "+res.String()+"\n")
+		}
 	default:
 		_ = s.writeString(ctx, "unknown command: "+cmd+"\n")
 	}
@@ -479,7 +500,27 @@ var builtinCommands = []string{
 	"clear",
 	"echo",
 	"help",
+	"log",
+	"panic",
 	"ticks",
+	"uname",
+	"version",
+}
+
+type commandHelp struct {
+	Name string
+	Desc string
+}
+
+var builtinCommandHelp = []commandHelp{
+	{Name: "help", Desc: "Show available commands."},
+	{Name: "clear", Desc: "Clear the terminal."},
+	{Name: "echo", Desc: "Print arguments."},
+	{Name: "ticks", Desc: "Show current kernel tick counter."},
+	{Name: "version", Desc: "Show build version."},
+	{Name: "uname", Desc: "Show runtime OS/arch."},
+	{Name: "panic", Desc: "Panic the shell task (test)."},
+	{Name: "log", Desc: "Send a log line to logger service."},
 }
 
 type escAction uint8
