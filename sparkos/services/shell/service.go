@@ -3,7 +3,6 @@ package shell
 import (
 	"errors"
 	"fmt"
-	"path"
 	"runtime"
 	"sort"
 	"strconv"
@@ -464,30 +463,6 @@ func (s *Service) vfsClient() *vfsclient.Client {
 		s.vfs = vfsclient.New(s.vfsCap)
 	}
 	return s.vfs
-}
-
-func (s *Service) absPath(p string) string {
-	if p == "" {
-		return s.cwd
-	}
-	if strings.HasPrefix(p, "/") {
-		return cleanPath(p)
-	}
-	if s.cwd == "/" {
-		return cleanPath("/" + p)
-	}
-	return cleanPath(s.cwd + "/" + p)
-}
-
-func cleanPath(p string) string {
-	p = path.Clean(p)
-	if p == "." {
-		return "/"
-	}
-	if !strings.HasPrefix(p, "/") {
-		p = "/" + p
-	}
-	return p
 }
 
 func (s *Service) cd(ctx *kernel.Context, args []string) error {
