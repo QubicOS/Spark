@@ -456,14 +456,7 @@ func (t *Task) drawCompletionPopup(panelY, inputY int16) {
 }
 
 func isKeyword(s string) bool {
-	switch s {
-	case "range", "simp", "diff",
-		"sin", "cos", "tan", "asin", "acos", "atan",
-		"sqrt", "abs", "exp", "ln", "min", "max":
-		return true
-	default:
-		return false
-	}
+	return isBuiltinKeyword(s)
 }
 
 func minInt(a, b int) int {
