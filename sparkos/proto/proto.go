@@ -25,6 +25,7 @@ const (
 	MsgVFSWriteResp
 	MsgTermRefresh
 	MsgAppControl
+	MsgAppSelect
 )
 
 // ErrCode is a generic error category for MsgError responses.
@@ -108,6 +109,8 @@ func (k Kind) String() string {
 		return "term_refresh"
 	case MsgAppControl:
 		return "app_control"
+	case MsgAppSelect:
+		return "app_select"
 	default:
 		return "unknown"
 	}
