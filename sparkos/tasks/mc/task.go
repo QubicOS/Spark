@@ -67,6 +67,9 @@ type Task struct {
 
 	inbuf []byte
 
+	showHelp bool
+	helpTop  int
+
 	viewerPath  string
 	viewerLines [][]rune
 	viewerTop   int
@@ -154,7 +157,7 @@ func (t *Task) setActive(ctx *kernel.Context, active bool) {
 		return
 	}
 	_ = t.refreshPanels(ctx)
-	t.setMessage("TAB switch | ENTER open | c copy | n mkdir | r refresh | q quit")
+	t.setMessage("H help | TAB switch | ENTER open | q quit")
 	t.render()
 }
 
@@ -168,8 +171,10 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 		_ = t.fb.Present()
 	}
 
+	t.active = false
+	t.showHelp = false
+
 	if !t.muxCap.Valid() {
-		t.active = false
 		return
 	}
 	for {
@@ -236,6 +241,19 @@ func (t *Task) handleInput(ctx *kernel.Context, b []byte) {
 }
 
 func (t *Task) handleKey(ctx *kernel.Context, k key) {
+	if k.kind == keyRune && (k.r == 'H' || k.r == 'h') {
+		t.showHelp = !t.showHelp
+		if t.showHelp {
+			t.helpTop = 0
+		}
+		return
+	}
+
+	if t.showHelp {
+		t.handleHelpKey(k)
+		return
+	}
+
 	switch t.mode {
 	case modeViewer:
 		t.handleViewerKey(ctx, k)
@@ -293,6 +311,28 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 	}
 
 	t.activePanelPtr().clamp(t.viewRows)
+}
+
+func (t *Task) handleHelpKey(k key) {
+	switch k.kind {
+	case keyEsc, keyEnter:
+		t.showHelp = false
+	case keyUp:
+		if t.helpTop > 0 {
+			t.helpTop--
+		}
+	case keyDown:
+		t.helpTop++
+	case keyHome:
+		t.helpTop = 0
+	case keyEnd:
+		t.helpTop = 1 << 30
+	case keyRune:
+		switch k.r {
+		case 'q':
+			t.showHelp = false
+		}
+	}
 }
 
 func (t *Task) goParent(ctx *kernel.Context) {
