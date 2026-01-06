@@ -3,12 +3,16 @@
 package littlefs
 
 /*
-#cgo CFLAGS: -std=c99 -O2 -Wall -Wextra
+#cgo CFLAGS: -std=c99 -O2 -Wall -Wextra -DLFS_NO_DEBUG -DLFS_NO_WARN -DLFS_NO_ERROR
 
 #include <stdint.h>
 #include <stdlib.h>
 
 #include "lfs.h"
+
+typedef struct spark_lfs_ctx {
+	uintptr_t handle;
+} spark_lfs_ctx_t;
 
 void spark_lfs_config_init(struct lfs_config *cfg);
 */
@@ -74,10 +78,11 @@ type FS struct {
 
 	flash Flash
 
-	lfs C.lfs_t
-	cfg C.struct_lfs_config
+	lfs *C.lfs_t
+	cfg *C.struct_lfs_config
 
 	handle cgo.Handle
+	cctx   *C.spark_lfs_ctx_t
 
 	mounted bool
 }
@@ -120,8 +125,33 @@ func New(flash Flash, opts Options) (*FS, error) {
 	fs := &FS{flash: flash}
 	fs.handle = cgo.NewHandle(fs)
 
-	C.spark_lfs_config_init(&fs.cfg)
-	fs.cfg.context = unsafe.Pointer(uintptr(fs.handle))
+	fs.cctx = (*C.spark_lfs_ctx_t)(C.malloc(C.size_t(unsafe.Sizeof(C.spark_lfs_ctx_t{}))))
+	if fs.cctx == nil {
+		fs.handle.Delete()
+		return nil, errors.New("littlefs: failed to allocate C context")
+	}
+	fs.cctx.handle = C.uintptr_t(uintptr(fs.handle))
+
+	fs.lfs = (*C.lfs_t)(C.calloc(1, C.size_t(unsafe.Sizeof(C.lfs_t{}))))
+	if fs.lfs == nil {
+		C.free(unsafe.Pointer(fs.cctx))
+		fs.cctx = nil
+		fs.handle.Delete()
+		return nil, errors.New("littlefs: failed to allocate lfs state")
+	}
+
+	fs.cfg = (*C.struct_lfs_config)(C.calloc(1, C.size_t(unsafe.Sizeof(C.struct_lfs_config{}))))
+	if fs.cfg == nil {
+		C.free(unsafe.Pointer(fs.lfs))
+		fs.lfs = nil
+		C.free(unsafe.Pointer(fs.cctx))
+		fs.cctx = nil
+		fs.handle.Delete()
+		return nil, errors.New("littlefs: failed to allocate config")
+	}
+
+	C.spark_lfs_config_init(fs.cfg)
+	fs.cfg.context = unsafe.Pointer(fs.cctx)
 	fs.cfg.read_size = C.lfs_size_t(opts.ReadSize)
 	fs.cfg.prog_size = C.lfs_size_t(opts.ProgSize)
 	fs.cfg.block_size = C.lfs_size_t(blockSize)
@@ -141,7 +171,22 @@ func (fs *FS) Close() error {
 	if fs.mounted {
 		_ = fs.unmountLocked()
 	}
-	fs.handle.Delete()
+	if fs.handle != 0 {
+		fs.handle.Delete()
+		fs.handle = 0
+	}
+	if fs.cfg != nil {
+		C.free(unsafe.Pointer(fs.cfg))
+		fs.cfg = nil
+	}
+	if fs.lfs != nil {
+		C.free(unsafe.Pointer(fs.lfs))
+		fs.lfs = nil
+	}
+	if fs.cctx != nil {
+		C.free(unsafe.Pointer(fs.cctx))
+		fs.cctx = nil
+	}
 	return nil
 }
 
@@ -154,7 +199,7 @@ func (fs *FS) Format() error {
 		return errors.New("littlefs: already mounted")
 	}
 
-	rc := C.lfs_format(&fs.lfs, &fs.cfg)
+	rc := C.lfs_format(fs.lfs, fs.cfg)
 	if rc != 0 {
 		return fmt.Errorf("littlefs format: %w", decodeErr(int(rc)))
 	}
@@ -170,7 +215,7 @@ func (fs *FS) Mount() error {
 		return nil
 	}
 
-	rc := C.lfs_mount(&fs.lfs, &fs.cfg)
+	rc := C.lfs_mount(fs.lfs, fs.cfg)
 	if rc != 0 {
 		return fmt.Errorf("littlefs mount: %w", decodeErr(int(rc)))
 	}
@@ -203,7 +248,7 @@ func (fs *FS) unmountLocked() error {
 	if !fs.mounted {
 		return nil
 	}
-	rc := C.lfs_unmount(&fs.lfs)
+	rc := C.lfs_unmount(fs.lfs)
 	if rc != 0 {
 		return fmt.Errorf("littlefs unmount: %w", decodeErr(int(rc)))
 	}
@@ -225,7 +270,7 @@ func (fs *FS) Mkdir(path string) error {
 	}
 	defer freeFn()
 
-	rc := C.lfs_mkdir(&fs.lfs, cpath)
+	rc := C.lfs_mkdir(fs.lfs, cpath)
 	if rc != 0 {
 		return fmt.Errorf("littlefs mkdir %q: %w", path, decodeErr(int(rc)))
 	}
@@ -262,7 +307,7 @@ func (fs *FS) Stat(path string) (Info, error) {
 	defer freeFn()
 
 	var info C.struct_lfs_info
-	rc := C.lfs_stat(&fs.lfs, cpath, &info)
+	rc := C.lfs_stat(fs.lfs, cpath, &info)
 	if rc != 0 {
 		return Info{}, fmt.Errorf("littlefs stat %q: %w", path, decodeErr(int(rc)))
 	}
@@ -285,15 +330,15 @@ func (fs *FS) ListDir(path string, fn func(name string, info Info) bool) error {
 	defer freeFn()
 
 	var dir C.lfs_dir_t
-	rc := C.lfs_dir_open(&fs.lfs, &dir, cpath)
+	rc := C.lfs_dir_open(fs.lfs, &dir, cpath)
 	if rc != 0 {
 		return fmt.Errorf("littlefs dir open %q: %w", path, decodeErr(int(rc)))
 	}
-	defer func() { _ = C.lfs_dir_close(&fs.lfs, &dir) }()
+	defer func() { _ = C.lfs_dir_close(fs.lfs, &dir) }()
 
 	for {
 		var cinfo C.struct_lfs_info
-		rc := C.lfs_dir_read(&fs.lfs, &dir, &cinfo)
+		rc := C.lfs_dir_read(fs.lfs, &dir, &cinfo)
 		if rc < 0 {
 			return fmt.Errorf("littlefs dir read %q: %w", path, decodeErr(int(rc)))
 		}
@@ -327,13 +372,13 @@ func (fs *FS) ReadAt(path string, p []byte, off uint32) (n int, eof bool, err er
 	defer freeFn()
 
 	var f C.lfs_file_t
-	rc := C.lfs_file_open(&fs.lfs, &f, cpath, C.LFS_O_RDONLY)
+	rc := C.lfs_file_open(fs.lfs, &f, cpath, C.LFS_O_RDONLY)
 	if rc != 0 {
 		return 0, false, fmt.Errorf("littlefs open %q: %w", path, decodeErr(int(rc)))
 	}
-	defer func() { _ = C.lfs_file_close(&fs.lfs, &f) }()
+	defer func() { _ = C.lfs_file_close(fs.lfs, &f) }()
 
-	if rc := C.lfs_file_seek(&fs.lfs, &f, C.lfs_soff_t(off), C.LFS_SEEK_SET); rc < 0 {
+	if rc := C.lfs_file_seek(fs.lfs, &f, C.lfs_soff_t(off), C.LFS_SEEK_SET); rc < 0 {
 		return 0, false, fmt.Errorf("littlefs seek %q off=%d: %w", path, off, decodeErr(int(rc)))
 	}
 
@@ -341,7 +386,7 @@ func (fs *FS) ReadAt(path string, p []byte, off uint32) (n int, eof bool, err er
 		return 0, false, nil
 	}
 
-	rc = C.lfs_file_read(&fs.lfs, &f, unsafe.Pointer(unsafe.SliceData(p)), C.lfs_size_t(len(p)))
+	rc = C.lfs_file_read(fs.lfs, &f, unsafe.Pointer(unsafe.SliceData(p)), C.lfs_size_t(len(p)))
 	if rc < 0 {
 		return 0, false, fmt.Errorf("littlefs read %q off=%d: %w", path, off, decodeErr(int(rc)))
 	}
@@ -385,7 +430,7 @@ func (fs *FS) OpenWriter(path string, mode WriteMode) (*Writer, error) {
 	}
 
 	var f C.lfs_file_t
-	rc := C.lfs_file_open(&fs.lfs, &f, cpath, C.int(flags))
+	rc := C.lfs_file_open(fs.lfs, &f, cpath, C.int(flags))
 	if rc != 0 {
 		return nil, fmt.Errorf("littlefs open %q: %w", path, decodeErr(int(rc)))
 	}
@@ -405,7 +450,7 @@ func (w *Writer) Write(p []byte) (int, error) {
 	w.fs.mu.Lock()
 	defer w.fs.mu.Unlock()
 
-	rc := C.lfs_file_write(&w.fs.lfs, &w.file, unsafe.Pointer(unsafe.SliceData(p)), C.lfs_size_t(len(p)))
+	rc := C.lfs_file_write(w.fs.lfs, &w.file, unsafe.Pointer(unsafe.SliceData(p)), C.lfs_size_t(len(p)))
 	if rc < 0 {
 		return 0, fmt.Errorf("littlefs write %q: %w", w.path, decodeErr(int(rc)))
 	}
@@ -424,15 +469,15 @@ func (w *Writer) Close() error {
 	defer w.fs.mu.Unlock()
 
 	if err := w.fs.ensureMountedLocked(); err != nil {
-		_ = C.lfs_file_close(&w.fs.lfs, &w.file)
+		_ = C.lfs_file_close(w.fs.lfs, &w.file)
 		return err
 	}
 
-	if rc := C.lfs_file_sync(&w.fs.lfs, &w.file); rc < 0 {
-		_ = C.lfs_file_close(&w.fs.lfs, &w.file)
+	if rc := C.lfs_file_sync(w.fs.lfs, &w.file); rc < 0 {
+		_ = C.lfs_file_close(w.fs.lfs, &w.file)
 		return fmt.Errorf("littlefs sync %q: %w", w.path, decodeErr(int(rc)))
 	}
-	if rc := C.lfs_file_close(&w.fs.lfs, &w.file); rc != 0 {
+	if rc := C.lfs_file_close(w.fs.lfs, &w.file); rc != 0 {
 		return fmt.Errorf("littlefs close %q: %w", w.path, decodeErr(int(rc)))
 	}
 	return nil

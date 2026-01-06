@@ -5,6 +5,10 @@ package littlefs
 /*
 #include <stdint.h>
 #include "lfs.h"
+
+typedef struct spark_lfs_ctx {
+	uintptr_t handle;
+} spark_lfs_ctx_t;
 */
 import "C"
 
@@ -55,7 +59,9 @@ func handleToFS(ctx unsafe.Pointer) (*FS, error) {
 	if ctx == nil {
 		return nil, errors.New("nil context")
 	}
-	h := cgo.Handle(uintptr(ctx))
+
+	cctx := (*C.spark_lfs_ctx_t)(ctx)
+	h := cgo.Handle(uintptr(cctx.handle))
 	v := h.Value()
 	fs, ok := v.(*FS)
 	if !ok || fs == nil {
