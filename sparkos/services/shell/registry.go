@@ -85,11 +85,12 @@ func (r *registry) matches(prefix string) []string {
 		return nil
 	}
 
-	var out []string
-	for _, name := range r.names() {
-		if strings.HasPrefix(name, prefix) {
-			out = append(out, name)
+	keys := make([]string, 0, len(r.lookup))
+	for k := range r.lookup {
+		if strings.HasPrefix(k, prefix) {
+			keys = append(keys, k)
 		}
 	}
-	return out
+	sort.Strings(keys)
+	return keys
 }
