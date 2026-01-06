@@ -15,7 +15,6 @@ type Service struct {
 	pending []byte
 
 	heldCode hal.KeyCode
-	heldRune rune
 	heldData []byte
 
 	nextRepeatTick uint64
@@ -72,8 +71,9 @@ func (s *Service) Run(ctx *kernel.Context) {
 
 func (s *Service) handleKeyEvent(ctx *kernel.Context, ev hal.KeyEvent) {
 	if !ev.Press {
-		if s.heldData != nil && ev.Code == s.heldCode && ev.Rune == s.heldRune {
+		if s.heldData != nil && ev.Code == s.heldCode {
 			s.heldData = nil
+			s.nextRepeatTick = 0
 		}
 		return
 	}
@@ -88,7 +88,6 @@ func (s *Service) handleKeyEvent(ctx *kernel.Context, ev hal.KeyEvent) {
 		return
 	}
 	s.heldCode = ev.Code
-	s.heldRune = ev.Rune
 	s.heldData = append(s.heldData[:0], data...)
 
 	now := ctx.NowTick()
@@ -138,9 +137,6 @@ const (
 func repeatableKey(ev hal.KeyEvent, data []byte) bool {
 	if len(data) == 0 {
 		return false
-	}
-	if ev.Rune != 0 {
-		return true
 	}
 	switch ev.Code {
 	case hal.KeyUp, hal.KeyDown, hal.KeyLeft, hal.KeyRight,
