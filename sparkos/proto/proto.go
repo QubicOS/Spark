@@ -11,6 +11,18 @@ const (
 	MsgTermWrite
 	MsgTermClear
 	MsgTermInput
+	MsgVFSList
+	MsgVFSListResp
+	MsgVFSMkdir
+	MsgVFSMkdirResp
+	MsgVFSStat
+	MsgVFSStatResp
+	MsgVFSRead
+	MsgVFSReadResp
+	MsgVFSWriteOpen
+	MsgVFSWriteChunk
+	MsgVFSWriteClose
+	MsgVFSWriteResp
 )
 
 // ErrCode is a generic error category for MsgError responses.
@@ -66,6 +78,30 @@ func (k Kind) String() string {
 		return "term_clear"
 	case MsgTermInput:
 		return "term_input"
+	case MsgVFSList:
+		return "vfs_list"
+	case MsgVFSListResp:
+		return "vfs_list_resp"
+	case MsgVFSMkdir:
+		return "vfs_mkdir"
+	case MsgVFSMkdirResp:
+		return "vfs_mkdir_resp"
+	case MsgVFSStat:
+		return "vfs_stat"
+	case MsgVFSStatResp:
+		return "vfs_stat_resp"
+	case MsgVFSRead:
+		return "vfs_read"
+	case MsgVFSReadResp:
+		return "vfs_read_resp"
+	case MsgVFSWriteOpen:
+		return "vfs_write_open"
+	case MsgVFSWriteChunk:
+		return "vfs_write_chunk"
+	case MsgVFSWriteClose:
+		return "vfs_write_close"
+	case MsgVFSWriteResp:
+		return "vfs_write_resp"
 	default:
 		return "unknown"
 	}
