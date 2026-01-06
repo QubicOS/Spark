@@ -3,6 +3,7 @@ package shell
 import (
 	"fmt"
 	"runtime"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -25,6 +26,8 @@ type Service struct {
 	history []string
 	histPos int
 	scratch []rune
+
+	scrollback []string
 }
 
 func New(inCap kernel.Capability, termCap kernel.Capability, logCap kernel.Capability) *Service {
@@ -42,9 +45,9 @@ func (s *Service) Run(ctx *kernel.Context) {
 		return
 	}
 
-	_ = s.writeString(ctx, "\x1b[0m")
-	_ = s.writeString(ctx, "\x1b[38;5;39mSparkOS shell\x1b[0m\n")
-	_ = s.writeString(ctx, "Type `help`.\n\n")
+	_ = s.printString(ctx, "\x1b[0m")
+	_ = s.printString(ctx, "\x1b[38;5;39mSparkOS shell\x1b[0m\n")
+	_ = s.printString(ctx, "Type `help`.\n\n")
 	_ = s.prompt(ctx)
 
 	for msg := range ch {
@@ -326,32 +329,50 @@ func (s *Service) submit(ctx *kernel.Context) {
 	switch cmd {
 	case "help":
 		for _, c := range builtinCommandHelp {
-			_ = s.writeString(ctx, fmt.Sprintf("%-10s %s\n", c.Name, c.Desc))
+			_ = s.printString(ctx, fmt.Sprintf("%-10s %s\n", c.Name, c.Desc))
 		}
 	case "clear":
 		_ = s.sendToTerm(ctx, proto.MsgTermClear, nil)
 	case "echo":
-		_ = s.writeString(ctx, strings.Join(args, " ")+"\n")
+		_ = s.printString(ctx, strings.Join(args, " ")+"\n")
 	case "ticks":
-		_ = s.writeString(ctx, fmt.Sprintf("%d\n", ctx.NowTick()))
+		_ = s.printString(ctx, fmt.Sprintf("%d\n", ctx.NowTick()))
 	case "version":
-		_ = s.writeString(ctx, fmt.Sprintf("%s %s %s\n", buildinfo.Version, buildinfo.Commit, buildinfo.Date))
+		_ = s.printString(ctx, fmt.Sprintf("%s %s %s\n", buildinfo.Version, buildinfo.Commit, buildinfo.Date))
 	case "uname":
-		_ = s.writeString(ctx, fmt.Sprintf("%s %s\n", runtime.GOOS, runtime.GOARCH))
+		_ = s.printString(ctx, fmt.Sprintf("%s %s\n", runtime.GOOS, runtime.GOARCH))
 	case "panic":
 		panic("shell panic")
 	case "log":
 		if len(args) == 0 {
-			_ = s.writeString(ctx, "usage: log <line>\n")
+			_ = s.printString(ctx, "usage: log <line>\n")
 			break
 		}
 		logLine := strings.Join(args, " ")
 		res := logclient.Log(ctx, s.logCap, logLine)
 		if res != kernel.SendOK {
-			_ = s.writeString(ctx, "logger: "+res.String()+"\n")
+			_ = s.printString(ctx, "logger: "+res.String()+"\n")
+		}
+	case "scrollback":
+		n := 50
+		if len(args) >= 1 {
+			if parsed, err := strconv.Atoi(args[0]); err == nil && parsed > 0 {
+				n = parsed
+			}
+		}
+		start := len(s.scrollback) - n
+		if start < 0 {
+			start = 0
+		}
+		if start >= len(s.scrollback) {
+			_ = s.writeString(ctx, "(empty)\n")
+			break
+		}
+		for _, ln := range s.scrollback[start:] {
+			_ = s.writeString(ctx, ln+"\n")
 		}
 	default:
-		_ = s.writeString(ctx, "unknown command: "+cmd+"\n")
+		_ = s.printString(ctx, "unknown command: "+cmd+"\n")
 	}
 
 	_ = s.prompt(ctx)
@@ -417,6 +438,31 @@ func (s *Service) redrawLine(ctx *kernel.Context) error {
 
 func (s *Service) writeString(ctx *kernel.Context, s2 string) error {
 	return s.writeBytes(ctx, []byte(s2))
+}
+
+func (s *Service) printString(ctx *kernel.Context, s2 string) error {
+	if err := s.writeString(ctx, s2); err != nil {
+		return err
+	}
+	s.addScrollback(s2)
+	return nil
+}
+
+func (s *Service) addScrollback(s2 string) {
+	lines := strings.Split(s2, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) == 0 {
+		return
+	}
+	s.scrollback = append(s.scrollback, lines...)
+	if len(s.scrollback) <= scrollbackMaxLines {
+		return
+	}
+	excess := len(s.scrollback) - scrollbackMaxLines
+	copy(s.scrollback, s.scrollback[excess:])
+	s.scrollback = s.scrollback[:scrollbackMaxLines]
 }
 
 func (s *Service) writeBytes(ctx *kernel.Context, b []byte) error {
@@ -502,6 +548,7 @@ var builtinCommands = []string{
 	"help",
 	"log",
 	"panic",
+	"scrollback",
 	"ticks",
 	"uname",
 	"version",
@@ -521,7 +568,10 @@ var builtinCommandHelp = []commandHelp{
 	{Name: "uname", Desc: "Show runtime OS/arch."},
 	{Name: "panic", Desc: "Panic the shell task (test)."},
 	{Name: "log", Desc: "Send a log line to logger service."},
+	{Name: "scrollback", Desc: "Show the last N output lines."},
 }
+
+const scrollbackMaxLines = 200
 
 type escAction uint8
 
