@@ -11,6 +11,7 @@ import (
 
 	"spark/hal"
 	vfsclient "spark/sparkos/client/vfs"
+	"spark/sparkos/fonts/const2bitcolor"
 	"spark/sparkos/fonts/dejavumono9"
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
@@ -23,9 +24,6 @@ const Enabled = true
 
 const (
 	maxFileBytes = 512 * 1024
-
-	fontHeight = int16(11)
-	fontOffset = int16(8)
 
 	maxVFSRead = kernel.MaxMessageBytes - 11
 )
@@ -77,8 +75,13 @@ func (t *Task) Run(ctx *kernel.Context) {
 	t.d = newFBDisplay(t.fb)
 
 	t.font = &dejavumono9.DejaVuSansMono9
-	t.fontHeight = fontHeight
-	t.fontOffset = fontOffset
+	t.fontHeight, t.fontOffset = 11, 8
+	if f, ok := t.font.(*const2bitcolor.Font); ok {
+		if h, off, err := const2bitcolor.ComputeLineMetrics(f); err == nil {
+			t.fontHeight = h
+			t.fontOffset = off
+		}
+	}
 	_, outboxWidth := tinyfont.LineWidth(t.font, "0")
 	t.fontWidth = int16(outboxWidth)
 	if t.fontWidth <= 0 || t.fontHeight <= 0 {
