@@ -1,6 +1,7 @@
 package vector
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -1308,6 +1309,12 @@ func (t *Task) evalLine(ctx *kernel.Context, line string, recordHistory bool) {
 		case actionEval:
 			v, err := act.expr.Eval(t.e)
 			if err != nil {
+				// Allow plotting expressions with free variables (e.g. x, y) without requiring them to be defined.
+				if errors.Is(err, ErrUnknownVar) && (nodeHasIdent(act.expr, "x") || nodeHasIdent(act.expr, "y")) {
+					t.setGraphFromExpr(NodeString(act.expr), act.expr)
+					t.appendLine("= " + NodeString(act.expr))
+					break
+				}
 				t.appendLine("error: " + err.Error())
 				return
 			}

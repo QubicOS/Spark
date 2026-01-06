@@ -10,6 +10,8 @@ import (
 var (
 	ErrParse = errors.New("parse error")
 	ErrEval  = errors.New("eval error")
+	// ErrUnknownVar is returned when evaluating an expression with an undefined variable.
+	ErrUnknownVar = errors.New("unknown variable")
 )
 
 type evalMode uint8
@@ -544,7 +546,7 @@ type nodeIdent struct{ name string }
 func (n nodeIdent) Eval(e *env) (Value, error) {
 	v, ok := e.vars[n.name]
 	if !ok {
-		return Value{}, fmt.Errorf("%w: unknown variable %q", ErrEval, n.name)
+		return Value{}, fmt.Errorf("%w: %w %q", ErrEval, ErrUnknownVar, n.name)
 	}
 	return v, nil
 }
