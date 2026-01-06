@@ -66,8 +66,21 @@ func parseEscapeKey(b []byte) (consumed int, k key, ok bool) {
 	if len(b) < 2 {
 		return 1, key{kind: keyEsc}, true
 	}
+	// SS3 sequences (ESC O P/Q/R...) are commonly used for function keys.
 	if b[1] == 'O' {
-		return 1, key{kind: keyEsc}, true
+		if len(b) < 3 {
+			return 0, key{}, false
+		}
+		switch b[2] {
+		case 'P':
+			return 3, key{kind: keyF1}, true
+		case 'Q':
+			return 3, key{kind: keyF2}, true
+		case 'R':
+			return 3, key{kind: keyF3}, true
+		default:
+			return 1, key{kind: keyEsc}, true
+		}
 	}
 	if b[1] != '[' {
 		return 1, key{kind: keyEsc}, true
