@@ -1,10 +1,12 @@
-.PHONY: help dev run headless build build-release test fmt tidy clean tinygo-uf2 tinygo-flash
+.PHONY: help dev run headless build build-release test fmt tidy make-vfs clean tinygo-uf2 tinygo-flash
 
 GO ?= go
 TINYGO ?= tinygo
 
 BIN_DIR ?= bin
 DIST_DIR ?= dist
+ROOTFS_DIR ?= rootfs
+FLASH_IMG ?= Flash.bin
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
@@ -27,13 +29,16 @@ help:
 	"  test           Unit tests." \
 	"  fmt            gofmt." \
 	"  tidy           go mod tidy." \
+	"  vfs       Build VFS image from $(ROOTFS_DIR) into $(FLASH_IMG)." \
 	"  tinygo-uf2     Build UF2 for RP2350 (Pico 2)." \
 	"  tinygo-flash   Flash RP2350 (debug probe / UF2-capable target)." \
 	"" \
 	"Variables:" \
 	"  VERSION=$(VERSION)" \
 	"  COMMIT=$(COMMIT)" \
-	"  DATE=$(DATE)"
+	"  DATE=$(DATE)" \
+	"  ROOTFS_DIR=$(ROOTFS_DIR)" \
+	"  FLASH_IMG=$(FLASH_IMG)"
 
 dev:
 	$(GO) run -race .
@@ -60,6 +65,11 @@ fmt:
 
 tidy:
 	$(GO) mod tidy
+
+vfs:
+	@test -d "$(ROOTFS_DIR)" || (echo "error: $(ROOTFS_DIR) not found (create it with files to import)"; exit 2)
+	$(GO) run ./cmd/mkflash -src "$(ROOTFS_DIR)" -out "$(FLASH_IMG)"
+	@if [ "$(FLASH_IMG)" != "Flash.bin" ]; then cp -f "$(FLASH_IMG)" Flash.bin; fi
 
 tinygo-uf2:
 	mkdir -p $(DIST_DIR)
