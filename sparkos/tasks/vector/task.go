@@ -1486,11 +1486,7 @@ func (t *Task) completeFromPrefix(prefix string, commands bool) []string {
 		return cands
 	}
 
-	for _, s := range []string{
-		"range", "simp", "diff",
-		"sin", "cos", "tan", "asin", "acos", "atan",
-		"sqrt", "abs", "exp", "ln", "min", "max",
-	} {
+	for _, s := range builtinKeywords() {
 		add(s)
 	}
 	for name := range t.e.funcs {

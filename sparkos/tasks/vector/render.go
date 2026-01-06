@@ -456,14 +456,7 @@ func (t *Task) drawCompletionPopup(panelY, inputY int16) {
 }
 
 func isKeyword(s string) bool {
-	switch s {
-	case "range", "simp", "diff",
-		"sin", "cos", "tan", "asin", "acos", "atan",
-		"sqrt", "abs", "exp", "ln", "min", "max":
-		return true
-	default:
-		return false
-	}
+	return isBuiltinKeyword(s)
 }
 
 func minInt(a, b int) int {
@@ -1031,9 +1024,14 @@ func (t *Task) renderHelp() {
 		"  f(x)=...: define function",
 		"  simp(expr): simplify",
 		"  diff(expr, x): derivative",
+		"  $help: service commands",
+		"  :help: toggle help",
 		"  :exact / :float: eval mode",
 		"  :prec N: float format",
 		"  :plotclear: clear plots",
+		"  :plotdel N: delete plot",
+		"  :x A B / :y A B: view range",
+		"  :view xmin xmax ymin ymax",
 		"  :clear: clear output history",
 		"  Ctrl+G: jump to plot tab",
 		"  H: toggle help",

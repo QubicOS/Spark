@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 )
 
 var (
@@ -36,12 +37,493 @@ func newEnv() *env {
 		mode: modeFloat,
 		prec: 12,
 		vars: map[string]Value{
-			"pi": NumberValue(Float(math.Pi)),
-			"e":  NumberValue(Float(math.E)),
+			"pi":    NumberValue(Float(math.Pi)),
+			"tau":   NumberValue(Float(2 * math.Pi)),
+			"e":     NumberValue(Float(math.E)),
+			"phi":   NumberValue(Float((1 + math.Sqrt(5)) / 2)),
+			"sqrt2": NumberValue(Float(math.Sqrt2)),
+			"ln2":   NumberValue(Float(math.Ln2)),
+			"ln10":  NumberValue(Float(math.Ln10)),
 		},
 		funcs: make(map[string]userFunc),
 	}
 }
+
+type scalarBuiltin struct {
+	minArgs int
+	maxArgs int
+	fn      func(*env, []Number) (Number, error)
+}
+
+var scalarBuiltins = map[string]scalarBuiltin{
+	// Trigonometry.
+	"sin":  {minArgs: 1, maxArgs: 1, fn: scalarUnary(math.Sin)},
+	"cos":  {minArgs: 1, maxArgs: 1, fn: scalarUnary(math.Cos)},
+	"tan":  {minArgs: 1, maxArgs: 1, fn: scalarUnary(math.Tan)},
+	"asin": {minArgs: 1, maxArgs: 1, fn: scalarUnary(math.Asin)},
+	"acos": {minArgs: 1, maxArgs: 1, fn: scalarUnary(math.Acos)},
+	"atan": {minArgs: 1, maxArgs: 1, fn: scalarUnary(math.Atan)},
+	"atan2": {minArgs: 2, maxArgs: 2, fn: func(_ *env, args []Number) (Number, error) {
+		return Float(math.Atan2(args[0].Float64(), args[1].Float64())), nil
+	}},
+	"cot": {minArgs: 1, maxArgs: 1, fn: func(_ *env, args []Number) (Number, error) {
+		return Float(1 / math.Tan(args[0].Float64())), nil
+	}},
+	"sec": {minArgs: 1, maxArgs: 1, fn: func(_ *env, args []Number) (Number, error) {
+		return Float(1 / math.Cos(args[0].Float64())), nil
+	}},
+	"csc": {minArgs: 1, maxArgs: 1, fn: func(_ *env, args []Number) (Number, error) {
+		return Float(1 / math.Sin(args[0].Float64())), nil
+	}},
+
+	// Hyperbolic (implemented via exp/log/sqrt to keep TinyGo compatibility).
+	"sinh":  {minArgs: 1, maxArgs: 1, fn: scalarSinh},
+	"cosh":  {minArgs: 1, maxArgs: 1, fn: scalarCosh},
+	"tanh":  {minArgs: 1, maxArgs: 1, fn: scalarTanh},
+	"asinh": {minArgs: 1, maxArgs: 1, fn: scalarAsinh},
+	"acosh": {minArgs: 1, maxArgs: 1, fn: scalarAcosh},
+	"atanh": {minArgs: 1, maxArgs: 1, fn: scalarAtanh},
+
+	// Exponentials and logs.
+	"exp":   {minArgs: 1, maxArgs: 1, fn: scalarUnary(math.Exp)},
+	"expm1": {minArgs: 1, maxArgs: 1, fn: scalarExpm1},
+	"exp2":  {minArgs: 1, maxArgs: 1, fn: scalarExp2},
+	"ln":    {minArgs: 1, maxArgs: 1, fn: scalarUnary(math.Log)},
+	"log":   {minArgs: 1, maxArgs: 1, fn: scalarUnary(math.Log)},
+	"log10": {minArgs: 1, maxArgs: 1, fn: scalarLog10},
+	"log2":  {minArgs: 1, maxArgs: 1, fn: scalarLog2},
+	"log1p": {minArgs: 1, maxArgs: 1, fn: scalarLog1p},
+
+	// Powers and roots.
+	"pow": {minArgs: 2, maxArgs: 2, fn: func(_ *env, args []Number) (Number, error) {
+		return Float(math.Pow(args[0].Float64(), args[1].Float64())), nil
+	}},
+	"sqrt": {minArgs: 1, maxArgs: 1, fn: scalarUnary(math.Sqrt)},
+	"cbrt": {minArgs: 1, maxArgs: 1, fn: scalarCbrt},
+	"hypot": {minArgs: 2, maxArgs: 2, fn: func(_ *env, args []Number) (Number, error) {
+		a := args[0].Float64()
+		b := args[1].Float64()
+		return Float(math.Sqrt(a*a + b*b)), nil
+	}},
+
+	// Rounding.
+	"floor": {minArgs: 1, maxArgs: 1, fn: scalarUnary(math.Floor)},
+	"ceil":  {minArgs: 1, maxArgs: 1, fn: scalarUnary(math.Ceil)},
+	"trunc": {minArgs: 1, maxArgs: 1, fn: scalarTrunc},
+	"round": {minArgs: 1, maxArgs: 1, fn: scalarRound},
+
+	// Misc numeric.
+	"abs":      {minArgs: 1, maxArgs: 1, fn: scalarAbs},
+	"sign":     {minArgs: 1, maxArgs: 1, fn: scalarSign},
+	"copysign": {minArgs: 2, maxArgs: 2, fn: scalarCopySign},
+	"mod":      {minArgs: 2, maxArgs: 2, fn: scalarMod},
+
+	// Helpers.
+	"rad": {minArgs: 1, maxArgs: 1, fn: func(_ *env, args []Number) (Number, error) {
+		return Float(args[0].Float64() * math.Pi / 180), nil
+	}},
+	"deg": {minArgs: 1, maxArgs: 1, fn: func(_ *env, args []Number) (Number, error) {
+		return Float(args[0].Float64() * 180 / math.Pi), nil
+	}},
+	"clamp": {minArgs: 3, maxArgs: 3, fn: scalarClamp},
+	"saturate": {minArgs: 1, maxArgs: 1, fn: func(_ *env, args []Number) (Number, error) {
+		return scalarClamp(nil, []Number{args[0], Float(0), Float(1)})
+	}},
+	"lerp":       {minArgs: 3, maxArgs: 3, fn: scalarLerp},
+	"step":       {minArgs: 2, maxArgs: 2, fn: scalarStep},
+	"smoothstep": {minArgs: 3, maxArgs: 3, fn: scalarSmoothstep},
+	"sq": {minArgs: 1, maxArgs: 1, fn: func(_ *env, args []Number) (Number, error) {
+		x := args[0].Float64()
+		return Float(x * x), nil
+	}},
+	"cube": {minArgs: 1, maxArgs: 1, fn: func(_ *env, args []Number) (Number, error) {
+		x := args[0].Float64()
+		return Float(x * x * x), nil
+	}},
+
+	// Variadic.
+	"min":  {minArgs: 1, maxArgs: -1, fn: scalarMin},
+	"max":  {minArgs: 1, maxArgs: -1, fn: scalarMax},
+	"sum":  {minArgs: 1, maxArgs: -1, fn: scalarSum},
+	"avg":  {minArgs: 1, maxArgs: -1, fn: scalarMean},
+	"mean": {minArgs: 1, maxArgs: -1, fn: scalarMean},
+}
+
+var unaryArrayBuiltins = map[string]func(float64) float64{
+	"sin":  math.Sin,
+	"cos":  math.Cos,
+	"tan":  math.Tan,
+	"asin": math.Asin,
+	"acos": math.Acos,
+	"atan": math.Atan,
+	"cot":  func(x float64) float64 { return 1 / math.Tan(x) },
+	"sec":  func(x float64) float64 { return 1 / math.Cos(x) },
+	"csc":  func(x float64) float64 { return 1 / math.Sin(x) },
+
+	"sinh":  sinh,
+	"cosh":  cosh,
+	"tanh":  tanh,
+	"asinh": asinh,
+	"acosh": acosh,
+	"atanh": atanh,
+
+	"sqrt": math.Sqrt,
+	"cbrt": cbrt,
+
+	"abs":  math.Abs,
+	"sign": sign,
+
+	"exp":   math.Exp,
+	"expm1": expm1,
+	"exp2":  exp2,
+	"ln":    math.Log,
+	"log":   math.Log,
+	"log10": log10,
+	"log2":  log2,
+	"log1p": log1p,
+
+	"floor": math.Floor,
+	"ceil":  math.Ceil,
+	"trunc": trunc,
+	"round": round,
+
+	"rad": func(x float64) float64 { return x * math.Pi / 180 },
+	"deg": func(x float64) float64 { return x * 180 / math.Pi },
+	"saturate": func(x float64) float64 {
+		if x < 0 {
+			return 0
+		}
+		if x > 1 {
+			return 1
+		}
+		return x
+	},
+	"sq":   func(x float64) float64 { return x * x },
+	"cube": func(x float64) float64 { return x * x * x },
+}
+
+var arrayAggBuiltins = map[string]func([]float64) float64{
+	"len": func(xs []float64) float64 { return float64(len(xs)) },
+	"sum": func(xs []float64) float64 {
+		var total float64
+		for _, x := range xs {
+			total += x
+		}
+		return total
+	},
+	"avg":  arrayAvg,
+	"mean": arrayAvg,
+	"min": func(xs []float64) float64 {
+		if len(xs) == 0 {
+			return math.NaN()
+		}
+		m := xs[0]
+		for _, x := range xs[1:] {
+			if x < m {
+				m = x
+			}
+		}
+		return m
+	},
+	"max": func(xs []float64) float64 {
+		if len(xs) == 0 {
+			return math.NaN()
+		}
+		m := xs[0]
+		for _, x := range xs[1:] {
+			if x > m {
+				m = x
+			}
+		}
+		return m
+	},
+}
+
+func arrayAvg(xs []float64) float64 {
+	if len(xs) == 0 {
+		return math.NaN()
+	}
+	var total float64
+	for _, x := range xs {
+		total += x
+	}
+	return total / float64(len(xs))
+}
+
+func builtinKeywords() []string {
+	set := make(map[string]struct{}, len(scalarBuiltins)+len(unaryArrayBuiltins)+len(arrayAggBuiltins)+3)
+	set["range"] = struct{}{}
+	set["simp"] = struct{}{}
+	set["diff"] = struct{}{}
+	for name := range scalarBuiltins {
+		set[name] = struct{}{}
+	}
+	for name := range unaryArrayBuiltins {
+		set[name] = struct{}{}
+	}
+	for name := range arrayAggBuiltins {
+		set[name] = struct{}{}
+	}
+	names := make([]string, 0, len(set))
+	for name := range set {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func isBuiltinKeyword(name string) bool {
+	if name == "range" || name == "simp" || name == "diff" {
+		return true
+	}
+	if _, ok := scalarBuiltins[name]; ok {
+		return true
+	}
+	if _, ok := unaryArrayBuiltins[name]; ok {
+		return true
+	}
+	if _, ok := arrayAggBuiltins[name]; ok {
+		return true
+	}
+	return false
+}
+
+func scalarUnary(fn func(float64) float64) func(*env, []Number) (Number, error) {
+	return func(_ *env, args []Number) (Number, error) {
+		return Float(fn(args[0].Float64())), nil
+	}
+}
+
+func scalarAbs(_ *env, args []Number) (Number, error) {
+	if args[0].kind == numberRat {
+		r := args[0].r
+		if r.num < 0 {
+			r.num = -r.num
+		}
+		return RatNumber(r), nil
+	}
+	return Float(math.Abs(args[0].f)), nil
+}
+
+func scalarSign(_ *env, args []Number) (Number, error) {
+	if args[0].kind == numberRat {
+		switch {
+		case args[0].r.num > 0:
+			return RatNumber(RatInt(1)), nil
+		case args[0].r.num < 0:
+			return RatNumber(RatInt(-1)), nil
+		default:
+			return RatNumber(RatInt(0)), nil
+		}
+	}
+	f := args[0].f
+	if math.IsNaN(f) {
+		return Float(f), nil
+	}
+	switch {
+	case f > 0:
+		return Float(1), nil
+	case f < 0:
+		return Float(-1), nil
+	default:
+		return Float(0), nil
+	}
+}
+
+func scalarMin(_ *env, args []Number) (Number, error) {
+	m := args[0].Float64()
+	for _, v := range args[1:] {
+		f := v.Float64()
+		if f < m {
+			m = f
+		}
+	}
+	return Float(m), nil
+}
+
+func scalarMax(_ *env, args []Number) (Number, error) {
+	m := args[0].Float64()
+	for _, v := range args[1:] {
+		f := v.Float64()
+		if f > m {
+			m = f
+		}
+	}
+	return Float(m), nil
+}
+
+func scalarSum(_ *env, args []Number) (Number, error) {
+	var total float64
+	for _, v := range args {
+		total += v.Float64()
+	}
+	return Float(total), nil
+}
+
+func scalarMean(_ *env, args []Number) (Number, error) {
+	var total float64
+	for _, v := range args {
+		total += v.Float64()
+	}
+	return Float(total / float64(len(args))), nil
+}
+
+func scalarCopySign(_ *env, args []Number) (Number, error) {
+	mag := math.Abs(args[0].Float64())
+	signSource := args[1].Float64()
+	if math.IsNaN(signSource) {
+		return Float(math.NaN()), nil
+	}
+	if signSource < 0 {
+		return Float(-mag), nil
+	}
+	return Float(mag), nil
+}
+
+func scalarMod(_ *env, args []Number) (Number, error) {
+	a := args[0].Float64()
+	b := args[1].Float64()
+	if b == 0 {
+		return Number{}, fmt.Errorf("%w: mod: division by zero", ErrEval)
+	}
+	return Float(mod(a, b)), nil
+}
+
+func scalarClamp(_ *env, args []Number) (Number, error) {
+	x := args[0].Float64()
+	lo := args[1].Float64()
+	hi := args[2].Float64()
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	if x < lo {
+		return Float(lo), nil
+	}
+	if x > hi {
+		return Float(hi), nil
+	}
+	return Float(x), nil
+}
+
+func scalarLerp(_ *env, args []Number) (Number, error) {
+	a := args[0].Float64()
+	b := args[1].Float64()
+	t := args[2].Float64()
+	return Float(a + t*(b-a)), nil
+}
+
+func scalarStep(_ *env, args []Number) (Number, error) {
+	edge := args[0].Float64()
+	x := args[1].Float64()
+	if x < edge {
+		return Float(0), nil
+	}
+	return Float(1), nil
+}
+
+func scalarSmoothstep(_ *env, args []Number) (Number, error) {
+	edge0 := args[0].Float64()
+	edge1 := args[1].Float64()
+	x := args[2].Float64()
+	if edge0 == edge1 {
+		if x < edge0 {
+			return Float(0), nil
+		}
+		return Float(1), nil
+	}
+	t := (x - edge0) / (edge1 - edge0)
+	if t < 0 {
+		t = 0
+	} else if t > 1 {
+		t = 1
+	}
+	return Float(t * t * (3 - 2*t)), nil
+}
+
+func scalarTrunc(_ *env, args []Number) (Number, error) { return Float(trunc(args[0].Float64())), nil }
+func scalarRound(_ *env, args []Number) (Number, error) { return Float(round(args[0].Float64())), nil }
+func scalarCbrt(_ *env, args []Number) (Number, error)  { return Float(cbrt(args[0].Float64())), nil }
+func scalarExpm1(_ *env, args []Number) (Number, error) { return Float(expm1(args[0].Float64())), nil }
+func scalarExp2(_ *env, args []Number) (Number, error)  { return Float(exp2(args[0].Float64())), nil }
+func scalarLog2(_ *env, args []Number) (Number, error)  { return Float(log2(args[0].Float64())), nil }
+func scalarLog10(_ *env, args []Number) (Number, error) { return Float(log10(args[0].Float64())), nil }
+func scalarLog1p(_ *env, args []Number) (Number, error) { return Float(log1p(args[0].Float64())), nil }
+func scalarSinh(_ *env, args []Number) (Number, error)  { return Float(sinh(args[0].Float64())), nil }
+func scalarCosh(_ *env, args []Number) (Number, error)  { return Float(cosh(args[0].Float64())), nil }
+func scalarTanh(_ *env, args []Number) (Number, error)  { return Float(tanh(args[0].Float64())), nil }
+func scalarAsinh(_ *env, args []Number) (Number, error) { return Float(asinh(args[0].Float64())), nil }
+func scalarAcosh(_ *env, args []Number) (Number, error) { return Float(acosh(args[0].Float64())), nil }
+func scalarAtanh(_ *env, args []Number) (Number, error) { return Float(atanh(args[0].Float64())), nil }
+
+func sign(x float64) float64 {
+	if math.IsNaN(x) {
+		return x
+	}
+	switch {
+	case x > 0:
+		return 1
+	case x < 0:
+		return -1
+	default:
+		return 0
+	}
+}
+
+func expm1(x float64) float64 { return math.Exp(x) - 1 }
+func exp2(x float64) float64  { return math.Pow(2, x) }
+func log2(x float64) float64  { return math.Log(x) / math.Ln2 }
+func log10(x float64) float64 { return math.Log(x) / math.Ln10 }
+func log1p(x float64) float64 { return math.Log(1 + x) }
+
+func mod(a, b float64) float64 { return a - b*math.Floor(a/b) }
+
+func trunc(x float64) float64 {
+	if x < 0 {
+		return math.Ceil(x)
+	}
+	return math.Floor(x)
+}
+
+func round(x float64) float64 {
+	if math.IsNaN(x) || math.IsInf(x, 0) {
+		return x
+	}
+	if x < 0 {
+		return math.Ceil(x - 0.5)
+	}
+	return math.Floor(x + 0.5)
+}
+
+func cbrt(x float64) float64 {
+	if x == 0 || math.IsNaN(x) || math.IsInf(x, 0) {
+		return x
+	}
+	if x < 0 {
+		return -math.Pow(-x, 1.0/3.0)
+	}
+	return math.Pow(x, 1.0/3.0)
+}
+
+func sinh(x float64) float64 {
+	ex := math.Exp(x)
+	emx := math.Exp(-x)
+	return (ex - emx) / 2
+}
+
+func cosh(x float64) float64 {
+	ex := math.Exp(x)
+	emx := math.Exp(-x)
+	return (ex + emx) / 2
+}
+
+func tanh(x float64) float64 {
+	ex2 := math.Exp(2 * x)
+	return (ex2 - 1) / (ex2 + 1)
+}
+
+func asinh(x float64) float64 { return math.Log(x + math.Sqrt(x*x+1)) }
+func acosh(x float64) float64 { return math.Log(x + math.Sqrt(x-1)*math.Sqrt(x+1)) }
+func atanh(x float64) float64 { return 0.5 * math.Log((1+x)/(1-x)) }
 
 type node interface {
 	Eval(e *env) (Value, error)
@@ -434,51 +916,47 @@ func builtinCallValue(e *env, name string, args []Value) (Value, bool, error) {
 		return out, true, err
 	}
 
-	if len(args) != 1 {
-		return Value{}, false, nil
+	if name == "clamp" && len(args) == 3 && args[0].kind == valueArray && args[1].IsNumber() && args[2].IsNumber() {
+		lo := args[1].num.Float64()
+		hi := args[2].num.Float64()
+		if lo > hi {
+			lo, hi = hi, lo
+		}
+		out := make([]float64, len(args[0].arr))
+		for i, x := range args[0].arr {
+			if x < lo {
+				out[i] = lo
+				continue
+			}
+			if x > hi {
+				out[i] = hi
+				continue
+			}
+			out[i] = x
+		}
+		_ = e
+		return ArrayValue(out), true, nil
 	}
-	if args[0].kind != valueArray {
+
+	if len(args) != 1 || args[0].kind != valueArray {
 		return Value{}, false, nil
 	}
 
-	fn, ok := unaryArrayBuiltin(name)
-	if !ok {
-		return Value{}, false, nil
+	if fn, ok := unaryArrayBuiltins[name]; ok {
+		out := make([]float64, len(args[0].arr))
+		for i, x := range args[0].arr {
+			out[i] = fn(x)
+		}
+		_ = e
+		return ArrayValue(out), true, nil
 	}
 
-	out := make([]float64, len(args[0].arr))
-	for i, x := range args[0].arr {
-		out[i] = fn(x)
+	if agg, ok := arrayAggBuiltins[name]; ok {
+		_ = e
+		return NumberValue(Float(agg(args[0].arr))), true, nil
 	}
-	_ = e
-	return ArrayValue(out), true, nil
-}
 
-func unaryArrayBuiltin(name string) (func(float64) float64, bool) {
-	switch name {
-	case "sin":
-		return sinReduced, true
-	case "cos":
-		return cosReduced, true
-	case "tan":
-		return tanReduced, true
-	case "asin":
-		return math.Asin, true
-	case "acos":
-		return math.Acos, true
-	case "atan":
-		return math.Atan, true
-	case "sqrt":
-		return math.Sqrt, true
-	case "abs":
-		return math.Abs, true
-	case "exp":
-		return math.Exp, true
-	case "ln":
-		return math.Log, true
-	default:
-		return nil, false
-	}
+	return Value{}, false, nil
 }
 
 func builtinRange(args []Value) (Value, error) {
@@ -565,92 +1043,24 @@ func builtinCall(e *env, name string, args []Value) (Number, bool, error) {
 		nums = append(nums, a.num)
 	}
 
-	switch name {
-	case "sin":
-		return unaryFloat(e, nums, sinReduced)
-	case "cos":
-		return unaryFloat(e, nums, cosReduced)
-	case "tan":
-		return unaryFloat(e, nums, tanReduced)
-	case "asin":
-		return unaryFloat(e, nums, math.Asin)
-	case "acos":
-		return unaryFloat(e, nums, math.Acos)
-	case "atan":
-		return unaryFloat(e, nums, math.Atan)
-	case "sqrt":
-		return unaryFloat(e, nums, math.Sqrt)
-	case "abs":
-		if len(nums) != 1 {
-			return Number{}, true, fmt.Errorf("%w: abs expects 1 argument", ErrEval)
-		}
-		if nums[0].kind == numberRat {
-			r := nums[0].r
-			if r.num < 0 {
-				r.num = -r.num
-			}
-			return RatNumber(r), true, nil
-		}
-		return Float(math.Abs(nums[0].f)), true, nil
-	case "exp":
-		return unaryFloat(e, nums, math.Exp)
-	case "ln":
-		return unaryFloat(e, nums, math.Log)
-	case "min":
-		if len(nums) == 0 {
-			return Number{}, true, fmt.Errorf("%w: min expects >= 1 argument", ErrEval)
-		}
-		m := nums[0].Float64()
-		for _, v := range nums[1:] {
-			f := v.Float64()
-			if f < m {
-				m = f
-			}
-		}
-		return Float(m), true, nil
-	case "max":
-		if len(nums) == 0 {
-			return Number{}, true, fmt.Errorf("%w: max expects >= 1 argument", ErrEval)
-		}
-		m := nums[0].Float64()
-		for _, v := range nums[1:] {
-			f := v.Float64()
-			if f > m {
-				m = f
-			}
-		}
-		return Float(m), true, nil
-	default:
+	spec, ok := scalarBuiltins[name]
+	if !ok {
 		return Number{}, false, nil
 	}
-}
-
-func reduceAngle(x float64) float64 {
-	if math.IsNaN(x) || math.IsInf(x, 0) {
-		return x
+	if len(nums) < spec.minArgs || (spec.maxArgs >= 0 && len(nums) > spec.maxArgs) {
+		if spec.minArgs == spec.maxArgs {
+			return Number{}, true, fmt.Errorf("%w: %s expects %d argument(s)", ErrEval, name, spec.minArgs)
+		}
+		if spec.maxArgs < 0 {
+			return Number{}, true, fmt.Errorf("%w: %s expects >= %d argument(s)", ErrEval, name, spec.minArgs)
+		}
+		return Number{}, true, fmt.Errorf("%w: %s expects %d..%d argument(s)", ErrEval, name, spec.minArgs, spec.maxArgs)
 	}
-
-	const twoPi = 2 * math.Pi
-	r := math.Mod(x, twoPi)
-	if r > math.Pi {
-		r -= twoPi
-	} else if r < -math.Pi {
-		r += twoPi
+	out, err := spec.fn(e, nums)
+	if err != nil {
+		return Number{}, true, err
 	}
-	return r
-}
-
-func sinReduced(x float64) float64 { return math.Sin(reduceAngle(x)) }
-
-func cosReduced(x float64) float64 { return math.Cos(reduceAngle(x)) }
-
-func tanReduced(x float64) float64 { return math.Tan(reduceAngle(x)) }
-
-func unaryFloat(e *env, args []Number, fn func(float64) float64) (Number, bool, error) {
-	if len(args) != 1 {
-		return Number{}, true, fmt.Errorf("%w: expects 1 argument", ErrEval)
-	}
-	return Float(fn(args[0].Float64())), true, nil
+	return out, true, nil
 }
 
 func negNumber(n Number) Number {
