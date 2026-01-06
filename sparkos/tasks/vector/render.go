@@ -1,6 +1,7 @@
 package vector
 
 import (
+	"fmt"
 	"image/color"
 	"math"
 
@@ -161,9 +162,11 @@ func (t *Task) render() {
 	viewH := int16(t.viewRows) * t.fontHeight
 	_ = t.d.FillRectangle(0, panelY, w, viewH, colorPanelBG)
 
-	switch t.mode {
-	case modeGraph:
+	switch t.tab {
+	case tabPlot:
 		t.renderGraph(panelY, w, int(viewH))
+	case tabStack:
+		t.renderStack(panelY)
 	default:
 		t.renderHistory(panelY)
 	}
@@ -192,6 +195,48 @@ func (t *Task) renderHistory(panelY int16) {
 	}
 }
 
+func (t *Task) renderStack(panelY int16) {
+	vars := t.stackVars()
+	if len(vars) == 0 {
+		t.drawStringClipped(0, panelY, "stack: no variables", colorDim, t.cols)
+		return
+	}
+
+	if t.stackSel < 0 {
+		t.stackSel = 0
+	}
+	if t.stackSel >= len(vars) {
+		t.stackSel = len(vars) - 1
+	}
+	if t.stackTop < 0 {
+		t.stackTop = 0
+	}
+	maxTop := len(vars) - t.viewRows
+	if maxTop < 0 {
+		maxTop = 0
+	}
+	if t.stackTop > maxTop {
+		t.stackTop = maxTop
+	}
+
+	y := panelY
+	end := t.stackTop + t.viewRows
+	if end > len(vars) {
+		end = len(vars)
+	}
+	for i := t.stackTop; i < end; i++ {
+		name := vars[i]
+		line := name + " = " + t.formatValue(t.e.vars[name])
+		if i == t.stackSel {
+			_ = t.d.FillRectangle(0, y, int16(t.cols)*t.fontWidth, t.fontHeight, colorHeaderBG)
+			t.drawStringClipped(0, y, line, colorFG, t.cols)
+		} else {
+			t.drawStringClipped(0, y, line, colorFG, t.cols)
+		}
+		y += t.fontHeight
+	}
+}
+
 func (t *Task) renderGraph(panelY int16, w int16, viewHPx int) {
 	if t.graph == nil && len(t.plots) == 0 {
 		t.drawStringClipped(0, panelY, "graph: no expression (enter `sin(x)` and press Enter)", colorDim, t.cols)
@@ -205,16 +250,67 @@ func (t *Task) renderGraph(panelY int16, w int16, viewHPx int) {
 
 	_ = t.d.FillRectangle(px0, py0, pw, ph, colorBG)
 
-	t.drawGrid(px0, py0, pw, ph)
-	t.drawAxes(px0, py0, pw, ph)
-	t.drawPlots(px0, py0, pw, ph)
+	leftMargin := int16(7) * t.fontWidth
+	bottomMargin := t.fontHeight + 1
+	if leftMargin < 1 {
+		leftMargin = 1
+	}
+	if bottomMargin < 1 {
+		bottomMargin = 1
+	}
+
+	plotX := px0 + leftMargin
+	plotY := py0 + 1
+	plotW := pw - leftMargin - 1
+	plotH := ph - bottomMargin - 2
+	if plotW <= 2 || plotH <= 2 {
+		return
+	}
+
+	_ = t.d.FillRectangle(plotX, plotY, plotW, plotH, colorPanelBG)
+	t.drawGrid(plotX, plotY, plotW, plotH, leftMargin, bottomMargin)
+	t.drawAxes(plotX, plotY, plotW, plotH)
+	t.drawPlots(plotX, plotY, plotW, plotH)
 }
 
-func (t *Task) drawGrid(px0, py0, pw, ph int16) {
-	_ = px0
-	_ = py0
-	_ = pw
-	_ = ph
+func (t *Task) drawGrid(plotX, plotY, plotW, plotH, leftMargin, bottomMargin int16) {
+	if t.xMin >= t.xMax || t.yMin >= t.yMax {
+		return
+	}
+	if plotW <= 2 || plotH <= 2 {
+		return
+	}
+
+	xPxPerUnit := float64(plotW-1) / (t.xMax - t.xMin)
+	yPxPerUnit := float64(plotH-1) / (t.yMax - t.yMin)
+	if xPxPerUnit <= 0 || yPxPerUnit <= 0 || math.IsInf(xPxPerUnit, 0) || math.IsInf(yPxPerUnit, 0) {
+		return
+	}
+
+	stepX := niceStep(40 / xPxPerUnit)
+	stepY := niceStep(28 / yPxPerUnit)
+
+	xStart := math.Ceil(t.xMin/stepX) * stepX
+	for x := xStart; x <= t.xMax; x += stepX {
+		ix := int16((x - t.xMin) / (t.xMax - t.xMin) * float64(plotW-1))
+		for y := int16(0); y < plotH; y++ {
+			t.d.SetPixel(plotX+ix, plotY+y, colorGrid)
+		}
+		label := fmtAxis(x)
+		t.drawXAxisLabel(plotX+ix, plotY+plotH+1, label)
+	}
+
+	yStart := math.Ceil(t.yMin/stepY) * stepY
+	for y := yStart; y <= t.yMax; y += stepY {
+		iy := int16((t.yMax - y) / (t.yMax - t.yMin) * float64(plotH-1))
+		for x := int16(0); x < plotW; x++ {
+			t.d.SetPixel(plotX+x, plotY+iy, colorGrid)
+		}
+		label := fmtAxis(y)
+		t.drawYAxisLabel(plotX-1, plotY+iy, label, leftMargin)
+	}
+
+	_ = bottomMargin
 }
 
 func (t *Task) drawAxes(px0, py0, pw, ph int16) {
@@ -232,6 +328,85 @@ func (t *Task) drawAxes(px0, py0, pw, ph int16) {
 		for x := int16(0); x < pw; x++ {
 			t.d.SetPixel(px0+x, py0+y, colorAxis)
 		}
+	}
+}
+
+func (t *Task) drawXAxisLabel(px, py int16, s string) {
+	if s == "" {
+		return
+	}
+	rs := []rune(s)
+	w := int16(len(rs)) * t.fontWidth
+	x := px - w/2
+	if x < 0 {
+		x = 0
+	}
+	maxCols := int((int16(t.cols)*t.fontWidth - x) / t.fontWidth)
+	if maxCols <= 0 {
+		return
+	}
+	t.drawStringClipped(x, py, s, colorDim, maxCols)
+}
+
+func (t *Task) drawYAxisLabel(rightEdgePx, py int16, s string, leftMargin int16) {
+	if s == "" {
+		return
+	}
+	rs := []rune(s)
+	w := int16(len(rs)) * t.fontWidth
+	x := rightEdgePx - w - 1
+	minX := rightEdgePx - leftMargin + 1
+	if x < minX {
+		x = minX
+	}
+	if x < 0 {
+		x = 0
+	}
+	maxCols := int((rightEdgePx - x) / t.fontWidth)
+	if maxCols <= 0 {
+		return
+	}
+	t.drawStringClipped(x, py-t.fontHeight/2, s, colorDim, maxCols)
+}
+
+func niceStep(raw float64) float64 {
+	if raw <= 0 || math.IsNaN(raw) || math.IsInf(raw, 0) {
+		return 1
+	}
+	pow := math.Pow(10, math.Floor(math.Log10(raw)))
+	if pow == 0 || math.IsNaN(pow) || math.IsInf(pow, 0) {
+		return 1
+	}
+	frac := raw / pow
+	switch {
+	case frac <= 1:
+		return 1 * pow
+	case frac <= 2:
+		return 2 * pow
+	case frac <= 5:
+		return 5 * pow
+	default:
+		return 10 * pow
+	}
+}
+
+func fmtAxis(v float64) string {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return ""
+	}
+	if math.Abs(v) < 1e-12 {
+		return "0"
+	}
+	av := math.Abs(v)
+	switch {
+	case av >= 1000 || av < 0.01:
+		return fmt.Sprintf("%.2g", v)
+	case av >= 10:
+		return fmt.Sprintf("%.0f", v)
+	case av >= 1:
+		return fmt.Sprintf("%.2f", v)
+	default:
+		return fmt.Sprintf("%.3f", v)
 	}
 }
 
@@ -354,7 +529,12 @@ func (t *Task) renderHelp() {
 	lines := []string{
 		"Vector help",
 		"",
-		"Calculator",
+		"Tabs",
+		"  F1: terminal (REPL)",
+		"  F2: plot",
+		"  F3: stack (variables)",
+		"",
+		"Terminal",
 		"  Enter: evaluate",
 		"  a=...: assign variable",
 		"  f(x)=...: define function",
@@ -363,15 +543,22 @@ func (t *Task) renderHelp() {
 		"  :exact / :float: eval mode",
 		"  :prec N: float format",
 		"  :plotclear: clear plots",
+		"  :clear: clear output history",
+		"  g: jump to plot tab",
 		"  H: toggle help",
-		"  g: toggle graph (last expr)",
 		"  q/ESC: exit",
 		"",
-		"Graph",
+		"Plot",
 		"  arrows: pan",
 		"  +/-: zoom in/out",
-		"  a: autoscale y",
-		"  c: back to calculator",
+		"  a: autoscale",
+		"  c: back to terminal",
+		"",
+		"Stack",
+		"  Up/Down: select",
+		"  Enter/e: edit value",
+		"  Enter: apply (in editor)",
+		"  Esc: cancel edit",
 	}
 
 	boxCols := t.cols - 4

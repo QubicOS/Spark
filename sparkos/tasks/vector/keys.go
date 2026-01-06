@@ -20,6 +20,9 @@ const (
 	keyCtrl
 	keyPageUp
 	keyPageDown
+	keyF1
+	keyF2
+	keyF3
 )
 
 type key struct {
@@ -63,6 +66,9 @@ func parseEscapeKey(b []byte) (consumed int, k key, ok bool) {
 	if len(b) < 2 {
 		return 1, key{kind: keyEsc}, true
 	}
+	if b[1] == 'O' {
+		return 1, key{kind: keyEsc}, true
+	}
 	if b[1] != '[' {
 		return 1, key{kind: keyEsc}, true
 	}
@@ -83,31 +89,39 @@ func parseEscapeKey(b []byte) (consumed int, k key, ok bool) {
 		return 3, key{kind: keyHome}, true
 	case 'F':
 		return 3, key{kind: keyEnd}, true
-	case '3':
-		if len(b) < 4 {
-			return 0, key{}, false
-		}
-		if b[3] == '~' {
-			return 4, key{kind: keyDelete}, true
-		}
-		return 1, key{kind: keyEsc}, true
-	case '5':
-		if len(b) < 4 {
-			return 0, key{}, false
-		}
-		if b[3] == '~' {
-			return 4, key{kind: keyPageUp}, true
-		}
-		return 1, key{kind: keyEsc}, true
-	case '6':
-		if len(b) < 4 {
-			return 0, key{}, false
-		}
-		if b[3] == '~' {
-			return 4, key{kind: keyPageDown}, true
-		}
-		return 1, key{kind: keyEsc}, true
 	default:
-		return 1, key{kind: keyEsc}, true
+		if b[2] < '0' || b[2] > '9' {
+			return 1, key{kind: keyEsc}, true
+		}
+
+		n := 0
+		i := 2
+		for i < len(b) && b[i] >= '0' && b[i] <= '9' {
+			n = n*10 + int(b[i]-'0')
+			i++
+		}
+		if i >= len(b) {
+			return 0, key{}, false
+		}
+		if b[i] != '~' {
+			return 1, key{kind: keyEsc}, true
+		}
+		consumed = i + 1
+		switch n {
+		case 3:
+			return consumed, key{kind: keyDelete}, true
+		case 5:
+			return consumed, key{kind: keyPageUp}, true
+		case 6:
+			return consumed, key{kind: keyPageDown}, true
+		case 11:
+			return consumed, key{kind: keyF1}, true
+		case 12:
+			return consumed, key{kind: keyF2}, true
+		case 13:
+			return consumed, key{kind: keyF3}, true
+		default:
+			return 1, key{kind: keyEsc}, true
+		}
 	}
 }
