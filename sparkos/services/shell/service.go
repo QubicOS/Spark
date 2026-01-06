@@ -13,7 +13,8 @@ type Service struct {
 	inCap   kernel.Capability
 	termCap kernel.Capability
 
-	line []rune
+	line   []rune
+	cursor int
 
 	utf8buf []byte
 
@@ -63,6 +64,10 @@ func (s *Service) handleInput(ctx *kernel.Context, b []byte) {
 				s.histUp(ctx)
 			case escDown:
 				s.histDown(ctx)
+			case escLeft:
+				s.moveLeft(ctx)
+			case escRight:
+				s.moveRight(ctx)
 			}
 			continue
 		}
@@ -94,20 +99,67 @@ func (s *Service) handleInput(ctx *kernel.Context, b []byte) {
 			if len(s.line) >= 256 {
 				continue
 			}
-			s.line = append(s.line, r)
-			_ = s.writeString(ctx, string(r))
+			s.insertRune(ctx, r)
 		}
 	}
 	s.utf8buf = s.utf8buf[:0]
 }
 
-func (s *Service) backspace(ctx *kernel.Context) {
-	if len(s.line) == 0 {
+func (s *Service) moveLeft(ctx *kernel.Context) {
+	if s.cursor <= 0 {
 		return
 	}
-	s.line = s.line[:len(s.line)-1]
-	// Move cursor left, overwrite, move left.
-	_ = s.writeString(ctx, "\x1b[D \x1b[D")
+	_ = s.writeString(ctx, "\x1b[D")
+	s.cursor--
+}
+
+func (s *Service) moveRight(ctx *kernel.Context) {
+	if s.cursor >= len(s.line) {
+		return
+	}
+	_ = s.writeString(ctx, "\x1b[C")
+	s.cursor++
+}
+
+func (s *Service) insertRune(ctx *kernel.Context, r rune) {
+	if s.cursor == len(s.line) {
+		s.line = append(s.line, r)
+		s.cursor++
+		_ = s.writeString(ctx, string(r))
+		return
+	}
+	s.line = append(s.line[:s.cursor], append([]rune{r}, s.line[s.cursor:]...)...)
+	_ = s.writeString(ctx, string(r))
+	s.cursor++
+	_ = s.redrawFromCursor(ctx)
+}
+
+func (s *Service) redrawFromCursor(ctx *kernel.Context) error {
+	tail := s.line[s.cursor:]
+	// Print tail and clear one extra cell to erase leftovers, then restore cursor position.
+	if err := s.writeString(ctx, string(tail)); err != nil {
+		return err
+	}
+	if err := s.writeString(ctx, " "); err != nil {
+		return err
+	}
+	for i := 0; i < len(tail)+1; i++ {
+		if err := s.writeString(ctx, "\x1b[D"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) backspace(ctx *kernel.Context) {
+	if len(s.line) == 0 || s.cursor == 0 {
+		return
+	}
+	s.cursor--
+	s.line = append(s.line[:s.cursor], s.line[s.cursor+1:]...)
+
+	_ = s.writeString(ctx, "\x1b[D")
+	_ = s.redrawFromCursor(ctx)
 }
 
 func (s *Service) submit(ctx *kernel.Context) {
@@ -115,6 +167,7 @@ func (s *Service) submit(ctx *kernel.Context) {
 
 	line := strings.TrimSpace(string(s.line))
 	s.line = s.line[:0]
+	s.cursor = 0
 	s.scratch = s.scratch[:0]
 	s.histPos = len(s.history)
 	if line == "" {
@@ -148,6 +201,7 @@ func (s *Service) submit(ctx *kernel.Context) {
 }
 
 func (s *Service) prompt(ctx *kernel.Context) error {
+	s.cursor = 0
 	return s.writeString(ctx, "\x1b[38;5;46m>\x1b[0m ")
 }
 
@@ -181,12 +235,20 @@ func (s *Service) histDown(ctx *kernel.Context) {
 }
 
 func (s *Service) replaceLine(ctx *kernel.Context, r []rune) {
+	for s.cursor > 0 {
+		_ = s.writeString(ctx, "\x1b[D")
+		s.cursor--
+	}
 	for range s.line {
-		_ = s.writeString(ctx, "\x1b[D \x1b[D")
+		_ = s.writeString(ctx, " ")
+	}
+	for range s.line {
+		_ = s.writeString(ctx, "\x1b[D")
 	}
 	s.line = s.line[:0]
 	s.line = append(s.line, r...)
-	_ = s.writeString(ctx, string(r))
+	s.cursor = len(s.line)
+	_ = s.writeString(ctx, string(s.line))
 }
 
 func (s *Service) writeString(ctx *kernel.Context, s2 string) error {
@@ -227,6 +289,8 @@ const (
 	escNone escAction = iota
 	escUp
 	escDown
+	escRight
+	escLeft
 )
 
 func parseEscape(b []byte) (consumed int, action escAction, ok bool) {
@@ -247,6 +311,10 @@ func parseEscape(b []byte) (consumed int, action escAction, ok bool) {
 		return 3, escUp, true
 	case 'B':
 		return 3, escDown, true
+	case 'C':
+		return 3, escRight, true
+	case 'D':
+		return 3, escLeft, true
 	default:
 		return consumeEscape(b), escNone, true
 	}
