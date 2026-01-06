@@ -13,25 +13,34 @@ type valueKind uint8
 const (
 	valueNumber valueKind = iota
 	valueExpr
+	valueArray
 )
 
 type Value struct {
 	kind valueKind
 	num  Number
 	expr node
+	arr  []float64
 }
 
 func NumberValue(n Number) Value { return Value{kind: valueNumber, num: n} }
 
 func ExprValue(n node) Value { return Value{kind: valueExpr, expr: n} }
 
+func ArrayValue(xs []float64) Value { return Value{kind: valueArray, arr: xs} }
+
 func (v Value) IsNumber() bool { return v.kind == valueNumber }
 
 func (v Value) IsExpr() bool { return v.kind == valueExpr }
 
+func (v Value) IsArray() bool { return v.kind == valueArray }
+
 func (v Value) ToNode() node {
 	if v.kind == valueExpr && v.expr != nil {
 		return v.expr
+	}
+	if v.kind == valueArray {
+		return nodeIdent{name: "<array>"}
 	}
 	return nodeNumber{v: v.num}
 }
