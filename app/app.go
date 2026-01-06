@@ -12,6 +12,7 @@ import (
 	"spark/sparkos/services/ui"
 	"spark/sparkos/services/vfs"
 	"spark/sparkos/tasks/imgview"
+	"spark/sparkos/tasks/mc"
 	"spark/sparkos/tasks/rtdemo"
 	"spark/sparkos/tasks/rtvoxel"
 	"spark/sparkos/tasks/termdemo"
@@ -63,6 +64,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	rtvoxelEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	imgviewEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	viEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	mcEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 
 	k.AddTask(logger.New(h.Logger(), logEP.Restrict(kernel.RightRecv)))
 	k.AddTask(timesvc.New(timeEP))
@@ -74,6 +76,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 		k.AddTask(rtvoxel.New(h.Display(), rtvoxelEP.Restrict(kernel.RightRecv)))
 		k.AddTask(imgview.New(h.Display(), imgviewEP.Restrict(kernel.RightRecv), vfsEP.Restrict(kernel.RightSend)))
 		k.AddTask(vi.New(h.Display(), viEP.Restrict(kernel.RightRecv), vfsEP.Restrict(kernel.RightSend)))
+		k.AddTask(mc.New(h.Display(), mcEP.Restrict(kernel.RightRecv), vfsEP.Restrict(kernel.RightSend)))
 		k.AddTask(consolemux.New(
 			muxEP.Restrict(kernel.RightRecv),
 			muxEP.Restrict(kernel.RightSend),
@@ -82,6 +85,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			rtvoxelEP.Restrict(kernel.RightSend),
 			imgviewEP.Restrict(kernel.RightSend),
 			viEP.Restrict(kernel.RightSend),
+			mcEP.Restrict(kernel.RightSend),
 			termEP.Restrict(kernel.RightSend),
 		))
 		k.AddTask(termkbd.NewInput(h.Input(), muxEP.Restrict(kernel.RightSend)))
