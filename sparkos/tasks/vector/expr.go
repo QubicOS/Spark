@@ -86,6 +86,20 @@ func (n nodeUnary) Eval(e *env) (Value, error) {
 	if err != nil {
 		return Value{}, err
 	}
+	if v.kind == valueArray {
+		switch n.op {
+		case '+':
+			return v, nil
+		case '-':
+			out := make([]float64, len(v.arr))
+			for i, x := range v.arr {
+				out[i] = -x
+			}
+			return ArrayValue(out), nil
+		default:
+			return Value{}, fmt.Errorf("%w: unary %q", ErrEval, n.op)
+		}
+	}
 	if v.kind == valueExpr {
 		return ExprValue(nodeUnary{op: n.op, x: v.expr}.Simplify()), nil
 	}
@@ -141,6 +155,10 @@ func (n nodeBinary) Eval(e *env) (Value, error) {
 	b, err := n.right.Eval(e)
 	if err != nil {
 		return Value{}, err
+	}
+
+	if a.kind == valueArray || b.kind == valueArray {
+		return evalBinaryArray(e, n.op, a, b)
 	}
 
 	if a.kind == valueExpr || b.kind == valueExpr {
@@ -310,6 +328,51 @@ func (n nodeBinary) Deriv(varName string) node {
 	}
 }
 
+func evalBinaryArray(e *env, op byte, a, b Value) (Value, error) {
+	switch {
+	case a.kind == valueArray && b.kind == valueArray:
+		if len(a.arr) != len(b.arr) {
+			return Value{}, fmt.Errorf("%w: array length mismatch", ErrEval)
+		}
+		out := make([]float64, len(a.arr))
+		for i := range out {
+			nn, err := evalBinaryNumber(e, op, Float(a.arr[i]), Float(b.arr[i]))
+			if err != nil {
+				return Value{}, err
+			}
+			out[i] = nn.Float64()
+		}
+		return ArrayValue(out), nil
+
+	case a.kind == valueArray && b.kind == valueNumber:
+		out := make([]float64, len(a.arr))
+		bf := b.num.Float64()
+		for i := range out {
+			nn, err := evalBinaryNumber(e, op, Float(a.arr[i]), Float(bf))
+			if err != nil {
+				return Value{}, err
+			}
+			out[i] = nn.Float64()
+		}
+		return ArrayValue(out), nil
+
+	case a.kind == valueNumber && b.kind == valueArray:
+		out := make([]float64, len(b.arr))
+		af := a.num.Float64()
+		for i := range out {
+			nn, err := evalBinaryNumber(e, op, Float(af), Float(b.arr[i]))
+			if err != nil {
+				return Value{}, err
+			}
+			out[i] = nn.Float64()
+		}
+		return ArrayValue(out), nil
+
+	default:
+		return Value{}, fmt.Errorf("%w: unsupported array operation", ErrEval)
+	}
+}
+
 type nodeCall struct {
 	name string
 	args []node
@@ -336,6 +399,10 @@ func (n nodeCall) Eval(e *env) (Value, error) {
 		args = append(args, v)
 	}
 
+	if out, ok, err := builtinCallValue(e, n.name, args); ok {
+		return out, err
+	}
+
 	if fn, ok := e.funcs[n.name]; ok {
 		if len(args) != 1 {
 			return Value{}, fmt.Errorf("%w: %s expects 1 argument", ErrEval, n.name)
@@ -359,6 +426,91 @@ func (n nodeCall) Eval(e *env) (Value, error) {
 		return Value{}, err
 	}
 	return NumberValue(out), nil
+}
+
+func builtinCallValue(e *env, name string, args []Value) (Value, bool, error) {
+	if name == "range" {
+		out, err := builtinRange(args)
+		return out, true, err
+	}
+
+	if len(args) != 1 {
+		return Value{}, false, nil
+	}
+	if args[0].kind != valueArray {
+		return Value{}, false, nil
+	}
+
+	fn, ok := unaryArrayBuiltin(name)
+	if !ok {
+		return Value{}, false, nil
+	}
+
+	out := make([]float64, len(args[0].arr))
+	for i, x := range args[0].arr {
+		out[i] = fn(x)
+	}
+	_ = e
+	return ArrayValue(out), true, nil
+}
+
+func unaryArrayBuiltin(name string) (func(float64) float64, bool) {
+	switch name {
+	case "sin":
+		return math.Sin, true
+	case "cos":
+		return math.Cos, true
+	case "tan":
+		return math.Tan, true
+	case "asin":
+		return math.Asin, true
+	case "acos":
+		return math.Acos, true
+	case "atan":
+		return math.Atan, true
+	case "sqrt":
+		return math.Sqrt, true
+	case "abs":
+		return math.Abs, true
+	case "exp":
+		return math.Exp, true
+	case "ln":
+		return math.Log, true
+	default:
+		return nil, false
+	}
+}
+
+func builtinRange(args []Value) (Value, error) {
+	if len(args) < 2 || len(args) > 3 {
+		return Value{}, fmt.Errorf("%w: range expects 2 or 3 arguments", ErrEval)
+	}
+	if !args[0].IsNumber() || !args[1].IsNumber() {
+		return Value{}, fmt.Errorf("%w: range bounds must be numbers", ErrEval)
+	}
+	n := 256
+	if len(args) == 3 {
+		if !args[2].IsNumber() {
+			return Value{}, fmt.Errorf("%w: range count must be a number", ErrEval)
+		}
+		nf := args[2].num.Float64()
+		if nf < 2 || nf > 4096 {
+			return Value{}, fmt.Errorf("%w: range count must be 2..4096", ErrEval)
+		}
+		n = int(nf)
+	}
+	a := args[0].num.Float64()
+	b := args[1].num.Float64()
+	out := make([]float64, n)
+	if n == 1 {
+		out[0] = a
+		return ArrayValue(out), nil
+	}
+	for i := 0; i < n; i++ {
+		t := float64(i) / float64(n-1)
+		out[i] = a + t*(b-a)
+	}
+	return ArrayValue(out), nil
 }
 
 func (n nodeCall) Simplify() node {
@@ -402,6 +554,9 @@ func builtinCall(e *env, name string, args []Value) (Number, bool, error) {
 	// If any arg is symbolic, keep it symbolic by returning "unknown" and letting caller wrap.
 	for _, a := range args {
 		if a.kind == valueExpr {
+			return Number{}, false, nil
+		}
+		if a.kind == valueArray {
 			return Number{}, false, nil
 		}
 	}

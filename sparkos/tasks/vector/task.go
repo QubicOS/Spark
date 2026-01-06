@@ -62,8 +62,7 @@ type Task struct {
 	graphExpr string
 	graph     node
 
-	plots       []plot
-	nextPlotIdx int
+	plots []plot
 
 	xMin float64
 	xMax float64
@@ -357,7 +356,14 @@ func (t *Task) submit(ctx *kernel.Context) {
 			}
 			t.e.vars[act.varName] = v
 			t.appendLine(fmt.Sprintf("%s = %s", act.varName, t.formatValue(v)))
-			t.setGraphFromExpr(act.varName, v.ToNode())
+			if v.IsArray() {
+				if act.varName == "x" {
+					t.setDomainFromArray(v.arr)
+				}
+				t.tryPlotSeries(act.varName, v)
+			} else {
+				t.setGraphFromExpr(act.varName, v.ToNode())
+			}
 
 		case actionAssignFunc:
 			t.e.funcs[act.funcName] = userFunc{param: act.funcParam, body: act.expr}
@@ -370,9 +376,13 @@ func (t *Task) submit(ctx *kernel.Context) {
 				return
 			}
 			t.appendLine("= " + t.formatValue(v))
-			t.setGraphFromExpr(NodeString(act.expr), v.ToNode())
-			if nodeHasIdent(act.expr, "x") {
-				t.addPlot(NodeString(act.expr), act.expr)
+			if v.IsArray() {
+				t.tryPlotSeries("result", v)
+			} else {
+				t.setGraphFromExpr(NodeString(act.expr), v.ToNode())
+				if nodeHasIdent(act.expr, "x") {
+					t.addPlotFunc(NodeString(act.expr), act.expr)
+				}
 			}
 		}
 	}
@@ -401,7 +411,6 @@ func (t *Task) handleCommand(cmd string) {
 		t.setMessage(fmt.Sprintf("prec: %d", n))
 	case cmd == "plotclear":
 		t.plots = nil
-		t.nextPlotIdx = 0
 		t.setMessage("plots cleared")
 	case cmd == "plots":
 		if len(t.plots) == 0 {
@@ -420,16 +429,18 @@ func (t *Task) setGraphFromExpr(src string, ex node) {
 	t.graphExpr = src
 	t.graph = ex
 	if nodeHasIdent(ex, "x") {
-		t.autoscaleY()
+		t.autoscalePlots()
 	}
 }
 
 type plot struct {
 	src  string
 	expr node
+	xs   []float64
+	ys   []float64
 }
 
-func (t *Task) addPlot(src string, ex node) {
+func (t *Task) addPlotFunc(src string, ex node) {
 	if ex == nil {
 		return
 	}
@@ -445,9 +456,19 @@ func (t *Task) addPlot(src string, ex node) {
 	t.plots = append(t.plots, plot{src: src, expr: ex})
 }
 
+func (t *Task) addPlotSeries(src string, xs, ys []float64) {
+	if len(xs) == 0 || len(xs) != len(ys) {
+		return
+	}
+	if len(t.plots) >= 8 {
+		t.plots = t.plots[1:]
+	}
+	t.plots = append(t.plots, plot{src: src, xs: xs, ys: ys})
+}
+
 func (t *Task) toggleGraph(ctx *kernel.Context) {
 	_ = ctx
-	if t.graph == nil {
+	if t.graph == nil && len(t.plots) == 0 {
 		t.setMessage("graph: no expression")
 		return
 	}
@@ -462,10 +483,10 @@ func (t *Task) toggleGraph(ctx *kernel.Context) {
 	if t.yMin >= t.yMax {
 		t.yMin, t.yMax = -10, 10
 	}
-	if len(t.plots) == 0 && nodeHasIdent(t.graph, "x") {
-		t.addPlot(t.graphExpr, t.graph)
+	if len(t.plots) == 0 && t.graph != nil && nodeHasIdent(t.graph, "x") {
+		t.addPlotFunc(t.graphExpr, t.graph)
 	}
-	t.autoscaleY()
+	t.autoscalePlots()
 }
 
 func (t *Task) handleGraphKey(ctx *kernel.Context, k key) {
@@ -480,7 +501,7 @@ func (t *Task) handleGraphKey(ctx *kernel.Context, k key) {
 		case 'c':
 			t.mode = modeCalc
 		case 'a':
-			t.autoscaleY()
+			t.autoscalePlots()
 		case '+', '=':
 			t.zoom(0.8)
 		case '-':
@@ -541,7 +562,57 @@ func (t *Task) evalGraphFor(expr node, x float64) (float64, bool) {
 	return yv.num.Float64(), true
 }
 
-func (t *Task) autoscaleY() {
+func (t *Task) autoscalePlots() {
+	if len(t.plots) > 0 {
+		t.autoscaleFromSeries()
+		return
+	}
+	t.autoscaleFunc()
+}
+
+func (t *Task) autoscaleFromSeries() {
+	minX := math.Inf(1)
+	maxX := math.Inf(-1)
+	minY := math.Inf(1)
+	maxY := math.Inf(-1)
+	for _, p := range t.plots {
+		if len(p.xs) == 0 || len(p.ys) == 0 {
+			continue
+		}
+		for i := range p.xs {
+			x := p.xs[i]
+			y := p.ys[i]
+			if math.IsNaN(x) || math.IsInf(x, 0) || math.IsNaN(y) || math.IsInf(y, 0) {
+				continue
+			}
+			if x < minX {
+				minX = x
+			}
+			if x > maxX {
+				maxX = x
+			}
+			if y < minY {
+				minY = y
+			}
+			if y > maxY {
+				maxY = y
+			}
+		}
+	}
+	if !math.IsInf(minX, 0) && !math.IsInf(maxX, 0) && minX < maxX {
+		t.xMin, t.xMax = minX, maxX
+	}
+	if !math.IsInf(minY, 0) && !math.IsInf(maxY, 0) && minY < maxY {
+		pad := (maxY - minY) * 0.1
+		if pad == 0 {
+			pad = 1
+		}
+		t.yMin = minY - pad
+		t.yMax = maxY + pad
+	}
+}
+
+func (t *Task) autoscaleFunc() {
 	if t.graph == nil || t.xMin >= t.xMax {
 		return
 	}
@@ -633,7 +704,57 @@ func (t *Task) formatValue(v Value) string {
 	if v.kind == valueExpr {
 		return NodeString(v.expr)
 	}
+	if v.kind == valueArray {
+		if len(v.arr) == 0 {
+			return "[]"
+		}
+		min := v.arr[0]
+		max := v.arr[0]
+		for _, x := range v.arr[1:] {
+			if x < min {
+				min = x
+			}
+			if x > max {
+				max = x
+			}
+		}
+		return fmt.Sprintf("[%d] %.*g..%.*g", len(v.arr), 6, min, 6, max)
+	}
 	return v.num.String(t.e.prec)
+}
+
+func (t *Task) setDomainFromArray(xs []float64) {
+	if len(xs) < 2 {
+		return
+	}
+	min := xs[0]
+	max := xs[0]
+	for _, x := range xs[1:] {
+		if x < min {
+			min = x
+		}
+		if x > max {
+			max = x
+		}
+	}
+	if min < max {
+		t.xMin, t.xMax = min, max
+	}
+}
+
+func (t *Task) tryPlotSeries(label string, v Value) {
+	if !v.IsArray() {
+		return
+	}
+	xv, ok := t.e.vars["x"]
+	if !ok || !xv.IsArray() {
+		return
+	}
+	if len(xv.arr) != len(v.arr) {
+		return
+	}
+	t.addPlotSeries(label, append([]float64(nil), xv.arr...), append([]float64(nil), v.arr...))
+	t.autoscalePlots()
 }
 
 func clipRunes(s string, max int) string {
