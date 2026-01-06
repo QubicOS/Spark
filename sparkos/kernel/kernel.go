@@ -162,12 +162,23 @@ func (k *Kernel) AddTask(t Task) TaskID {
 	k.mu.Unlock()
 
 	if t != nil {
-		go t.Run(&Context{k: k, taskID: id})
+		go func(id TaskID) {
+			defer func() {
+				if r := recover(); r != nil {
+					triggerPanic(PanicInfo{TaskID: id, Value: r})
+				}
+			}()
+			t.Run(&Context{k: k, taskID: id})
+		}(id)
 	}
 	return id
 }
 
 func (k *Kernel) send(from Endpoint, to Endpoint, kind uint16, payload []byte, xfer Capability) SendResult {
+	if InPanicMode() {
+		return SendErrQueueFull
+	}
+
 	k.mu.Lock()
 	if to >= k.endpointCount || k.endpoints[to].ch == nil {
 		k.mu.Unlock()
@@ -198,6 +209,10 @@ func (k *Kernel) send(from Endpoint, to Endpoint, kind uint16, payload []byte, x
 
 // TickTo broadcasts a new tick value to tick-waiters.
 func (k *Kernel) TickTo(seq uint64) {
+	if InPanicMode() {
+		return
+	}
+
 	k.mu.Lock()
 	if seq <= k.tick {
 		k.mu.Unlock()
@@ -216,6 +231,11 @@ func (k *Kernel) nowTick() uint64 {
 
 func (k *Kernel) waitTick(after uint64) uint64 {
 	k.mu.Lock()
+	if InPanicMode() {
+		for {
+			k.tickCond.Wait()
+		}
+	}
 	for k.tick <= after {
 		k.tickCond.Wait()
 	}

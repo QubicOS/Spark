@@ -51,6 +51,7 @@ func RunWithConfig(h hal.HAL, cfg Config) {
 
 func newSystem(h hal.HAL, cfg Config) *system {
 	k := kernel.New()
+	installPanicHandler(h)
 
 	logEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	timeEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
