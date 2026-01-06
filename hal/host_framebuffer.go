@@ -34,17 +34,27 @@ func (f *hostFramebuffer) Buffer() []byte      { return f.back }
 func (f *hostFramebuffer) Present() error {
 	f.mu.Lock()
 	f.buf, f.back = f.back, f.buf
+	// Preserve persistence for incremental renderers (e.g. terminal): ensure the
+	// writable back buffer starts as a copy of what is currently displayed.
+	copy(f.back, f.buf)
 	f.mu.Unlock()
 	return nil
 }
 
 func (f *hostFramebuffer) ClearRGB(r, g, b uint8) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	pixel := rgb565(r, g, b)
 	lo := byte(pixel)
 	hi := byte(pixel >> 8)
 	for i := 0; i < len(f.back); i += 2 {
 		f.back[i] = lo
 		f.back[i+1] = hi
+	}
+	for i := 0; i < len(f.buf); i += 2 {
+		f.buf[i] = lo
+		f.buf[i+1] = hi
 	}
 }
 
