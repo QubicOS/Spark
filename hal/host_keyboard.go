@@ -31,16 +31,17 @@ func (k *hostKeyboard) poll() {
 		}
 	}
 
-	if ebiten.IsKeyPressed(ebiten.KeyW) || ebiten.IsKeyPressed(ebiten.KeyArrowUp) {
+	// Use only arrow keys for navigation. Letter keys are treated as text input.
+	if inpututil.IsKeyJustPressed(ebiten.KeyArrowUp) {
 		emit(KeyUp)
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyS) || ebiten.IsKeyPressed(ebiten.KeyArrowDown) {
+	if inpututil.IsKeyJustPressed(ebiten.KeyArrowDown) {
 		emit(KeyDown)
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyA) || ebiten.IsKeyPressed(ebiten.KeyArrowLeft) {
+	if inpututil.IsKeyJustPressed(ebiten.KeyArrowLeft) {
 		emit(KeyLeft)
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyD) || ebiten.IsKeyPressed(ebiten.KeyArrowRight) {
+	if inpututil.IsKeyJustPressed(ebiten.KeyArrowRight) {
 		emit(KeyRight)
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {

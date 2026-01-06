@@ -47,7 +47,7 @@ Unicode:
 Host framebuffer output:
 
 - opens a `320x320` window
-- keyboard controls: `W/A/S/D` (or arrows) move a white pixel, `Enter` clears
+- keyboard controls: arrow keys move a white pixel, `Enter` clears
 
 Note: `tinygo run .` does not start a GUI window (use `go run .` for desktop testing).
 
