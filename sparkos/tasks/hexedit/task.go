@@ -67,6 +67,7 @@ type Task struct {
 	topRow int
 
 	editASCII bool
+	viewASCII bool
 	nibble    uint8
 	dirty     bool
 	quitAsk   bool
@@ -164,7 +165,7 @@ func (t *Task) setActive(ctx *kernel.Context, active bool) {
 	if !t.active {
 		return
 	}
-	t.setMessage("H help | g goto | / find | i edit | w save | q quit")
+	t.setMessage("H help | g goto | / find | v view | i edit | w save | q quit")
 	t.render(ctx)
 }
 
@@ -282,6 +283,13 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 				t.setMessage("edit: ASCII")
 			} else {
 				t.setMessage("edit: HEX")
+			}
+		case 'v':
+			t.viewASCII = !t.viewASCII
+			if t.viewASCII {
+				t.setMessage("view: ASCII")
+			} else {
+				t.setMessage("view: HEX")
 			}
 		case 'g':
 			t.beginInput(inputGoto, "goto (hex/dec): ")
@@ -806,6 +814,9 @@ func (t *Task) readWindowByte(ctx *kernel.Context, off uint32) (byte, bool) {
 }
 
 func (t *Task) layoutBytesPerRow() int {
+	if t.viewASCII {
+		return t.layoutASCIIBytesPerRow()
+	}
 	n, _ := t.layout()
 	return n
 }
@@ -825,6 +836,17 @@ func (t *Task) layout() (bytesPerRow int, showASCII bool) {
 		}
 	}
 	return 4, false
+}
+
+func (t *Task) layoutASCIIBytesPerRow() int {
+	n := t.cols - 10
+	if n > 64 {
+		n = 64
+	}
+	if n < 4 {
+		n = 4
+	}
+	return n
 }
 
 func (t *Task) ensureVisible(bytesPerRow int) {
@@ -962,6 +984,10 @@ func (t *Task) statusText() string {
 	if t.editASCII {
 		edit = "ASCII"
 	}
+	view := "HEX"
+	if t.viewASCII {
+		view = "ASCII"
+	}
 	nib := ""
 	if !t.editASCII {
 		if t.nibble == 0 {
@@ -975,7 +1001,15 @@ func (t *Task) statusText() string {
 	if t.dirty {
 		flags = "*"
 	}
-	base := fmt.Sprintf("%soff=%08X size=%08X %s%s | g goto | / find | i edit | w save | q quit", flags, t.cursor, t.size, edit, nib)
+	base := fmt.Sprintf(
+		"%soff=%08X size=%08X view=%s edit=%s%s | g goto | / find | v view | i edit | w save | q quit",
+		flags,
+		t.cursor,
+		t.size,
+		view,
+		edit,
+		nib,
+	)
 	if t.message == "" {
 		return clipRunes(base, t.cols)
 	}
