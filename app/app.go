@@ -3,6 +3,7 @@ package app
 import (
 	"spark/hal"
 	"spark/sparkos/kernel"
+	"spark/sparkos/services/consolemux"
 	"spark/sparkos/services/logger"
 	"spark/sparkos/services/shell"
 	"spark/sparkos/services/term"
@@ -10,6 +11,7 @@ import (
 	timesvc "spark/sparkos/services/time"
 	"spark/sparkos/services/ui"
 	"spark/sparkos/services/vfs"
+	"spark/sparkos/tasks/rtdemo"
 	"spark/sparkos/tasks/termdemo"
 )
 
@@ -52,6 +54,8 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	termEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	shellEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	vfsEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	muxEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	rtdemoEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 
 	k.AddTask(logger.New(h.Logger(), logEP.Restrict(kernel.RightRecv)))
 	k.AddTask(timesvc.New(timeEP))
@@ -59,12 +63,20 @@ func newSystem(h hal.HAL, cfg Config) *system {
 
 	if cfg.Shell {
 		k.AddTask(term.New(h.Display(), termEP.Restrict(kernel.RightRecv)))
-		k.AddTask(termkbd.NewInput(h.Input(), shellEP.Restrict(kernel.RightSend)))
+		k.AddTask(rtdemo.New(h.Display(), rtdemoEP.Restrict(kernel.RightRecv)))
+		k.AddTask(consolemux.New(
+			muxEP.Restrict(kernel.RightRecv),
+			shellEP.Restrict(kernel.RightSend),
+			rtdemoEP.Restrict(kernel.RightSend),
+			termEP.Restrict(kernel.RightSend),
+		))
+		k.AddTask(termkbd.NewInput(h.Input(), muxEP.Restrict(kernel.RightSend)))
 		k.AddTask(shell.New(
 			shellEP.Restrict(kernel.RightRecv),
 			termEP.Restrict(kernel.RightSend),
 			logEP.Restrict(kernel.RightSend),
 			vfsEP.Restrict(kernel.RightSend),
+			muxEP.Restrict(kernel.RightSend),
 		))
 	} else if cfg.TermDemo {
 		k.AddTask(term.New(h.Display(), termEP.Restrict(kernel.RightRecv)))

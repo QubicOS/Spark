@@ -22,6 +22,7 @@ type Service struct {
 	termCap kernel.Capability
 	logCap  kernel.Capability
 	vfsCap  kernel.Capability
+	muxCap  kernel.Capability
 
 	vfs *vfsclient.Client
 
@@ -39,8 +40,8 @@ type Service struct {
 	cwd string
 }
 
-func New(inCap kernel.Capability, termCap kernel.Capability, logCap kernel.Capability, vfsCap kernel.Capability) *Service {
-	return &Service{inCap: inCap, termCap: termCap, logCap: logCap, vfsCap: vfsCap}
+func New(inCap kernel.Capability, termCap kernel.Capability, logCap kernel.Capability, vfsCap kernel.Capability, muxCap kernel.Capability) *Service {
+	return &Service{inCap: inCap, termCap: termCap, logCap: logCap, vfsCap: vfsCap, muxCap: muxCap}
 }
 
 const (
@@ -427,6 +428,25 @@ func (s *Service) submit(ctx *kernel.Context) {
 	case "put":
 		if err := s.put(ctx, args); err != nil {
 			_ = s.printString(ctx, "put: "+err.Error()+"\n")
+		}
+	case "rtdemo":
+		active := true
+		if len(args) == 1 {
+			switch args[0] {
+			case "on":
+				active = true
+			case "off":
+				active = false
+			default:
+				_ = s.printString(ctx, "usage: rtdemo [on|off]\n")
+				break
+			}
+		} else if len(args) > 1 {
+			_ = s.printString(ctx, "usage: rtdemo [on|off]\n")
+			break
+		}
+		if err := s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(active)); err != nil {
+			_ = s.printString(ctx, "rtdemo: "+err.Error()+"\n")
 		}
 	default:
 		_ = s.printString(ctx, "unknown command: "+cmd+"\n")
@@ -907,6 +927,23 @@ func (s *Service) sendToTerm(ctx *kernel.Context, kind proto.Kind, payload []byt
 	}
 }
 
+func (s *Service) sendToMux(ctx *kernel.Context, kind proto.Kind, payload []byte) error {
+	if !s.muxCap.Valid() {
+		return errors.New("no consolemux capability")
+	}
+	for {
+		res := ctx.SendToCapResult(s.muxCap, uint16(kind), payload, kernel.Capability{})
+		switch res {
+		case kernel.SendOK:
+			return nil
+		case kernel.SendErrQueueFull:
+			ctx.BlockOnTick()
+		default:
+			return fmt.Errorf("shell consolemux send: %s", res)
+		}
+	}
+}
+
 func (s *Service) insertString(ctx *kernel.Context, tail string) {
 	rs := []rune(tail)
 	if len(rs) == 0 {
@@ -969,6 +1006,7 @@ var builtinCommands = []string{
 	"panic",
 	"put",
 	"pwd",
+	"rtdemo",
 	"scrollback",
 	"stat",
 	"ticks",
@@ -1003,6 +1041,7 @@ var builtinCommandHelp = []commandHelp{
 	{Name: "panic", Desc: "Panic the shell task (test)."},
 	{Name: "log", Desc: "Send a log line to logger service."},
 	{Name: "scrollback", Desc: "Show the last N output lines."},
+	{Name: "rtdemo", Desc: "Toggle raytracing demo (Ctrl+G or `rtdemo`)."},
 }
 
 const scrollbackMaxLines = 200

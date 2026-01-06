@@ -43,6 +43,7 @@ func (k *hostKeyboard) poll() {
 		}
 		emitCtrl(ebiten.KeyA, 0x01)
 		emitCtrl(ebiten.KeyE, 0x05)
+		emitCtrl(ebiten.KeyG, 0x07)
 		emitCtrl(ebiten.KeyU, 0x15)
 		emitCtrl(ebiten.KeyW, 0x17)
 		emitCtrl(ebiten.KeyC, 0x03)
