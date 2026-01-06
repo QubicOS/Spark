@@ -10,6 +10,7 @@ const (
 	MsgError
 	MsgTermWrite
 	MsgTermClear
+	MsgTermInput
 )
 
 // ErrCode is a generic error category for MsgError responses.
@@ -63,6 +64,8 @@ func (k Kind) String() string {
 		return "term_write"
 	case MsgTermClear:
 		return "term_clear"
+	case MsgTermInput:
+		return "term_input"
 	default:
 		return "unknown"
 	}

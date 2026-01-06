@@ -8,14 +8,21 @@ import (
 
 type Service struct {
 	in      hal.Input
-	termCap kernel.Capability
+	outCap  kernel.Capability
+	outKind proto.Kind
 
 	events  <-chan hal.KeyEvent
 	pending []byte
 }
 
+// New writes VT100 bytes directly to the terminal service.
 func New(in hal.Input, termCap kernel.Capability) *Service {
-	return &Service{in: in, termCap: termCap}
+	return &Service{in: in, outCap: termCap, outKind: proto.MsgTermWrite}
+}
+
+// NewInput writes VT100 bytes as input messages to an intermediate consumer (e.g. shell).
+func NewInput(in hal.Input, inputCap kernel.Capability) *Service {
+	return &Service{in: in, outCap: inputCap, outKind: proto.MsgTermInput}
 }
 
 func (s *Service) Run(ctx *kernel.Context) {
@@ -64,7 +71,7 @@ func (s *Service) flush(ctx *kernel.Context) {
 	if len(s.pending) == 0 {
 		return
 	}
-	if !s.termCap.Valid() {
+	if !s.outCap.Valid() {
 		s.pending = nil
 		return
 	}
@@ -74,7 +81,7 @@ func (s *Service) flush(ctx *kernel.Context) {
 		chunk = chunk[:kernel.MaxMessageBytes]
 	}
 
-	res := ctx.SendToCapResult(s.termCap, uint16(proto.MsgTermWrite), chunk, kernel.Capability{})
+	res := ctx.SendToCapResult(s.outCap, uint16(s.outKind), chunk, kernel.Capability{})
 	switch res {
 	case kernel.SendOK:
 		s.pending = s.pending[len(chunk):]
@@ -94,6 +101,8 @@ func vt100FromKey(ev hal.KeyEvent) []byte {
 		return []byte{'\n'}
 	case hal.KeyEscape:
 		return []byte{0x1b}
+	case hal.KeyBackspace:
+		return []byte{0x7f}
 	case hal.KeyUp:
 		return []byte("\x1b[A")
 	case hal.KeyDown:
