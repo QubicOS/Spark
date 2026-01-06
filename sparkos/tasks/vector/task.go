@@ -76,6 +76,11 @@ type Task struct {
 	yMin float64
 	yMax float64
 
+	plotDim   int
+	plotYaw   float64
+	plotPitch float64
+	plotZoom  float64
+
 	stackSel int
 	stackTop int
 
@@ -93,6 +98,11 @@ func New(disp hal.Display, ep kernel.Capability) *Task {
 		xMax: 10,
 		yMin: -10,
 		yMax: 10,
+
+		plotDim:   2,
+		plotYaw:   0.8,
+		plotPitch: 0.55,
+		plotZoom:  1.2,
 
 		zoomInFactor:  0.8,
 		zoomOutFactor: 1.25,
@@ -127,7 +137,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 
 	t.appendLine("Vector: calculator + graph.")
 	t.appendLine("Type `sin(x)` then press Enter; press `g` to plot.")
-	t.appendLine("Commands: :exact :float :prec N")
+	t.appendLine("Commands: :help :exact :float :prec N :autoscale :resetview")
 
 	for msg := range ch {
 		switch proto.Kind(msg.Kind) {
@@ -436,40 +446,52 @@ func (t *Task) submit(ctx *kernel.Context) {
 	t.evalLine(ctx, line, true)
 }
 
-func (t *Task) handleCommand(cmd string) {
-	switch {
-	case cmd == "term":
+func (t *Task) handleCommand(ctx *kernel.Context, cmdline string) {
+	fields := strings.Fields(cmdline)
+	if len(fields) == 0 {
+		return
+	}
+	cmd := fields[0]
+
+	switch cmd {
+	case "term":
 		t.switchTab(tabTerminal)
-	case cmd == "plot":
+	case "plot":
 		t.switchTab(tabPlot)
-	case cmd == "stack":
+	case "stack":
 		t.switchTab(tabStack)
-	case cmd == "clear":
+	case "help":
+		t.showHelp = !t.showHelp
+		if t.showHelp {
+			t.setMessage("help: on")
+		} else {
+			t.setMessage("help: off")
+		}
+	case "clear":
 		t.lines = nil
 		t.setMessage("cleared")
-	case cmd == "exact":
+	case "exact":
 		t.e.mode = modeExact
 		t.setMessage("mode: exact")
-	case cmd == "float":
+	case "float":
 		t.e.mode = modeFloat
 		t.setMessage("mode: float")
-	case strings.HasPrefix(cmd, "prec"):
-		parts := strings.Fields(cmd)
-		if len(parts) != 2 {
+	case "prec":
+		if len(fields) != 2 {
 			t.setMessage("usage: :prec N")
 			return
 		}
-		n, err := strconv.Atoi(parts[1])
+		n, err := strconv.Atoi(fields[1])
 		if err != nil || n < 1 || n > 32 {
 			t.setMessage("prec: 1..32")
 			return
 		}
 		t.e.prec = n
 		t.setMessage(fmt.Sprintf("prec: %d", n))
-	case cmd == "plotclear":
+	case "plotclear":
 		t.plots = nil
 		t.setMessage("plots cleared")
-	case cmd == "plots":
+	case "plots":
 		if len(t.plots) == 0 {
 			t.appendLine("plots: (none)")
 			return
@@ -477,8 +499,110 @@ func (t *Task) handleCommand(cmd string) {
 		for i, p := range t.plots {
 			t.appendLine(fmt.Sprintf("plot[%d]: %s", i, p.src))
 		}
+	case "plotdel":
+		if len(fields) != 2 {
+			t.setMessage("usage: :plotdel N")
+			return
+		}
+		n, err := strconv.Atoi(fields[1])
+		if err != nil {
+			t.setMessage("usage: :plotdel N")
+			return
+		}
+		i := n
+		if i < 0 || i >= len(t.plots) {
+			alt := n - 1
+			if alt >= 0 && alt < len(t.plots) {
+				i = alt
+			}
+		}
+		if i < 0 || i >= len(t.plots) {
+			t.setMessage("plot index out of range")
+			return
+		}
+		t.plots = append(t.plots[:i], t.plots[i+1:]...)
+		t.setMessage(fmt.Sprintf("plot deleted: %d", i))
+	case "x", "xrange", "domain":
+		if len(fields) != 3 {
+			t.setMessage("usage: :x A B")
+			return
+		}
+		a, err := strconv.ParseFloat(fields[1], 64)
+		if err != nil {
+			t.setMessage("usage: :x A B")
+			return
+		}
+		b, err := strconv.ParseFloat(fields[2], 64)
+		if err != nil {
+			t.setMessage("usage: :x A B")
+			return
+		}
+		if a >= b {
+			t.setMessage("x: A must be < B")
+			return
+		}
+		t.xMin, t.xMax = a, b
+		t.normalizeView()
+		t.setMessage(fmt.Sprintf("x: [%s, %s]", formatFloat(t.xMin, t.e.prec), formatFloat(t.xMax, t.e.prec)))
+	case "y", "yrange":
+		if len(fields) != 3 {
+			t.setMessage("usage: :y A B")
+			return
+		}
+		a, err := strconv.ParseFloat(fields[1], 64)
+		if err != nil {
+			t.setMessage("usage: :y A B")
+			return
+		}
+		b, err := strconv.ParseFloat(fields[2], 64)
+		if err != nil {
+			t.setMessage("usage: :y A B")
+			return
+		}
+		if a >= b {
+			t.setMessage("y: A must be < B")
+			return
+		}
+		t.yMin, t.yMax = a, b
+		t.normalizeView()
+		t.setMessage(fmt.Sprintf("y: [%s, %s]", formatFloat(t.yMin, t.e.prec), formatFloat(t.yMax, t.e.prec)))
+	case "view":
+		if len(fields) != 5 {
+			t.setMessage("usage: :view xmin xmax ymin ymax")
+			return
+		}
+		xMin, err := strconv.ParseFloat(fields[1], 64)
+		if err != nil {
+			t.setMessage("usage: :view xmin xmax ymin ymax")
+			return
+		}
+		xMax, err := strconv.ParseFloat(fields[2], 64)
+		if err != nil {
+			t.setMessage("usage: :view xmin xmax ymin ymax")
+			return
+		}
+		yMin, err := strconv.ParseFloat(fields[3], 64)
+		if err != nil {
+			t.setMessage("usage: :view xmin xmax ymin ymax")
+			return
+		}
+		yMax, err := strconv.ParseFloat(fields[4], 64)
+		if err != nil {
+			t.setMessage("usage: :view xmin xmax ymin ymax")
+			return
+		}
+		if xMin >= xMax || yMin >= yMax {
+			t.setMessage("view: min must be < max")
+			return
+		}
+		t.xMin, t.xMax = xMin, xMax
+		t.yMin, t.yMax = yMin, yMax
+		t.normalizeView()
+		t.setMessage("view updated")
+	case "about", "autoscale", "resetview", "vars", "funcs", "del":
+		t.handleServiceCommand(ctx, cmdline)
 	default:
-		t.setMessage("unknown command: :" + cmd)
+		t.setMessage("unknown command: :" + cmdline)
 	}
 }
 
@@ -495,13 +619,33 @@ func (t *Task) handleServiceCommand(ctx *kernel.Context, cmdline string) {
 	case "help":
 		t.appendLine("service commands:")
 		for _, s := range serviceCommands() {
-			t.appendLine("  $" + s)
+			line := "$" + s
+			if s == "plotdim" {
+				line += " 2|3"
+			}
+			t.appendLine("  " + line)
 		}
 	case "about":
 		t.appendLine("Vector: CAS + plotter + REPL.")
 	case "clear":
 		t.lines = nil
 		t.setMessage("cleared")
+	case "plotdim":
+		if len(fields) != 2 {
+			t.appendLine("usage: $plotdim 2|3")
+			return
+		}
+		n, err := strconv.Atoi(fields[1])
+		if err != nil || (n != 2 && n != 3) {
+			t.appendLine("plotdim: expected 2 or 3")
+			return
+		}
+		t.plotDim = n
+		if t.tab == tabPlot {
+			t.setMessage(t.plotMessage())
+		} else {
+			t.setMessage(fmt.Sprintf("plotdim: %d", n))
+		}
 	case "resetview":
 		t.xMin, t.xMax = -10, 10
 		t.yMin, t.yMax = -10, 10
@@ -560,6 +704,7 @@ func serviceCommands() []string {
 		"help",
 		"about",
 		"clear",
+		"plotdim",
 		"resetview",
 		"autoscale",
 		"vars",
@@ -597,7 +742,7 @@ func pickBestCompletion(prefix string, cands []string) string {
 func (t *Task) setGraphFromExpr(src string, ex node) {
 	t.graphExpr = src
 	t.graph = ex
-	if nodeHasIdent(ex, "x") {
+	if t.plotDim != 3 && nodeHasIdent(ex, "x") {
 		t.autoscalePlots()
 	}
 }
@@ -645,25 +790,57 @@ func (t *Task) handlePlotKey(ctx *kernel.Context, k key) {
 		case 'a':
 			t.autoscalePlots()
 		case '+', '=':
-			t.zoom(t.zoomInFactor)
+			if t.plotDim == 3 {
+				t.zoom3D(t.zoomInFactor)
+			} else {
+				t.zoom(t.zoomInFactor)
+			}
 		case '-':
-			t.zoom(t.zoomOutFactor)
+			if t.plotDim == 3 {
+				t.zoom3D(t.zoomOutFactor)
+			} else {
+				t.zoom(t.zoomOutFactor)
+			}
 		case 'z':
 			t.cyclePlotZoomMode()
 			t.setMessage(fmt.Sprintf("zoom: in x%0.2f out x%0.2f", t.zoomInFactor, t.zoomOutFactor))
 		}
 	case keyLeft:
-		t.pan(-0.1, 0)
+		if t.plotDim == 3 {
+			t.plotYaw -= 0.1
+		} else {
+			t.pan(-0.1, 0)
+		}
 	case keyRight:
-		t.pan(0.1, 0)
+		if t.plotDim == 3 {
+			t.plotYaw += 0.1
+		} else {
+			t.pan(0.1, 0)
+		}
 	case keyUp:
-		t.pan(0, 0.1)
+		if t.plotDim == 3 {
+			t.plotPitch = clampFloat(t.plotPitch+0.08, -1.2, 1.2)
+		} else {
+			t.pan(0, 0.1)
+		}
 	case keyDown:
-		t.pan(0, -0.1)
+		if t.plotDim == 3 {
+			t.plotPitch = clampFloat(t.plotPitch-0.08, -1.2, 1.2)
+		} else {
+			t.pan(0, -0.1)
+		}
 	case keyPageUp:
-		t.zoom(t.zoomInFactor)
+		if t.plotDim == 3 {
+			t.zoom3D(t.zoomInFactor)
+		} else {
+			t.zoom(t.zoomInFactor)
+		}
 	case keyPageDown:
-		t.zoom(t.zoomOutFactor)
+		if t.plotDim == 3 {
+			t.zoom3D(t.zoomOutFactor)
+		} else {
+			t.zoom(t.zoomOutFactor)
+		}
 	}
 }
 
@@ -692,6 +869,20 @@ func (t *Task) zoom(factor float64) {
 	t.normalizeView()
 }
 
+func (t *Task) zoom3D(factor float64) {
+	if factor <= 0 || math.IsNaN(factor) || math.IsInf(factor, 0) {
+		return
+	}
+	zoom := t.plotZoom / factor
+	if zoom < 0.2 {
+		zoom = 0.2
+	}
+	if zoom > 20 {
+		zoom = 20
+	}
+	t.plotZoom = zoom
+}
+
 func (t *Task) evalGraphFor(expr node, x float64) (float64, bool) {
 	if expr == nil {
 		return 0, false
@@ -711,6 +902,39 @@ func (t *Task) evalGraphFor(expr node, x float64) (float64, bool) {
 		return 0, false
 	}
 	return yv.num.Float64(), true
+}
+
+func (t *Task) evalSurfaceFor(expr node, x, y float64) (float64, bool) {
+	if expr == nil {
+		return 0, false
+	}
+
+	prevX, hadPrevX := t.e.vars["x"]
+	prevY, hadPrevY := t.e.vars["y"]
+
+	t.e.vars["x"] = NumberValue(Float(x))
+	t.e.vars["y"] = NumberValue(Float(y))
+
+	zv, err := expr.Eval(t.e)
+
+	if hadPrevX {
+		t.e.vars["x"] = prevX
+	} else {
+		delete(t.e.vars, "x")
+	}
+	if hadPrevY {
+		t.e.vars["y"] = prevY
+	} else {
+		delete(t.e.vars, "y")
+	}
+
+	if err != nil {
+		return 0, false
+	}
+	if !zv.IsNumber() {
+		return 0, false
+	}
+	return zv.num.Float64(), true
 }
 
 func (t *Task) autoscalePlots() {
@@ -866,13 +1090,24 @@ func (t *Task) statusText() string {
 		case tabTerminal:
 			base = "> " + string(t.input)
 		case tabPlot:
-			base = fmt.Sprintf(
-				"x:[%s..%s] y:[%s..%s]",
-				fmtAxis(t.xMin),
-				fmtAxis(t.xMax),
-				fmtAxis(t.yMin),
-				fmtAxis(t.yMax),
-			)
+			if t.plotDim == 3 {
+				base = fmt.Sprintf(
+					"3D x:[%s..%s] y:[%s..%s] zoom:%0.2f",
+					fmtAxis(t.xMin),
+					fmtAxis(t.xMax),
+					fmtAxis(t.yMin),
+					fmtAxis(t.yMax),
+					t.plotZoom,
+				)
+			} else {
+				base = fmt.Sprintf(
+					"x:[%s..%s] y:[%s..%s]",
+					fmtAxis(t.xMin),
+					fmtAxis(t.xMax),
+					fmtAxis(t.yMin),
+					fmtAxis(t.yMax),
+				)
+			}
 		case tabStack:
 			base = "stack: Up/Down select | Enter edit | F1/F2 tabs"
 		}
@@ -976,8 +1211,10 @@ func (t *Task) switchTab(newTab tab) {
 		if len(t.plots) == 0 && t.graph != nil && nodeHasIdent(t.graph, "x") {
 			t.addPlotFunc(t.graphExpr, t.graph)
 		}
-		t.autoscalePlots()
-		t.setMessage("arrows pan | +/- zoom | PgUp/PgDn zoom | z zoom step | a autoscale | F1 term | F3 stack")
+		if t.plotDim != 3 {
+			t.autoscalePlots()
+		}
+		t.setMessage(t.plotMessage())
 	case tabStack:
 		t.hint = ""
 		t.ghost = ""
@@ -987,6 +1224,13 @@ func (t *Task) switchTab(newTab tab) {
 		t.stackTop = 0
 		t.setMessage("Up/Down select | Enter edit | F1 term | F2 plot")
 	}
+}
+
+func (t *Task) plotMessage() string {
+	if t.plotDim == 3 {
+		return "3D: arrows rotate | +/- zoom | PgUp/PgDn zoom | z zoom step | a autoscale | c term | $plotdim 2"
+	}
+	return "arrows pan | +/- zoom | PgUp/PgDn zoom | z zoom step | a autoscale | F1 term | F3 stack"
 }
 
 func (t *Task) cyclePlotZoomMode() {
@@ -1014,7 +1258,7 @@ func (t *Task) evalLine(ctx *kernel.Context, line string, recordHistory bool) {
 	}
 
 	if strings.HasPrefix(line, ":") {
-		t.handleCommand(strings.TrimSpace(line[1:]))
+		t.handleCommand(ctx, strings.TrimSpace(line[1:]))
 		return
 	}
 	if strings.HasPrefix(line, "$") {
@@ -1259,12 +1503,22 @@ func (t *Task) updateCommandHint(line string) {
 	}
 	cmd := string(t.input[start:prefixEnd])
 	switch cmd {
+	case "help":
+		t.hint = ":help"
 	case "prec":
 		t.hint = ":prec N"
 	case "plotclear":
 		t.hint = ":plotclear"
 	case "plots":
 		t.hint = ":plots"
+	case "plotdel":
+		t.hint = ":plotdel N"
+	case "x", "xrange", "domain":
+		t.hint = ":x A B"
+	case "y", "yrange":
+		t.hint = ":y A B"
+	case "view":
+		t.hint = ":view xmin xmax ymin ymax"
 	case "exact":
 		t.hint = ":exact"
 	case "float":
@@ -1277,6 +1531,18 @@ func (t *Task) updateCommandHint(line string) {
 		t.hint = ":plot"
 	case "stack":
 		t.hint = ":stack"
+	case "autoscale":
+		t.hint = ":autoscale"
+	case "resetview":
+		t.hint = ":resetview"
+	case "vars":
+		t.hint = ":vars"
+	case "funcs":
+		t.hint = ":funcs"
+	case "del":
+		t.hint = ":del name"
+	case "about":
+		t.hint = ":about"
 	}
 
 	prefix := cmd
@@ -1478,7 +1744,15 @@ func (t *Task) completeFromPrefix(prefix string, commands bool) []string {
 
 	if commands {
 		for _, s := range []string{
-			"exact", "float", "prec", "plotclear", "plots", "clear", "term", "plot", "stack",
+			"help",
+			"exact", "float", "prec",
+			"plotclear", "plots", "plotdel",
+			"x", "xrange", "domain",
+			"y", "yrange",
+			"view",
+			"autoscale", "resetview",
+			"vars", "funcs", "del", "about",
+			"clear", "term", "plot", "stack",
 		} {
 			add(s)
 		}
@@ -1593,4 +1867,14 @@ func normalizeFloat(v float64) float64 {
 		return v
 	}
 	return out
+}
+
+func clampFloat(v, lo, hi float64) float64 {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
