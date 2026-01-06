@@ -35,6 +35,12 @@ VT100 demo (window):
 go run . -term-demo
 ```
 
+Shell (window):
+
+```bash
+go run . -shell
+```
+
 Host framebuffer output:
 
 - opens a `320x320` window

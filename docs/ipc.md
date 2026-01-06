@@ -35,6 +35,7 @@
 - `MsgError`: универсальный ответ-ошибка.
 - `MsgTermWrite`: best-effort VT100/ANSI bytes в терминал.
 - `MsgTermClear`: очистка/сброс терминала.
+- `MsgTermInput`: best-effort VT100/ANSI bytes от клавиатуры (для shell и подобных потребителей).
 
 ## Протокол: Logger
 
@@ -82,6 +83,7 @@
 
 Текущая интеграция:
 - `termkbd` отправляет результат как `MsgTermWrite` в term service.
+- `termkbd` (альтернатива) отправляет результат как `MsgTermInput` в shell service.
 
 ## Универсальная ошибка (MsgError)
 
