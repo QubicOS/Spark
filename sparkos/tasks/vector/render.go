@@ -588,6 +588,11 @@ func (t *Task) renderGraph3D(panelY int16, w int16, viewHPx int) {
 
 	_ = t.d.FillRectangle(plotX, plotY, plotW, plotH, colorPanelBG)
 
+	zbuf := make([]uint8, int(plotW)*int(plotH))
+	for i := range zbuf {
+		zbuf[i] = 0xFF
+	}
+
 	gridX := clampInt(int(plotW/8), 12, 32)
 	gridY := clampInt(int(plotH/8), 12, 32)
 	if gridX < 2 {
@@ -637,7 +642,7 @@ func (t *Task) renderGraph3D(panelY int16, w int16, viewHPx int) {
 		zR = 1
 	}
 
-	t.drawBox3D(plotX, plotY, plotW, plotH)
+	t.drawBox3D(plotX, plotY, plotW, plotH, zbuf)
 
 	xmin := 0.0
 	ymin := 0.0
@@ -645,12 +650,21 @@ func (t *Task) renderGraph3D(panelY int16, w int16, viewHPx int) {
 	ymax := float64(plotH - 1)
 
 	wire := colorPlot0
-	for iy := 0; iy < gridY; iy++ {
-		var prevX, prevY float64
+	stepX := 1
+	stepY := 1
+	if gridX > 24 {
+		stepX = 2
+	}
+	if gridY > 24 {
+		stepY = 2
+	}
+
+	for iy := 0; iy < gridY; iy += stepY {
+		var prevX, prevY, prevD float64
 		prevOK := false
 		y := t.yMin + (float64(iy)/float64(gridY-1))*(t.yMax-t.yMin)
 		yN := (y - yC) / yR
-		for ix := 0; ix < gridX; ix++ {
+		for ix := 0; ix < gridX; ix += stepX {
 			x := t.xMin + (float64(ix)/float64(gridX-1))*(t.xMax-t.xMin)
 			z, ok := t.evalSurfaceFor(expr, x, y)
 			if !ok || math.IsNaN(z) || math.IsInf(z, 0) {
@@ -660,34 +674,32 @@ func (t *Task) renderGraph3D(panelY int16, w int16, viewHPx int) {
 
 			xN := (x - xC) / xR
 			zN := (z - zC) / zR
-			curX, curY, ok := t.project3DToPlot(xN, yN, zN, plotW, plotH)
+			curX, curY, curD, ok := t.project3DToPlot(xN, yN, zN, plotW, plotH)
 			if !ok {
 				prevOK = false
 				continue
 			}
 			if prevOK {
-				cx0, cy0, cx1, cy1, ok := clipLineToRect(prevX, prevY, curX, curY, xmin, ymin, xmax, ymax)
+				cx0, cy0, cx1, cy1, u0, u1, ok := clipLineToRectWithT(prevX, prevY, curX, curY, xmin, ymin, xmax, ymax)
 				if ok {
-					t.drawLine(
-						plotX+roundInt16(cx0),
-						plotY+roundInt16(cy0),
-						plotX+roundInt16(cx1),
-						plotY+roundInt16(cy1),
-						wire,
-					)
+					d0 := prevD + u0*(curD-prevD)
+					d1 := prevD + u1*(curD-prevD)
+					t.drawLineDepth(plotX, plotY, plotW, plotH, cx0, cy0, d0, cx1, cy1, d1, wire, zbuf)
 				}
 			}
 			prevOK = true
 			prevX = curX
 			prevY = curY
+			prevD = curD
 		}
 	}
-	for ix := 0; ix < gridX; ix++ {
-		var prevX, prevY float64
+
+	for ix := 0; ix < gridX; ix += stepX {
+		var prevX, prevY, prevD float64
 		prevOK := false
 		x := t.xMin + (float64(ix)/float64(gridX-1))*(t.xMax-t.xMin)
 		xN := (x - xC) / xR
-		for iy := 0; iy < gridY; iy++ {
+		for iy := 0; iy < gridY; iy += stepY {
 			y := t.yMin + (float64(iy)/float64(gridY-1))*(t.yMax-t.yMin)
 			z, ok := t.evalSurfaceFor(expr, x, y)
 			if !ok || math.IsNaN(z) || math.IsInf(z, 0) {
@@ -697,35 +709,32 @@ func (t *Task) renderGraph3D(panelY int16, w int16, viewHPx int) {
 
 			yN := (y - yC) / yR
 			zN := (z - zC) / zR
-			curX, curY, ok := t.project3DToPlot(xN, yN, zN, plotW, plotH)
+			curX, curY, curD, ok := t.project3DToPlot(xN, yN, zN, plotW, plotH)
 			if !ok {
 				prevOK = false
 				continue
 			}
 			if prevOK {
-				cx0, cy0, cx1, cy1, ok := clipLineToRect(prevX, prevY, curX, curY, xmin, ymin, xmax, ymax)
+				cx0, cy0, cx1, cy1, u0, u1, ok := clipLineToRectWithT(prevX, prevY, curX, curY, xmin, ymin, xmax, ymax)
 				if ok {
-					t.drawLine(
-						plotX+roundInt16(cx0),
-						plotY+roundInt16(cy0),
-						plotX+roundInt16(cx1),
-						plotY+roundInt16(cy1),
-						wire,
-					)
+					d0 := prevD + u0*(curD-prevD)
+					d1 := prevD + u1*(curD-prevD)
+					t.drawLineDepth(plotX, plotY, plotW, plotH, cx0, cy0, d0, cx1, cy1, d1, wire, zbuf)
 				}
 			}
 			prevOK = true
 			prevX = curX
 			prevY = curY
+			prevD = curD
 		}
 	}
 
 	t.drawLegend(plotX, plotY, plotW, plotH, []plot{{src: src, expr: expr}})
 }
 
-func (t *Task) project3DToPlot(x, y, z float64, plotW, plotH int16) (px, py float64, ok bool) {
+func (t *Task) project3DToPlot(x, y, z float64, plotW, plotH int16) (px, py, depth float64, ok bool) {
 	if plotW <= 0 || plotH <= 0 {
-		return 0, 0, false
+		return 0, 0, 0, false
 	}
 
 	zoom := t.plotZoom
@@ -748,21 +757,21 @@ func (t *Task) project3DToPlot(x, y, z float64, plotW, plotH int16) (px, py floa
 	const dist = 3.0
 	denom := dist - z2
 	if denom <= 0.2 {
-		return 0, 0, false
+		return 0, 0, 0, false
 	}
 
 	persp := zoom / denom
 	size := 0.45 * math.Min(float64(plotW-1), float64(plotH-1))
 	if size <= 1 {
-		return 0, 0, false
+		return 0, 0, 0, false
 	}
 
 	px = float64(plotW-1)/2 + x2*persp*size
 	py = float64(plotH-1)/2 - y2*persp*size
-	return px, py, true
+	return px, py, denom, true
 }
 
-func (t *Task) drawBox3D(plotX, plotY, plotW, plotH int16) {
+func (t *Task) drawBox3D(plotX, plotY, plotW, plotH int16, zbuf []uint8) {
 	edges := [][2][3]float64{
 		{{-1, -1, -1}, {1, -1, -1}},
 		{{-1, 1, -1}, {1, 1, -1}},
@@ -786,23 +795,146 @@ func (t *Task) drawBox3D(plotX, plotY, plotW, plotH int16) {
 	ymax := float64(plotH - 1)
 
 	for _, e := range edges {
-		x0, y0, ok0 := t.project3DToPlot(e[0][0], e[0][1], e[0][2], plotW, plotH)
-		x1, y1, ok1 := t.project3DToPlot(e[1][0], e[1][1], e[1][2], plotW, plotH)
+		x0, y0, d0, ok0 := t.project3DToPlot(e[0][0], e[0][1], e[0][2], plotW, plotH)
+		x1, y1, d1, ok1 := t.project3DToPlot(e[1][0], e[1][1], e[1][2], plotW, plotH)
 		if !ok0 || !ok1 {
 			continue
 		}
-		cx0, cy0, cx1, cy1, ok := clipLineToRect(x0, y0, x1, y1, xmin, ymin, xmax, ymax)
+		cx0, cy0, cx1, cy1, u0, u1, ok := clipLineToRectWithT(x0, y0, x1, y1, xmin, ymin, xmax, ymax)
 		if !ok {
 			continue
 		}
-		t.drawLine(
-			plotX+roundInt16(cx0),
-			plotY+roundInt16(cy0),
-			plotX+roundInt16(cx1),
-			plotY+roundInt16(cy1),
-			colorAxis,
-		)
+		cd0 := d0 + u0*(d1-d0)
+		cd1 := d0 + u1*(d1-d0)
+		t.drawLineDepth(plotX, plotY, plotW, plotH, cx0, cy0, cd0, cx1, cy1, cd1, colorAxis, zbuf)
 	}
+}
+
+func clipLineToRectWithT(x0, y0, x1, y1, xmin, ymin, xmax, ymax float64) (cx0, cy0, cx1, cy1, u1, u2 float64, ok bool) {
+	dx := x1 - x0
+	dy := y1 - y0
+	u1 = 0.0
+	u2 = 1.0
+
+	p := [4]float64{-dx, dx, -dy, dy}
+	q := [4]float64{x0 - xmin, xmax - x0, y0 - ymin, ymax - y0}
+	for i := 0; i < 4; i++ {
+		if p[i] == 0 {
+			if q[i] < 0 {
+				return 0, 0, 0, 0, 0, 0, false
+			}
+			continue
+		}
+		t := q[i] / p[i]
+		if p[i] < 0 {
+			if t > u2 {
+				return 0, 0, 0, 0, 0, 0, false
+			}
+			if t > u1 {
+				u1 = t
+			}
+		} else {
+			if t < u1 {
+				return 0, 0, 0, 0, 0, 0, false
+			}
+			if t < u2 {
+				u2 = t
+			}
+		}
+	}
+
+	cx0 = x0 + u1*dx
+	cy0 = y0 + u1*dy
+	cx1 = x0 + u2*dx
+	cy1 = y0 + u2*dy
+	if cx0 < xmin {
+		cx0 = xmin
+	}
+	if cx0 > xmax {
+		cx0 = xmax
+	}
+	if cx1 < xmin {
+		cx1 = xmin
+	}
+	if cx1 > xmax {
+		cx1 = xmax
+	}
+	if cy0 < ymin {
+		cy0 = ymin
+	}
+	if cy0 > ymax {
+		cy0 = ymax
+	}
+	if cy1 < ymin {
+		cy1 = ymin
+	}
+	if cy1 > ymax {
+		cy1 = ymax
+	}
+	return cx0, cy0, cx1, cy1, u1, u2, true
+}
+
+func (t *Task) drawLineDepth(plotX, plotY, plotW, plotH int16, x0, y0, d0, x1, y1, d1 float64, c color.RGBA, zbuf []uint8) {
+	w := int(plotW)
+	h := int(plotH)
+	if w <= 0 || h <= 0 || len(zbuf) < w*h {
+		return
+	}
+
+	dx := x1 - x0
+	dy := y1 - y0
+	steps := math.Abs(dx)
+	if ay := math.Abs(dy); ay > steps {
+		steps = ay
+	}
+	n := int(steps)
+	if n <= 0 {
+		ix := int(roundInt16(x0))
+		iy := int(roundInt16(y0))
+		if ix < 0 || ix >= w || iy < 0 || iy >= h {
+			return
+		}
+		idx := iy*w + ix
+		z := depthToByte(d0)
+		if z <= zbuf[idx] {
+			zbuf[idx] = z
+			t.d.SetPixel(plotX+int16(ix), plotY+int16(iy), c)
+		}
+		return
+	}
+
+	for i := 0; i <= n; i++ {
+		tp := float64(i) / float64(n)
+		x := x0 + dx*tp
+		y := y0 + dy*tp
+		d := d0 + (d1-d0)*tp
+
+		ix := int(roundInt16(x))
+		iy := int(roundInt16(y))
+		if ix < 0 || ix >= w || iy < 0 || iy >= h {
+			continue
+		}
+		idx := iy*w + ix
+		z := depthToByte(d)
+		if z <= zbuf[idx] {
+			zbuf[idx] = z
+			t.d.SetPixel(plotX+int16(ix), plotY+int16(iy), c)
+		}
+	}
+}
+
+func depthToByte(denom float64) uint8 {
+	if denom < 0 || math.IsNaN(denom) || math.IsInf(denom, 0) {
+		return 0xFF
+	}
+	v := int(denom * 50)
+	if v < 0 {
+		v = 0
+	}
+	if v > 0xFF {
+		v = 0xFF
+	}
+	return uint8(v)
 }
 
 func (t *Task) drawGrid(plotX, plotY, plotW, plotH, leftMargin, bottomMargin int16) {
