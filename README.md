@@ -42,7 +42,7 @@ Headless host run:
 make headless
 ```
 
-Flags: `-headless -hz=60 -ticks=0 -budget=64` (e.g. `go run . -headless -ticks=600`).
+Flags: `-headless -hz=60 -ticks=0` (e.g. `go run . -headless -ticks=600`).
 
 ### Build (Pico 2 / UF2)
 
