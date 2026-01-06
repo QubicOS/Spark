@@ -239,8 +239,8 @@ func (t *Task) renderTerminal(panelY int16) {
 		endCol = len(t.input)
 	}
 
-	line := append(prefix, t.input[startCol:endCol]...)
-	t.drawRunesClipped(0, inputY, line, colorFG, t.cols)
+	t.drawRunesClipped(0, inputY, prefix, colorDim, t.cols)
+	t.drawHighlightedInput(int16(len(prefix))*t.fontWidth, inputY, t.input[startCol:endCol], colorFG, visibleCols)
 
 	cursorCol := len(prefix) + (t.cursor - startCol)
 	if cursorCol < len(prefix) {
@@ -257,6 +257,93 @@ func (t *Task) renderTerminal(panelY int16) {
 		cursorRune = t.input[t.cursor]
 	}
 	t.drawRunesClipped(cursorX, inputY, []rune{cursorRune}, colorFG, 1)
+
+	if t.cursor == len(t.input) && endCol == len(t.input) && t.ghost != "" && cursorCol+1 < t.cols {
+		ghostCols := t.cols - (cursorCol + 1)
+		t.drawStringClipped(int16(cursorCol+1)*t.fontWidth, inputY, t.ghost, colorDim, ghostCols)
+	}
+}
+
+func (t *Task) drawHighlightedInput(x, y int16, rs []rune, fg color.RGBA, cols int) {
+	col := 0
+	i := 0
+	for i < len(rs) {
+		if col >= cols {
+			return
+		}
+
+		r := rs[i]
+		switch {
+		case r == ':' && i == 0:
+			tinyfont.DrawChar(t.d, t.font, x+int16(col)*t.fontWidth, y+t.fontOffset, r, colorDim)
+			col++
+			i++
+			cmdStart := i
+			for i < len(rs) && isIdentContinue(rs[i]) {
+				i++
+			}
+			t.drawRunesClipped(x+int16(col)*t.fontWidth, y, rs[cmdStart:i], colorPlot1, cols-col)
+			col += i - cmdStart
+			continue
+		case isIdentStart(r):
+			start := i
+			i++
+			for i < len(rs) && isIdentContinue(rs[i]) {
+				i++
+			}
+			word := string(rs[start:i])
+			c := fg
+			if isKeyword(word) {
+				c = colorPlot2
+			}
+			t.drawRunesClipped(x+int16(col)*t.fontWidth, y, rs[start:i], c, cols-col)
+			col += i - start
+			continue
+		case (r >= '0' && r <= '9') || (r == '.' && i+1 < len(rs) && rs[i+1] >= '0' && rs[i+1] <= '9'):
+			start := i
+			i++
+			for i < len(rs) && ((rs[i] >= '0' && rs[i] <= '9') || rs[i] == '.') {
+				i++
+			}
+			if i < len(rs) && (rs[i] == 'e' || rs[i] == 'E') {
+				j := i + 1
+				if j < len(rs) && (rs[j] == '+' || rs[j] == '-') {
+					j++
+				}
+				k := j
+				for k < len(rs) && rs[k] >= '0' && rs[k] <= '9' {
+					k++
+				}
+				if k > j {
+					i = k
+				}
+			}
+			t.drawRunesClipped(x+int16(col)*t.fontWidth, y, rs[start:i], colorPlot1, cols-col)
+			col += i - start
+			continue
+		case r == '+' || r == '-' || r == '*' || r == '/' || r == '^' || r == '=' || r == ',' || r == '(' || r == ')' || r == ';':
+			tinyfont.DrawChar(t.d, t.font, x+int16(col)*t.fontWidth, y+t.fontOffset, r, colorDim)
+			col++
+			i++
+			continue
+		default:
+			tinyfont.DrawChar(t.d, t.font, x+int16(col)*t.fontWidth, y+t.fontOffset, r, fg)
+			col++
+			i++
+			continue
+		}
+	}
+}
+
+func isKeyword(s string) bool {
+	switch s {
+	case "range", "simp", "diff",
+		"sin", "cos", "tan", "asin", "acos", "atan",
+		"sqrt", "abs", "exp", "ln", "min", "max":
+		return true
+	default:
+		return false
+	}
 }
 
 func (t *Task) renderStack(panelY int16) {
@@ -503,7 +590,11 @@ func (t *Task) drawPlotFunc(px0, py0, pw, ph int16, expr node, c color.RGBA) {
 		return
 	}
 	prevOK := false
-	var prevX, prevY int16
+	var prevX, prevY float64
+	xMin := 0.0
+	yMin := 0.0
+	xMax := float64(pw - 1)
+	yMax := float64(ph - 1)
 	for ix := int16(0); ix < pw; ix++ {
 		x := t.xMin + (float64(ix)/float64(pw-1))*(t.xMax-t.xMin)
 		y, ok := t.evalGraphFor(expr, x)
@@ -511,20 +602,26 @@ func (t *Task) drawPlotFunc(px0, py0, pw, ph int16, expr node, c color.RGBA) {
 			prevOK = false
 			continue
 		}
-		iy := int16((t.yMax - y) / (t.yMax - t.yMin) * float64(ph-1))
-		if iy < 0 || iy >= ph {
-			prevOK = false
-			continue
-		}
 
+		curX := float64(ix)
+		curY := (t.yMax - y) / (t.yMax - t.yMin) * float64(ph-1)
 		if prevOK {
-			t.drawLine(px0+prevX, py0+prevY, px0+ix, py0+iy, c)
-		} else {
-			t.d.SetPixel(px0+ix, py0+iy, c)
+			cx0, cy0, cx1, cy1, ok := clipLineToRect(prevX, prevY, curX, curY, xMin, yMin, xMax, yMax)
+			if ok {
+				t.drawLine(
+					px0+roundInt16(cx0),
+					py0+roundInt16(cy0),
+					px0+roundInt16(cx1),
+					py0+roundInt16(cy1),
+					c,
+				)
+			}
+		} else if curY >= yMin && curY <= yMax {
+			t.d.SetPixel(px0+ix, py0+roundInt16(curY), c)
 		}
 		prevOK = true
-		prevX = ix
-		prevY = iy
+		prevX = curX
+		prevY = curY
 	}
 }
 
@@ -534,7 +631,11 @@ func (t *Task) drawPlotSeries(px0, py0, pw, ph int16, xs, ys []float64, c color.
 	}
 
 	prevOK := false
-	var prevX, prevY int16
+	var prevX, prevY float64
+	xMin := 0.0
+	yMin := 0.0
+	xMax := float64(pw - 1)
+	yMax := float64(ph - 1)
 	for i := range xs {
 		x := xs[i]
 		y := ys[i]
@@ -543,21 +644,97 @@ func (t *Task) drawPlotSeries(px0, py0, pw, ph int16, xs, ys []float64, c color.
 			continue
 		}
 
-		ix := int16((x - t.xMin) / (t.xMax - t.xMin) * float64(pw-1))
-		iy := int16((t.yMax - y) / (t.yMax - t.yMin) * float64(ph-1))
-		if ix < 0 || ix >= pw || iy < 0 || iy >= ph {
-			prevOK = false
-			continue
-		}
+		curX := (x - t.xMin) / (t.xMax - t.xMin) * float64(pw-1)
+		curY := (t.yMax - y) / (t.yMax - t.yMin) * float64(ph-1)
 		if prevOK {
-			t.drawLine(px0+prevX, py0+prevY, px0+ix, py0+iy, c)
-		} else {
-			t.d.SetPixel(px0+ix, py0+iy, c)
+			cx0, cy0, cx1, cy1, ok := clipLineToRect(prevX, prevY, curX, curY, xMin, yMin, xMax, yMax)
+			if ok {
+				t.drawLine(
+					px0+roundInt16(cx0),
+					py0+roundInt16(cy0),
+					px0+roundInt16(cx1),
+					py0+roundInt16(cy1),
+					c,
+				)
+			}
+		} else if curX >= xMin && curX <= xMax && curY >= yMin && curY <= yMax {
+			t.d.SetPixel(px0+roundInt16(curX), py0+roundInt16(curY), c)
 		}
 		prevOK = true
-		prevX = ix
-		prevY = iy
+		prevX = curX
+		prevY = curY
 	}
+}
+
+func clipLineToRect(x0, y0, x1, y1, xmin, ymin, xmax, ymax float64) (cx0, cy0, cx1, cy1 float64, ok bool) {
+	dx := x1 - x0
+	dy := y1 - y0
+	u1 := 0.0
+	u2 := 1.0
+
+	p := [4]float64{-dx, dx, -dy, dy}
+	q := [4]float64{x0 - xmin, xmax - x0, y0 - ymin, ymax - y0}
+	for i := 0; i < 4; i++ {
+		if p[i] == 0 {
+			if q[i] < 0 {
+				return 0, 0, 0, 0, false
+			}
+			continue
+		}
+		t := q[i] / p[i]
+		if p[i] < 0 {
+			if t > u2 {
+				return 0, 0, 0, 0, false
+			}
+			if t > u1 {
+				u1 = t
+			}
+		} else {
+			if t < u1 {
+				return 0, 0, 0, 0, false
+			}
+			if t < u2 {
+				u2 = t
+			}
+		}
+	}
+
+	cx0 = x0 + u1*dx
+	cy0 = y0 + u1*dy
+	cx1 = x0 + u2*dx
+	cy1 = y0 + u2*dy
+	if cx0 < xmin {
+		cx0 = xmin
+	}
+	if cx0 > xmax {
+		cx0 = xmax
+	}
+	if cx1 < xmin {
+		cx1 = xmin
+	}
+	if cx1 > xmax {
+		cx1 = xmax
+	}
+	if cy0 < ymin {
+		cy0 = ymin
+	}
+	if cy0 > ymax {
+		cy0 = ymax
+	}
+	if cy1 < ymin {
+		cy1 = ymin
+	}
+	if cy1 > ymax {
+		cy1 = ymax
+	}
+	return cx0, cy0, cx1, cy1, true
+}
+
+func roundInt16(v float64) int16 {
+	if v < 0 {
+		return int16(v - 0.5)
+	}
+	return int16(v + 0.5)
 }
 
 func (t *Task) drawLine(x0, y0, x1, y1 int16, c color.RGBA) {
