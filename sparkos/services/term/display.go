@@ -56,6 +56,59 @@ func (d *fbDisplay) Display() error {
 	return d.fb.Present()
 }
 
+func (d *fbDisplay) ScrollUp(lines int16, bg color.RGBA) error {
+	if d.fb == nil || d.fb.Format() != hal.PixelFormatRGB565 {
+		return nil
+	}
+	if lines <= 0 {
+		return nil
+	}
+
+	buf := d.fb.Buffer()
+	if buf == nil {
+		return nil
+	}
+
+	w := d.fb.Width()
+	h := d.fb.Height()
+	if w <= 0 || h <= 0 {
+		return nil
+	}
+
+	n := int(lines)
+	if n >= h {
+		return d.FillRectangle(0, 0, int16(w), int16(h), bg)
+	}
+
+	stride := d.fb.StrideBytes()
+	rowBytes := w * 2
+	if rowBytes > stride {
+		rowBytes = stride
+	}
+
+	// Shift framebuffer content up by n lines (respect stride + buffer bounds).
+	dstLen := (h - n) * stride
+	srcStart := n * stride
+	if dstLen < 0 || srcStart < 0 {
+		return nil
+	}
+	if dstLen > len(buf) {
+		dstLen = len(buf)
+	}
+	if srcStart > len(buf) {
+		return d.FillRectangle(0, 0, int16(w), int16(h), bg)
+	}
+	srcEnd := srcStart + dstLen
+	if srcEnd > len(buf) {
+		srcEnd = len(buf)
+		dstLen = srcEnd - srcStart
+	}
+	copy(buf[:dstLen], buf[srcStart:srcEnd])
+
+	// Clear the newly exposed bottom area.
+	return d.FillRectangle(0, int16(h-n), int16(w), int16(n), bg)
+}
+
 func (d *fbDisplay) FillRectangle(x, y, width, height int16, c color.RGBA) error {
 	if d.fb == nil || d.fb.Format() != hal.PixelFormatRGB565 {
 		return nil
