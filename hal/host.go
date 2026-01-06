@@ -25,7 +25,7 @@ func New() HAL {
 	return &hostHAL{
 		logger: logger,
 		led:    &hostLED{logger: logger},
-		fb:     newHostFramebuffer(106, 106),
+		fb:     newHostFramebuffer(320, 320),
 		kbd:    newHostKeyboard(),
 		t:      t,
 		flash:  newHostFlash(),

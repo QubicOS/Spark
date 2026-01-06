@@ -26,7 +26,7 @@ func New() HAL {
 	return &tinyGoHostHAL{
 		logger: l,
 		led:    &tinyGoHostLED{logger: l},
-		fb:     newTinyGoHostFramebuffer(106, 106),
+		fb:     newTinyGoHostFramebuffer(320, 320),
 		kbd:    newTinyGoHostKeyboard(),
 		t:      newTinyGoHostTime(),
 		flash:  stubFlash{},
