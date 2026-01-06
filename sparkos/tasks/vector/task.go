@@ -558,6 +558,7 @@ func (t *Task) pan(dxFrac, dyFrac float64) {
 	t.xMax += dx
 	t.yMin += dy
 	t.yMax += dy
+	t.normalizeView()
 }
 
 func (t *Task) zoom(factor float64) {
@@ -572,6 +573,7 @@ func (t *Task) zoom(factor float64) {
 	t.xMax = cx + hx
 	t.yMin = cy - hy
 	t.yMax = cy + hy
+	t.normalizeView()
 }
 
 func (t *Task) evalGraphFor(expr node, x float64) (float64, bool) {
@@ -748,7 +750,13 @@ func (t *Task) statusText() string {
 		case tabTerminal:
 			base = "> " + string(t.input)
 		case tabPlot:
-			base = fmt.Sprintf("x:[%g..%g] y:[%g..%g]", t.xMin, t.xMax, t.yMin, t.yMax)
+			base = fmt.Sprintf(
+				"x:[%s..%s] y:[%s..%s]",
+				fmtAxis(t.xMin),
+				fmtAxis(t.xMax),
+				fmtAxis(t.yMin),
+				fmtAxis(t.yMax),
+			)
 		case tabStack:
 			base = "stack: Up/Down select | Enter edit | F1/F2 tabs"
 		}
@@ -1323,4 +1331,35 @@ func clipRunes(s string, max int) string {
 		rs = rs[:max]
 	}
 	return string(rs)
+}
+
+func (t *Task) normalizeView() {
+	t.xMin = normalizeFloat(t.xMin)
+	t.xMax = normalizeFloat(t.xMax)
+	t.yMin = normalizeFloat(t.yMin)
+	t.yMax = normalizeFloat(t.yMax)
+	if t.xMin == 0 {
+		t.xMin = 0
+	}
+	if t.xMax == 0 {
+		t.xMax = 0
+	}
+	if t.yMin == 0 {
+		t.yMin = 0
+	}
+	if t.yMax == 0 {
+		t.yMax = 0
+	}
+}
+
+func normalizeFloat(v float64) float64 {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return v
+	}
+	s := strconv.FormatFloat(v, 'g', 12, 64)
+	out, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return v
+	}
+	return out
 }
