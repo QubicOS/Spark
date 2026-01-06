@@ -3,6 +3,7 @@ package shell
 import (
 	"errors"
 	"fmt"
+	"path"
 	"runtime"
 	"strconv"
 	"strings"
@@ -392,6 +393,12 @@ func (s *Service) submit(ctx *kernel.Context) {
 		if err := s.ls(ctx, args); err != nil {
 			_ = s.printString(ctx, "ls: "+err.Error()+"\n")
 		}
+	case "pwd":
+		_ = s.printString(ctx, s.cwd+"\n")
+	case "cd":
+		if err := s.cd(ctx, args); err != nil {
+			_ = s.printString(ctx, "cd: "+err.Error()+"\n")
+		}
 	case "mkdir":
 		if err := s.mkdir(ctx, args); err != nil {
 			_ = s.printString(ctx, "mkdir: "+err.Error()+"\n")
@@ -521,6 +528,50 @@ func (s *Service) vfsClient() *vfsclient.Client {
 	return s.vfs
 }
 
+func (s *Service) absPath(p string) string {
+	if p == "" {
+		return s.cwd
+	}
+	if strings.HasPrefix(p, "/") {
+		return cleanPath(p)
+	}
+	if s.cwd == "/" {
+		return cleanPath("/" + p)
+	}
+	return cleanPath(s.cwd + "/" + p)
+}
+
+func cleanPath(p string) string {
+	p = path.Clean(p)
+	if p == "." {
+		return "/"
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return p
+}
+
+func (s *Service) cd(ctx *kernel.Context, args []string) error {
+	target := "/"
+	if len(args) == 1 {
+		target = args[0]
+	} else if len(args) > 1 {
+		return errors.New("usage: cd [dir]")
+	}
+	target = s.absPath(target)
+
+	typ, _, err := s.vfsClient().Stat(ctx, target)
+	if err != nil {
+		return err
+	}
+	if typ != proto.VFSEntryDir {
+		return errors.New("not a directory")
+	}
+	s.cwd = target
+	return nil
+}
+
 func (s *Service) ls(ctx *kernel.Context, args []string) error {
 	path := "/"
 	if len(args) == 1 {
@@ -528,6 +579,7 @@ func (s *Service) ls(ctx *kernel.Context, args []string) error {
 	} else if len(args) > 1 {
 		return errors.New("usage: ls [path]")
 	}
+	path = s.absPath(path)
 
 	ents, err := s.vfsClient().List(ctx, path)
 	if err != nil {
@@ -556,14 +608,14 @@ func (s *Service) mkdir(ctx *kernel.Context, args []string) error {
 	if len(args) != 1 {
 		return errors.New("usage: mkdir <path>")
 	}
-	return s.vfsClient().Mkdir(ctx, args[0])
+	return s.vfsClient().Mkdir(ctx, s.absPath(args[0]))
 }
 
 func (s *Service) stat(ctx *kernel.Context, args []string) error {
 	if len(args) != 1 {
 		return errors.New("usage: stat <path>")
 	}
-	typ, size, err := s.vfsClient().Stat(ctx, args[0])
+	typ, size, err := s.vfsClient().Stat(ctx, s.absPath(args[0]))
 	if err != nil {
 		return err
 	}
@@ -581,7 +633,7 @@ func (s *Service) cat(ctx *kernel.Context, args []string, redir redirection) err
 	if len(args) != 1 {
 		return errors.New("usage: cat <path>")
 	}
-	path := args[0]
+	path := s.absPath(args[0])
 
 	const maxRead = kernel.MaxMessageBytes - 11
 	var off uint32
@@ -611,6 +663,7 @@ func (s *Service) cat(ctx *kernel.Context, args []string, redir redirection) err
 	}
 
 	if redir.Path != "" {
+		redir.Path = s.absPath(redir.Path)
 		mode := proto.VFSWriteTruncate
 		if redir.Append {
 			mode = proto.VFSWriteAppend
@@ -625,7 +678,7 @@ func (s *Service) put(ctx *kernel.Context, args []string) error {
 	if len(args) < 2 {
 		return errors.New("usage: put <path> <data...>")
 	}
-	path := args[0]
+	path := s.absPath(args[0])
 	data := []byte(strings.Join(args[1:], " "))
 	_, err := s.vfsClient().Write(ctx, path, proto.VFSWriteTruncate, data)
 	return err
@@ -644,6 +697,7 @@ func (s *Service) echo(ctx *kernel.Context, args []string, redir redirection) er
 		return s.printString(ctx, out)
 	}
 
+	redir.Path = s.absPath(redir.Path)
 	mode := proto.VFSWriteTruncate
 	if redir.Append {
 		mode = proto.VFSWriteAppend
@@ -818,6 +872,7 @@ func maxInt(a, b int) int {
 
 var builtinCommands = []string{
 	"cat",
+	"cd",
 	"clear",
 	"echo",
 	"help",
@@ -826,6 +881,7 @@ var builtinCommands = []string{
 	"mkdir",
 	"panic",
 	"put",
+	"pwd",
 	"scrollback",
 	"stat",
 	"ticks",
@@ -844,6 +900,8 @@ var builtinCommandHelp = []commandHelp{
 	{Name: "echo", Desc: "Print arguments."},
 	{Name: "cat", Desc: "Print a file."},
 	{Name: "ls", Desc: "List directory entries."},
+	{Name: "pwd", Desc: "Print current directory."},
+	{Name: "cd", Desc: "Change current directory."},
 	{Name: "mkdir", Desc: "Create a directory."},
 	{Name: "put", Desc: "Write bytes to a file."},
 	{Name: "stat", Desc: "Show file metadata."},
