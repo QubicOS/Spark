@@ -3,7 +3,9 @@ package shell
 import (
 	"errors"
 	"fmt"
+	"path"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -33,6 +35,8 @@ type Service struct {
 	scratch []rune
 
 	scrollback []string
+
+	cwd string
 }
 
 func New(inCap kernel.Capability, termCap kernel.Capability, logCap kernel.Capability, vfsCap kernel.Capability) *Service {
@@ -48,6 +52,10 @@ func (s *Service) Run(ctx *kernel.Context) {
 	ch, ok := ctx.RecvChan(s.inCap)
 	if !ok {
 		return
+	}
+
+	if s.cwd == "" {
+		s.cwd = "/"
 	}
 
 	_ = s.printString(ctx, "\x1b[0m")
@@ -327,7 +335,11 @@ func (s *Service) submit(ctx *kernel.Context) {
 	}
 	s.histPos = len(s.history)
 
-	args := strings.Fields(line)
+	args, redirect, ok := parseArgs(line)
+	if !ok || len(args) == 0 {
+		_ = s.prompt(ctx)
+		return
+	}
 	cmd := args[0]
 	args = args[1:]
 
@@ -339,15 +351,19 @@ func (s *Service) submit(ctx *kernel.Context) {
 	case "clear":
 		_ = s.sendToTerm(ctx, proto.MsgTermClear, nil)
 	case "echo":
-		if err := s.echo(ctx, line, args); err != nil {
+		if err := s.echo(ctx, args, redirect); err != nil {
 			_ = s.printString(ctx, "echo: "+err.Error()+"\n")
 		}
 	case "ticks":
 		_ = s.printString(ctx, fmt.Sprintf("%d\n", ctx.NowTick()))
+	case "uptime":
+		_ = s.printString(ctx, fmt.Sprintf("up %d ticks\n", ctx.NowTick()))
 	case "version":
 		_ = s.printString(ctx, fmt.Sprintf("%s %s %s\n", buildinfo.Version, buildinfo.Commit, buildinfo.Date))
 	case "uname":
-		_ = s.printString(ctx, fmt.Sprintf("%s %s\n", runtime.GOOS, runtime.GOARCH))
+		if err := s.uname(ctx, args); err != nil {
+			_ = s.printString(ctx, "uname: "+err.Error()+"\n")
+		}
 	case "panic":
 		panic("shell panic")
 	case "log":
@@ -382,16 +398,30 @@ func (s *Service) submit(ctx *kernel.Context) {
 		if err := s.ls(ctx, args); err != nil {
 			_ = s.printString(ctx, "ls: "+err.Error()+"\n")
 		}
+	case "pwd":
+		_ = s.printString(ctx, s.cwd+"\n")
+	case "cd":
+		if err := s.cd(ctx, args); err != nil {
+			_ = s.printString(ctx, "cd: "+err.Error()+"\n")
+		}
 	case "mkdir":
 		if err := s.mkdir(ctx, args); err != nil {
 			_ = s.printString(ctx, "mkdir: "+err.Error()+"\n")
+		}
+	case "touch":
+		if err := s.touch(ctx, args); err != nil {
+			_ = s.printString(ctx, "touch: "+err.Error()+"\n")
+		}
+	case "cp":
+		if err := s.cp(ctx, args); err != nil {
+			_ = s.printString(ctx, "cp: "+err.Error()+"\n")
 		}
 	case "stat":
 		if err := s.stat(ctx, args); err != nil {
 			_ = s.printString(ctx, "stat: "+err.Error()+"\n")
 		}
 	case "cat":
-		if err := s.cat(ctx, args); err != nil {
+		if err := s.cat(ctx, args, redirect); err != nil {
 			_ = s.printString(ctx, "cat: "+err.Error()+"\n")
 		}
 	case "put":
@@ -402,7 +432,106 @@ func (s *Service) submit(ctx *kernel.Context) {
 		_ = s.printString(ctx, "unknown command: "+cmd+"\n")
 	}
 
+	if redirect.Path != "" && cmd != "echo" && cmd != "cat" {
+		_ = s.printString(ctx, "redirect: not supported for "+cmd+"\n")
+	}
+
 	_ = s.prompt(ctx)
+}
+
+type redirection struct {
+	Path   string
+	Append bool
+}
+
+func parseArgs(line string) (args []string, redir redirection, ok bool) {
+	type state uint8
+	const (
+		stNone state = iota
+		stSingle
+		stDouble
+		stEscape
+	)
+
+	var cur []rune
+	st := stNone
+
+	flush := func() {
+		if len(cur) == 0 {
+			return
+		}
+		args = append(args, string(cur))
+		cur = cur[:0]
+	}
+
+	emitOp := func(op string) {
+		flush()
+		args = append(args, op)
+	}
+
+	runes := []rune(line)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		switch st {
+		case stEscape:
+			cur = append(cur, r)
+			st = stNone
+			continue
+		case stSingle:
+			if r == '\'' {
+				st = stNone
+				continue
+			}
+			cur = append(cur, r)
+			continue
+		case stDouble:
+			if r == '"' {
+				st = stNone
+				continue
+			}
+			if r == '\\' {
+				st = stEscape
+				continue
+			}
+			cur = append(cur, r)
+			continue
+		}
+
+		switch r {
+		case '\\':
+			st = stEscape
+		case '\'':
+			st = stSingle
+		case '"':
+			st = stDouble
+		case ' ', '\t':
+			flush()
+		case '>':
+			if i+1 < len(runes) && runes[i+1] == '>' {
+				i++
+				emitOp(">>")
+			} else {
+				emitOp(">")
+			}
+		default:
+			cur = append(cur, r)
+		}
+	}
+	if st != stNone {
+		return nil, redirection{}, false
+	}
+	flush()
+
+	// Handle simple trailing redirection: ... > file OR ... >> file.
+	if len(args) >= 3 {
+		op := args[len(args)-2]
+		if op == ">" || op == ">>" {
+			redir.Path = args[len(args)-1]
+			redir.Append = op == ">>"
+			args = args[:len(args)-2]
+		}
+	}
+	return args, redir, true
 }
 
 func (s *Service) vfsClient() *vfsclient.Client {
@@ -412,32 +541,97 @@ func (s *Service) vfsClient() *vfsclient.Client {
 	return s.vfs
 }
 
-func (s *Service) ls(ctx *kernel.Context, args []string) error {
-	path := "/"
-	if len(args) == 1 {
-		path = args[0]
-	} else if len(args) > 1 {
-		return errors.New("usage: ls [path]")
+func (s *Service) absPath(p string) string {
+	if p == "" {
+		return s.cwd
 	}
+	if strings.HasPrefix(p, "/") {
+		return cleanPath(p)
+	}
+	if s.cwd == "/" {
+		return cleanPath("/" + p)
+	}
+	return cleanPath(s.cwd + "/" + p)
+}
+
+func cleanPath(p string) string {
+	p = path.Clean(p)
+	if p == "." {
+		return "/"
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return p
+}
+
+func (s *Service) cd(ctx *kernel.Context, args []string) error {
+	target := "/"
+	if len(args) == 1 {
+		target = args[0]
+	} else if len(args) > 1 {
+		return errors.New("usage: cd [dir]")
+	}
+	target = s.absPath(target)
+
+	typ, _, err := s.vfsClient().Stat(ctx, target)
+	if err != nil {
+		return err
+	}
+	if typ != proto.VFSEntryDir {
+		return errors.New("not a directory")
+	}
+	s.cwd = target
+	return nil
+}
+
+func (s *Service) ls(ctx *kernel.Context, args []string) error {
+	long := false
+	var target string
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			if a == "-l" {
+				long = true
+				continue
+			}
+			return errors.New("usage: ls [-l] [path]")
+		}
+		if target != "" {
+			return errors.New("usage: ls [-l] [path]")
+		}
+		target = a
+	}
+	if target == "" {
+		target = "."
+	}
+	path := s.absPath(target)
 
 	ents, err := s.vfsClient().List(ctx, path)
 	if err != nil {
 		return err
 	}
+
+	sort.Slice(ents, func(i, j int) bool { return ents[i].Name < ents[j].Name })
 	for _, e := range ents {
-		switch e.Type {
-		case proto.VFSEntryDir:
-			if err := s.printString(ctx, fmt.Sprintf("d        %s/\n", e.Name)); err != nil {
+		name := e.Name
+		mode := "----------"
+		if e.Type == proto.VFSEntryDir {
+			mode = "drwxr-xr-x"
+		} else if e.Type == proto.VFSEntryFile {
+			mode = "-rw-r--r--"
+		} else {
+			mode = "?---------"
+		}
+
+		if !long {
+			if err := s.printString(ctx, name+"\n"); err != nil {
 				return err
 			}
-		case proto.VFSEntryFile:
-			if err := s.printString(ctx, fmt.Sprintf("f %7d %s\n", e.Size, e.Name)); err != nil {
-				return err
-			}
-		default:
-			if err := s.printString(ctx, fmt.Sprintf("?        %s\n", e.Name)); err != nil {
-				return err
-			}
+			continue
+		}
+
+		if err := s.printString(ctx, fmt.Sprintf("%s %5d %s\n", mode, e.Size, name)); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -447,14 +641,52 @@ func (s *Service) mkdir(ctx *kernel.Context, args []string) error {
 	if len(args) != 1 {
 		return errors.New("usage: mkdir <path>")
 	}
-	return s.vfsClient().Mkdir(ctx, args[0])
+	return s.vfsClient().Mkdir(ctx, s.absPath(args[0]))
+}
+
+func (s *Service) touch(ctx *kernel.Context, args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: touch <path>")
+	}
+	_, err := s.vfsClient().Write(ctx, s.absPath(args[0]), proto.VFSWriteAppend, nil)
+	return err
+}
+
+func (s *Service) cp(ctx *kernel.Context, args []string) error {
+	if len(args) != 2 {
+		return errors.New("usage: cp <src> <dst>")
+	}
+	src := s.absPath(args[0])
+	dst := s.absPath(args[1])
+
+	const maxRead = kernel.MaxMessageBytes - 11
+	var off uint32
+	var buf []byte
+	for {
+		b, eof, err := s.vfsClient().ReadAt(ctx, src, off, maxRead)
+		if err != nil {
+			return err
+		}
+		if len(b) > 0 {
+			buf = append(buf, b...)
+			off += uint32(len(b))
+			if len(buf) > 512*1024 {
+				return errors.New("file too large")
+			}
+		}
+		if eof {
+			break
+		}
+	}
+	_, err := s.vfsClient().Write(ctx, dst, proto.VFSWriteTruncate, buf)
+	return err
 }
 
 func (s *Service) stat(ctx *kernel.Context, args []string) error {
 	if len(args) != 1 {
 		return errors.New("usage: stat <path>")
 	}
-	typ, size, err := s.vfsClient().Stat(ctx, args[0])
+	typ, size, err := s.vfsClient().Stat(ctx, s.absPath(args[0]))
 	if err != nil {
 		return err
 	}
@@ -468,67 +700,96 @@ func (s *Service) stat(ctx *kernel.Context, args []string) error {
 	return s.printString(ctx, fmt.Sprintf("%s size=%d\n", t, size))
 }
 
-func (s *Service) cat(ctx *kernel.Context, args []string) error {
+func (s *Service) cat(ctx *kernel.Context, args []string, redir redirection) error {
 	if len(args) != 1 {
 		return errors.New("usage: cat <path>")
 	}
-	path := args[0]
+	path := s.absPath(args[0])
 
 	const maxRead = kernel.MaxMessageBytes - 11
 	var off uint32
+	var buf []byte
 	for {
 		b, eof, err := s.vfsClient().ReadAt(ctx, path, off, maxRead)
 		if err != nil {
 			return err
 		}
+		if len(b) == 0 && eof {
+			break
+		}
+
 		if len(b) > 0 {
-			if err := s.writeBytes(ctx, b); err != nil {
-				return err
+			if redir.Path != "" {
+				buf = append(buf, b...)
+			} else {
+				if err := s.writeBytes(ctx, b); err != nil {
+					return err
+				}
 			}
 			off += uint32(len(b))
 		}
 		if eof {
-			return s.writeString(ctx, "\n")
+			break
 		}
 	}
+
+	if redir.Path != "" {
+		redir.Path = s.absPath(redir.Path)
+		mode := proto.VFSWriteTruncate
+		if redir.Append {
+			mode = proto.VFSWriteAppend
+		}
+		_, err := s.vfsClient().Write(ctx, redir.Path, mode, buf)
+		return err
+	}
+	return nil
 }
 
 func (s *Service) put(ctx *kernel.Context, args []string) error {
 	if len(args) < 2 {
 		return errors.New("usage: put <path> <data...>")
 	}
-	path := args[0]
+	path := s.absPath(args[0])
 	data := []byte(strings.Join(args[1:], " "))
 	_, err := s.vfsClient().Write(ctx, path, proto.VFSWriteTruncate, data)
 	return err
 }
 
-func (s *Service) echo(ctx *kernel.Context, line string, args []string) error {
-	rest := strings.TrimSpace(strings.TrimPrefix(line, "echo"))
-
-	if i := strings.Index(rest, ">>"); i >= 0 {
-		text := strings.TrimSpace(rest[:i])
-		path := strings.TrimSpace(rest[i+2:])
-		if path == "" {
-			return errors.New("usage: echo <text> >> <path>")
-		}
-		_, err := s.vfsClient().Write(ctx, path, proto.VFSWriteAppend, []byte(text+"\n"))
-		return err
-	}
-	if i := strings.Index(rest, ">"); i >= 0 {
-		text := strings.TrimSpace(rest[:i])
-		path := strings.TrimSpace(rest[i+1:])
-		if path == "" {
-			return errors.New("usage: echo <text> > <path>")
-		}
-		_, err := s.vfsClient().Write(ctx, path, proto.VFSWriteTruncate, []byte(text+"\n"))
-		return err
-	}
-
+func (s *Service) uname(ctx *kernel.Context, args []string) error {
 	if len(args) == 0 {
-		return s.printString(ctx, "\n")
+		return s.printString(ctx, fmt.Sprintf("%s %s\n", runtime.GOOS, runtime.GOARCH))
 	}
-	return s.printString(ctx, strings.Join(args, " ")+"\n")
+	if len(args) == 1 && args[0] == "-a" {
+		sys := "SparkOS"
+		node := "spark"
+		rel := buildinfo.Short()
+		ver := buildinfo.Commit
+		mach := runtime.GOARCH
+		return s.printString(ctx, fmt.Sprintf("%s %s %s %s %s\n", sys, node, rel, ver, mach))
+	}
+	return errors.New("usage: uname [-a]")
+}
+
+func (s *Service) echo(ctx *kernel.Context, args []string, redir redirection) error {
+	if len(args) == 0 {
+		if redir.Path == "" {
+			return s.printString(ctx, "\n")
+		}
+		return nil
+	}
+
+	out := strings.Join(args, " ") + "\n"
+	if redir.Path == "" {
+		return s.printString(ctx, out)
+	}
+
+	redir.Path = s.absPath(redir.Path)
+	mode := proto.VFSWriteTruncate
+	if redir.Append {
+		mode = proto.VFSWriteAppend
+	}
+	_, err := s.vfsClient().Write(ctx, redir.Path, mode, []byte(out))
+	return err
 }
 
 func (s *Service) prompt(ctx *kernel.Context) error {
@@ -697,7 +958,9 @@ func maxInt(a, b int) int {
 
 var builtinCommands = []string{
 	"cat",
+	"cd",
 	"clear",
+	"cp",
 	"echo",
 	"help",
 	"ls",
@@ -705,10 +968,13 @@ var builtinCommands = []string{
 	"mkdir",
 	"panic",
 	"put",
+	"pwd",
 	"scrollback",
 	"stat",
 	"ticks",
+	"touch",
 	"uname",
+	"uptime",
 	"version",
 }
 
@@ -723,12 +989,17 @@ var builtinCommandHelp = []commandHelp{
 	{Name: "echo", Desc: "Print arguments."},
 	{Name: "cat", Desc: "Print a file."},
 	{Name: "ls", Desc: "List directory entries."},
+	{Name: "pwd", Desc: "Print current directory."},
+	{Name: "cd", Desc: "Change current directory."},
 	{Name: "mkdir", Desc: "Create a directory."},
+	{Name: "touch", Desc: "Create file if missing."},
+	{Name: "cp", Desc: "Copy a file."},
 	{Name: "put", Desc: "Write bytes to a file."},
 	{Name: "stat", Desc: "Show file metadata."},
 	{Name: "ticks", Desc: "Show current kernel tick counter."},
+	{Name: "uptime", Desc: "Show uptime (ticks)."},
 	{Name: "version", Desc: "Show build version."},
-	{Name: "uname", Desc: "Show runtime OS/arch."},
+	{Name: "uname", Desc: "Show system information (try -a)."},
 	{Name: "panic", Desc: "Panic the shell task (test)."},
 	{Name: "log", Desc: "Send a log line to logger service."},
 	{Name: "scrollback", Desc: "Show the last N output lines."},
