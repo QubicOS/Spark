@@ -14,11 +14,12 @@ import (
 func registerCoreCommands(r *registry) error {
 	for _, cmd := range []command{
 		{Name: "help", Usage: "help [command]", Desc: "Show available commands.", Run: cmdHelp},
-		{Name: "clear", Usage: "clear", Desc: "Clear the terminal.", Run: cmdClear},
+		{Name: "clear", Aliases: []string{"cls"}, Usage: "clear", Desc: "Clear the terminal.", Run: cmdClear},
 		{Name: "echo", Usage: "echo [args...]", Desc: "Print arguments.", Run: cmdEcho},
 		{Name: "panic", Usage: "panic", Desc: "Panic the shell task (test).", Run: cmdPanic},
 		{Name: "log", Usage: "log <line>", Desc: "Send a log line to logger service.", Run: cmdLog},
 		{Name: "scrollback", Usage: "scrollback [n]", Desc: "Show the last N output lines.", Run: cmdScrollback},
+		{Name: "history", Usage: "history [n]", Desc: "Show recent commands.", Run: cmdHistory},
 	} {
 		if err := r.register(cmd); err != nil {
 			return err
@@ -104,6 +105,23 @@ func cmdScrollback(ctx *kernel.Context, s *Service, args []string, _ redirection
 	}
 	for _, ln := range s.scrollback[start:] {
 		_ = s.writeString(ctx, ln+"\n")
+	}
+	return nil
+}
+
+func cmdHistory(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	n := len(s.history)
+	if len(args) >= 1 {
+		if parsed, err := strconv.Atoi(args[0]); err == nil && parsed > 0 {
+			n = parsed
+		}
+	}
+	start := len(s.history) - n
+	if start < 0 {
+		start = 0
+	}
+	for i := start; i < len(s.history); i++ {
+		_ = s.printString(ctx, fmt.Sprintf("%d\t%s\n", i+1, s.history[i]))
 	}
 	return nil
 }
