@@ -27,6 +27,7 @@ func (g *glyph) Draw(display drivers.Displayer, x, y int16, c color.RGBA) {
 		return
 	}
 
+	info := g.Info()
 	base := idx * 8
 	for row := 0; row < 8; row++ {
 		b := glyphData[base+row]
@@ -35,7 +36,11 @@ func (g *glyph) Draw(display drivers.Displayer, x, y int16, c color.RGBA) {
 			if b&(0x20>>col) == 0 {
 				continue
 			}
-			display.SetPixel(x+int16(col), y-int16(7-row), c)
+			display.SetPixel(
+				x+int16(info.XOffset)+int16(col),
+				y+int16(info.YOffset)+int16(row),
+				c,
+			)
 		}
 	}
 }
