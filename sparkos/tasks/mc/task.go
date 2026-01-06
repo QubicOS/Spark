@@ -163,6 +163,11 @@ func (t *Task) setMessage(msg string) {
 }
 
 func (t *Task) requestExit(ctx *kernel.Context) {
+	if t.fb != nil {
+		t.fb.ClearRGB(0, 0, 0)
+		_ = t.fb.Present()
+	}
+
 	if !t.muxCap.Valid() {
 		t.active = false
 		return
