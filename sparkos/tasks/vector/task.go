@@ -136,9 +136,10 @@ func (t *Task) Run(ctx *kernel.Context) {
 		return
 	}
 
-	t.appendLine("Vector: calculator + graph.")
-	t.appendLine("Type `sin(x)` then press Enter; press `g` to plot.")
-	t.appendLine("Commands: :help :exact :float :prec N :autoscale :resetview")
+	t.appendLine("V  V  Vector: calculator + graph + 2D/3D plotter")
+	t.appendLine("V  V  Enter `sin(x)` (2D) or `sin(x)*cos(y)` (3D), then press Enter")
+	t.appendLine(" V V  Plot: press `g` or go to F2 | 3D: `$plotdim 3`, arrows rotate, +/- zoom")
+	t.appendLine("  V   Commands: :help :exact :float :prec N :autoscale :resetview")
 
 	for msg := range ch {
 		switch proto.Kind(msg.Kind) {

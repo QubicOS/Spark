@@ -278,6 +278,12 @@ func (t *Task) drawHighlightedLine(x, y int16, s string, cols int) {
 }
 
 func (t *Task) drawHighlightedRunes(x, y int16, rs []rune, fg color.RGBA, cols int, isInput bool) {
+	if !isInput && cols >= 4 && len(rs) >= 6 && isVectorBannerArt(rs[:4]) && rs[4] == ' ' && rs[5] == ' ' {
+		t.drawRunesClipped(x, y, rs[:4], colorPlot0, cols)
+		t.drawHighlightedRunes(x+4*t.fontWidth, y, rs[4:], fg, cols-4, isInput)
+		return
+	}
+
 	col := 0
 	i := 0
 	for i < len(rs) {
@@ -457,6 +463,18 @@ func (t *Task) drawCompletionPopup(panelY, inputY int16) {
 
 func isKeyword(s string) bool {
 	return isBuiltinKeyword(s)
+}
+
+func isVectorBannerArt(rs []rune) bool {
+	if len(rs) != 4 {
+		return false
+	}
+	switch string(rs) {
+	case "V  V", " V V", "  V ":
+		return true
+	default:
+		return false
+	}
 }
 
 func minInt(a, b int) int {
