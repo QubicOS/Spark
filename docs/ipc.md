@@ -76,6 +76,13 @@
 - Направление: client -> term service.
 - Payload: пусто.
 
+## Сервис: termkbd
+
+`termkbd` — сервис, который владеет клавиатурой (`HAL.Input().Keyboard()`) и преобразует события в VT100/ANSI байты.
+
+Текущая интеграция:
+- `termkbd` отправляет результат как `MsgTermWrite` в term service.
+
 ## Универсальная ошибка (MsgError)
 
 `MsgError` предназначен для request/reply протоколов.
