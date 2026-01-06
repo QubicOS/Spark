@@ -70,6 +70,10 @@ func (s *Service) handleInput(ctx *kernel.Context, b []byte) {
 				s.moveRight(ctx)
 			case escDelete:
 				s.deleteForward(ctx)
+			case escHome:
+				s.home(ctx)
+			case escEnd:
+				s.end(ctx)
 			}
 			continue
 		}
@@ -121,6 +125,18 @@ func (s *Service) moveRight(ctx *kernel.Context) {
 	}
 	_ = s.writeString(ctx, "\x1b[C")
 	s.cursor++
+}
+
+func (s *Service) home(ctx *kernel.Context) {
+	for s.cursor > 0 {
+		s.moveLeft(ctx)
+	}
+}
+
+func (s *Service) end(ctx *kernel.Context) {
+	for s.cursor < len(s.line) {
+		s.moveRight(ctx)
+	}
 }
 
 func (s *Service) insertRune(ctx *kernel.Context, r rune) {
@@ -302,6 +318,8 @@ const (
 	escRight
 	escLeft
 	escDelete
+	escHome
+	escEnd
 )
 
 func parseEscape(b []byte) (consumed int, action escAction, ok bool) {
@@ -326,6 +344,10 @@ func parseEscape(b []byte) (consumed int, action escAction, ok bool) {
 		return 3, escRight, true
 	case 'D':
 		return 3, escLeft, true
+	case 'H':
+		return 3, escHome, true
+	case 'F':
+		return 3, escEnd, true
 	case '3':
 		// CSI 3 ~ : Delete
 		if len(b) < 4 {
@@ -333,6 +355,24 @@ func parseEscape(b []byte) (consumed int, action escAction, ok bool) {
 		}
 		if b[3] == '~' {
 			return 4, escDelete, true
+		}
+		return consumeEscape(b), escNone, true
+	case '1':
+		// CSI 1 ~ : Home
+		if len(b) < 4 {
+			return 0, escNone, false
+		}
+		if b[3] == '~' {
+			return 4, escHome, true
+		}
+		return consumeEscape(b), escNone, true
+	case '4':
+		// CSI 4 ~ : End
+		if len(b) < 4 {
+			return 0, escNone, false
+		}
+		if b[3] == '~' {
+			return 4, escEnd, true
 		}
 		return consumeEscape(b), escNone, true
 	default:
