@@ -13,6 +13,12 @@ type Service struct {
 
 	events  <-chan hal.KeyEvent
 	pending []byte
+
+	heldCode hal.KeyCode
+	heldRune rune
+	heldData []byte
+
+	nextRepeatTick uint64
 }
 
 // New writes VT100 bytes directly to the terminal service.
@@ -56,15 +62,48 @@ func (s *Service) Run(ctx *kernel.Context) {
 	for {
 		select {
 		case ev := <-s.events:
-			if !ev.Press {
-				continue
-			}
-			s.pending = append(s.pending, vt100FromKey(ev)...)
-			s.flush(ctx)
-		case <-tickCh:
+			s.handleKeyEvent(ctx, ev)
+		case tick := <-tickCh:
+			s.handleRepeat(tick)
 			s.flush(ctx)
 		}
 	}
+}
+
+func (s *Service) handleKeyEvent(ctx *kernel.Context, ev hal.KeyEvent) {
+	if !ev.Press {
+		if s.heldData != nil && ev.Code == s.heldCode && ev.Rune == s.heldRune {
+			s.heldData = nil
+		}
+		return
+	}
+
+	data := vt100FromKey(ev)
+	if len(data) > 0 {
+		s.pending = append(s.pending, data...)
+		s.flush(ctx)
+	}
+
+	if !repeatableKey(ev, data) {
+		return
+	}
+	s.heldCode = ev.Code
+	s.heldRune = ev.Rune
+	s.heldData = append(s.heldData[:0], data...)
+
+	now := ctx.NowTick()
+	s.nextRepeatTick = now + repeatDelayTicks
+}
+
+func (s *Service) handleRepeat(tick uint64) {
+	if s.heldData == nil {
+		return
+	}
+	if tick < s.nextRepeatTick {
+		return
+	}
+	s.pending = append(s.pending, s.heldData...)
+	s.nextRepeatTick = tick + repeatRateTicks
 }
 
 func (s *Service) flush(ctx *kernel.Context) {
@@ -88,6 +127,27 @@ func (s *Service) flush(ctx *kernel.Context) {
 	case kernel.SendErrQueueFull:
 	default:
 		s.pending = nil
+	}
+}
+
+const (
+	repeatDelayTicks = 12
+	repeatRateTicks  = 2
+)
+
+func repeatableKey(ev hal.KeyEvent, data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
+	if ev.Rune != 0 {
+		return true
+	}
+	switch ev.Code {
+	case hal.KeyUp, hal.KeyDown, hal.KeyLeft, hal.KeyRight,
+		hal.KeyBackspace, hal.KeyDelete, hal.KeyHome, hal.KeyEnd:
+		return true
+	default:
+		return false
 	}
 }
 
