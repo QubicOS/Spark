@@ -22,6 +22,7 @@ func registerFSCommands(r *registry) error {
 		{Name: "cp", Usage: "cp <src> <dst>", Desc: "Copy a file.", Run: cmdCp},
 		{Name: "mv", Usage: "mv <src> <dst>", Desc: "Rename (move) a path.", Run: cmdMv},
 		{Name: "rm", Usage: "rm [-rf] <path...>", Desc: "Remove files or directories.", Run: cmdRm},
+		{Name: "find", Usage: "find [path]", Desc: "List paths recursively.", Run: cmdFind},
 		{Name: "stat", Usage: "stat <path>", Desc: "Show file metadata.", Run: cmdStat},
 		{Name: "cat", Usage: "cat <path...>", Desc: "Print files.", Run: cmdCat},
 		{Name: "put", Usage: "put <path> <data...>", Desc: "Write bytes to a file.", Run: cmdPut},
