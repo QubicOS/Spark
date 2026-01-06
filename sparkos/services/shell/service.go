@@ -743,7 +743,7 @@ func (s *Service) cat(ctx *kernel.Context, args []string, redir redirection) err
 		_, err := s.vfsClient().Write(ctx, redir.Path, mode, buf)
 		return err
 	}
-	return s.writeString(ctx, "\n")
+	return nil
 }
 
 func (s *Service) put(ctx *kernel.Context, args []string) error {
