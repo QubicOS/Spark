@@ -25,6 +25,13 @@ type Client struct {
 	nextRequestID uint32
 }
 
+type Writer struct {
+	client *Client
+	ctx    *kernel.Context
+
+	requestID uint32
+}
+
 func New(vfsCap kernel.Capability) *Client {
 	return &Client{vfsCap: vfsCap, nextRequestID: 1}
 }
@@ -278,13 +285,25 @@ func (c *Client) ReadAt(ctx *kernel.Context, path string, off uint32, maxBytes u
 }
 
 func (c *Client) Write(ctx *kernel.Context, path string, mode proto.VFSWriteMode, data []byte) (uint32, error) {
-	if err := c.ensureReply(ctx); err != nil {
+	w, err := c.OpenWriter(ctx, path, mode)
+	if err != nil {
 		return 0, err
+	}
+	if _, err := w.Write(data); err != nil {
+		_, _ = w.Close()
+		return 0, err
+	}
+	return w.Close()
+}
+
+func (c *Client) OpenWriter(ctx *kernel.Context, path string, mode proto.VFSWriteMode) (*Writer, error) {
+	if err := c.ensureReply(ctx); err != nil {
+		return nil, err
 	}
 
 	reqID := c.nextID()
 	if err := c.send(ctx, proto.MsgVFSWriteOpen, proto.VFSWriteOpenPayload(reqID, mode, path)); err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	for {
@@ -293,40 +312,51 @@ func (c *Client) Write(ctx *kernel.Context, path string, mode proto.VFSWriteMode
 		case proto.MsgError:
 			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
 			if !ok || ref != proto.MsgVFSWriteOpen {
-				return 0, fmt.Errorf("vfs write open: %s", code)
+				return nil, fmt.Errorf("vfs write open: %s", code)
 			}
 			gotID, rest, ok := proto.DecodeErrorDetailWithRequestID(detail)
 			if !ok || gotID != reqID {
-				return 0, fmt.Errorf("vfs write open: %s", code)
+				return nil, fmt.Errorf("vfs write open: %s", code)
 			}
-			return 0, fmt.Errorf("vfs write open: %s: %s", code, string(rest))
+			return nil, fmt.Errorf("vfs write open: %s: %s", code, string(rest))
 		case proto.MsgVFSWriteResp:
 			gotID, done, _, ok := proto.DecodeVFSWriteRespPayload(msg.Data[:msg.Len])
 			if !ok || gotID != reqID || done {
 				continue
 			}
-			goto opened
+			return &Writer{client: c, ctx: ctx, requestID: reqID}, nil
 		}
 	}
+}
 
-opened:
+func (w *Writer) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+
 	maxChunk := kernel.MaxMessageBytes - 6
-	for len(data) > 0 {
-		chunk := data
+	written := 0
+	for len(p) > 0 {
+		chunk := p
 		if len(chunk) > maxChunk {
 			chunk = chunk[:maxChunk]
 		}
-		if err := c.send(ctx, proto.MsgVFSWriteChunk, proto.VFSWriteChunkPayload(reqID, chunk)); err != nil {
-			return 0, err
+		if err := w.client.send(w.ctx, proto.MsgVFSWriteChunk, proto.VFSWriteChunkPayload(w.requestID, chunk)); err != nil {
+			return written, err
 		}
-		data = data[len(chunk):]
+		written += len(chunk)
+		p = p[len(chunk):]
 	}
-	if err := c.send(ctx, proto.MsgVFSWriteClose, proto.VFSWriteClosePayload(reqID)); err != nil {
+	return written, nil
+}
+
+func (w *Writer) Close() (uint32, error) {
+	if err := w.client.send(w.ctx, proto.MsgVFSWriteClose, proto.VFSWriteClosePayload(w.requestID)); err != nil {
 		return 0, err
 	}
 
 	for {
-		msg := <-c.replyCh
+		msg := <-w.client.replyCh
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
 			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
@@ -334,13 +364,13 @@ opened:
 				return 0, fmt.Errorf("vfs write: %s", code)
 			}
 			gotID, rest, ok := proto.DecodeErrorDetailWithRequestID(detail)
-			if !ok || gotID != reqID {
+			if !ok || gotID != w.requestID {
 				return 0, fmt.Errorf("vfs write: %s", code)
 			}
 			return 0, fmt.Errorf("vfs write: %s: %s", code, string(rest))
 		case proto.MsgVFSWriteResp:
 			gotID, done, n, ok := proto.DecodeVFSWriteRespPayload(msg.Data[:msg.Len])
-			if !ok || gotID != reqID || !done {
+			if !ok || gotID != w.requestID || !done {
 				continue
 			}
 			return n, nil
