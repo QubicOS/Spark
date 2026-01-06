@@ -86,6 +86,7 @@ func (s *Service) handleFocus(ctx *kernel.Context, active bool) {
 	_ = s.sendToTerm(ctx, proto.MsgTermClear, nil)
 	_ = s.writeString(ctx, "\x1b[0m")
 	_ = s.redrawLine(ctx)
+	_ = s.sendToTerm(ctx, proto.MsgTermRefresh, nil)
 }
 
 func (s *Service) handleInput(ctx *kernel.Context, b []byte) {

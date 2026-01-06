@@ -18,6 +18,7 @@ type appMode uint8
 const (
 	modePanels appMode = iota
 	modeViewer
+	modeHex
 )
 
 type panelID uint8
@@ -29,6 +30,7 @@ const (
 
 const (
 	maxViewerBytes = 64 * 1024
+	maxHexBytes    = 128 * 1024
 	maxCopyBytes   = 1024 * 1024
 	maxVFSRead     = kernel.MaxMessageBytes - 11
 )
@@ -73,6 +75,15 @@ type Task struct {
 	viewerPath  string
 	viewerLines [][]rune
 	viewerTop   int
+
+	hexPath        string
+	hexData        []byte
+	hexCursor      int
+	hexTop         int
+	hexNibble      uint8
+	hexDirty       bool
+	hexQuitConfirm bool
+	hexEditASCII   bool
 }
 
 func New(disp hal.Display, ep kernel.Capability, vfsCap kernel.Capability) *Task {
@@ -258,6 +269,9 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 	case modeViewer:
 		t.handleViewerKey(ctx, k)
 		return
+	case modeHex:
+		t.handleHexKey(ctx, k)
+		return
 	default:
 	}
 
@@ -306,6 +320,10 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		case 'n':
 			if err := t.mkdirAuto(ctx); err != nil {
 				t.setMessage("mkdir: " + err.Error())
+			}
+		case 'x':
+			if err := t.openHexSelected(ctx); err != nil {
+				t.setMessage("hex: " + err.Error())
 			}
 		}
 	}
@@ -362,6 +380,18 @@ func (t *Task) openSelected(ctx *kernel.Context) {
 		t.setMessage("view: " + err.Error())
 		return
 	}
+}
+
+func (t *Task) openHexSelected(ctx *kernel.Context) error {
+	p := t.activePanelPtr()
+	e, ok := p.selected()
+	if !ok {
+		return errors.New("no selection")
+	}
+	if e.isDir() || e.Name == ".." {
+		return errors.New("select a file")
+	}
+	return t.openHex(ctx, e.FullPath)
 }
 
 func (t *Task) cd(ctx *kernel.Context, p *panel, name string) error {
@@ -470,7 +500,6 @@ func (t *Task) openViewer(ctx *kernel.Context, p string) error {
 }
 
 func (t *Task) handleViewerKey(ctx *kernel.Context, k key) {
-	_ = ctx
 	switch k.kind {
 	case keyEsc:
 		t.mode = modePanels
@@ -491,6 +520,10 @@ func (t *Task) handleViewerKey(ctx *kernel.Context, k key) {
 		switch k.r {
 		case 'q':
 			t.mode = modePanels
+		case 'x':
+			if err := t.openHex(ctx, t.viewerPath); err != nil {
+				t.setMessage("hex: " + err.Error())
+			}
 		case 'j':
 			if t.viewerTop+1 < len(t.viewerLines) {
 				t.viewerTop++
@@ -500,6 +533,225 @@ func (t *Task) handleViewerKey(ctx *kernel.Context, k key) {
 				t.viewerTop--
 			}
 		}
+	}
+}
+
+func (t *Task) openHex(ctx *kernel.Context, p string) error {
+	data, err := t.readAll(ctx, p, maxHexBytes)
+	if err != nil {
+		return err
+	}
+	t.hexPath = p
+	t.hexData = data
+	t.hexCursor = 0
+	t.hexTop = 0
+	t.hexNibble = 0
+	t.hexDirty = false
+	t.hexQuitConfirm = false
+	t.hexEditASCII = false
+	t.mode = modeHex
+	return nil
+}
+
+func (t *Task) handleHexKey(ctx *kernel.Context, k key) {
+	bytesPerRow, _ := t.hexLayout()
+	if bytesPerRow <= 0 {
+		bytesPerRow = 16
+	}
+
+	if k.kind != keyRune || (k.r != 'w' && k.r != 'q') {
+		t.hexQuitConfirm = false
+	}
+
+	switch k.kind {
+	case keyEsc:
+		if t.hexDirty && !t.hexQuitConfirm {
+			t.hexQuitConfirm = true
+			t.setMessage("unsaved: w save | q discard")
+			return
+		}
+		t.mode = modePanels
+		return
+
+	case keyLeft:
+		if t.hexCursor > 0 {
+			t.hexCursor--
+		}
+		t.hexNibble = 0
+	case keyRight:
+		if t.hexCursor+1 < len(t.hexData) {
+			t.hexCursor++
+		}
+		t.hexNibble = 0
+	case keyUp:
+		if t.hexCursor-bytesPerRow >= 0 {
+			t.hexCursor -= bytesPerRow
+		}
+		t.hexNibble = 0
+	case keyDown:
+		if t.hexCursor+bytesPerRow < len(t.hexData) {
+			t.hexCursor += bytesPerRow
+		}
+		t.hexNibble = 0
+	case keyHome:
+		t.hexCursor = 0
+		t.hexNibble = 0
+	case keyEnd:
+		if len(t.hexData) > 0 {
+			t.hexCursor = len(t.hexData) - 1
+		} else {
+			t.hexCursor = 0
+		}
+		t.hexNibble = 0
+
+	case keyRune:
+		switch k.r {
+		case 'q':
+			if t.hexDirty && !t.hexQuitConfirm {
+				t.hexQuitConfirm = true
+				t.setMessage("unsaved: w save | q discard")
+				return
+			}
+			t.mode = modePanels
+			return
+		case 't':
+			if err := t.openViewer(ctx, t.hexPath); err != nil {
+				t.setMessage("view: " + err.Error())
+			}
+			return
+		case 'i':
+			t.hexEditASCII = !t.hexEditASCII
+			if t.hexEditASCII {
+				t.setMessage("edit: ASCII")
+			} else {
+				t.setMessage("edit: HEX")
+			}
+			return
+		case 'w':
+			if !t.hexDirty {
+				t.setMessage("saved")
+				return
+			}
+			if _, err := t.vfsClient().Write(ctx, t.hexPath, proto.VFSWriteTruncate, t.hexData); err != nil {
+				t.setMessage("save: " + err.Error())
+				return
+			}
+			t.hexDirty = false
+			t.hexQuitConfirm = false
+			_ = t.refreshPanels(ctx)
+			t.setMessage("saved")
+			return
+		default:
+			t.handleHexEditRune(k.r)
+		}
+	}
+
+	t.hexEnsureVisible(bytesPerRow)
+}
+
+func (t *Task) handleHexEditRune(r rune) {
+	if len(t.hexData) == 0 || t.hexCursor < 0 || t.hexCursor >= len(t.hexData) {
+		return
+	}
+
+	if t.hexEditASCII {
+		if r < 0x20 || r > 0x7e {
+			return
+		}
+		prev := t.hexData[t.hexCursor]
+		next := byte(r)
+		if prev != next {
+			t.hexData[t.hexCursor] = next
+			t.hexDirty = true
+		}
+		if t.hexCursor+1 < len(t.hexData) {
+			t.hexCursor++
+		}
+		t.hexNibble = 0
+		return
+	}
+
+	val, ok := hexDigitValue(r)
+	if !ok {
+		return
+	}
+
+	idx := t.hexCursor
+	prev := t.hexData[idx]
+	next := prev
+	if t.hexNibble == 0 {
+		next = (prev & 0x0f) | (val << 4)
+		t.hexNibble = 1
+	} else {
+		next = (prev & 0xf0) | val
+		t.hexNibble = 0
+	}
+	if next != prev {
+		t.hexData[idx] = next
+		t.hexDirty = true
+	}
+
+	if t.hexNibble == 0 && t.hexCursor+1 < len(t.hexData) {
+		t.hexCursor++
+	}
+}
+
+func hexDigitValue(r rune) (byte, bool) {
+	switch {
+	case r >= '0' && r <= '9':
+		return byte(r - '0'), true
+	case r >= 'a' && r <= 'f':
+		return byte(r-'a') + 10, true
+	case r >= 'A' && r <= 'F':
+		return byte(r-'A') + 10, true
+	default:
+		return 0, false
+	}
+}
+
+func (t *Task) hexLayout() (bytesPerRow int, showASCII bool) {
+	cols := t.cols
+	if cols <= 0 {
+		return 16, false
+	}
+
+	for n := 16; n >= 4; n-- {
+		hexCols := 10 + n*3
+		if hexCols <= cols {
+			if hexCols+1+n <= cols {
+				return n, true
+			}
+			return n, false
+		}
+	}
+	return 4, false
+}
+
+func (t *Task) hexEnsureVisible(bytesPerRow int) {
+	if bytesPerRow <= 0 || t.viewRows <= 0 || len(t.hexData) == 0 {
+		t.hexTop = 0
+		return
+	}
+
+	row := t.hexCursor / bytesPerRow
+	if row < 0 {
+		row = 0
+	}
+	if row < t.hexTop {
+		t.hexTop = row
+	} else if row >= t.hexTop+t.viewRows {
+		t.hexTop = row - (t.viewRows - 1)
+	}
+
+	maxTop := (len(t.hexData)-1)/bytesPerRow - (t.viewRows - 1)
+	if maxTop < 0 {
+		maxTop = 0
+	}
+	if t.hexTop < 0 {
+		t.hexTop = 0
+	}
+	if t.hexTop > maxTop {
+		t.hexTop = maxTop
 	}
 }
 
@@ -579,6 +831,43 @@ func (t *Task) viewerStatusText() string {
 		msg = fmt.Sprintf("%s | %d/%d", msg, t.viewerTop+1, len(t.viewerLines))
 	}
 	return clipRunes(msg, t.cols)
+}
+
+func (t *Task) hexHeaderText() string {
+	return clipRunes("HEX "+t.hexPath, t.cols)
+}
+
+func (t *Task) hexStatusText() string {
+	var flags string
+	if t.hexDirty {
+		flags = "*"
+	}
+	edit := "HEX"
+	if t.hexEditASCII {
+		edit = "ASCII"
+	}
+
+	nibble := ""
+	if !t.hexEditASCII {
+		if t.hexNibble == 0 {
+			nibble = " hi"
+		} else {
+			nibble = " lo"
+		}
+	}
+
+	base := fmt.Sprintf(
+		"%soff=%08X size=%08X %s%s | i edit | w save | t text | q back",
+		flags,
+		t.hexCursor,
+		len(t.hexData),
+		edit,
+		nibble,
+	)
+	if t.message == "" {
+		return clipRunes(base, t.cols)
+	}
+	return clipRunes(t.message+" | "+base, t.cols)
 }
 
 func clipRunes(s string, max int) string {
