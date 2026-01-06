@@ -1,5 +1,7 @@
 package kernel
 
+import "sync"
+
 const (
 	maxTasks     = 32
 	maxEndpoints = 32
@@ -100,113 +102,80 @@ func (r SendResult) String() string {
 	}
 }
 
-// Task is a cooperative unit of execution.
+// Task is a unit of execution.
 type Task interface {
-	Step(*Context)
+	Run(*Context)
 }
 
 type endpointState struct {
-	q        mailbox
-	waitMask uint32
+	ch chan Message
 }
 
 type taskState struct {
-	task     Task
-	runnable bool
-	waiting  Endpoint
+	task Task
 }
 
-// Kernel is a minimal cooperative scheduler plus IPC router.
+// Kernel is a minimal IPC router plus endpoint allocator.
 type Kernel struct {
+	mu sync.Mutex
+
 	endpoints     [maxEndpoints]endpointState
 	endpointCount Endpoint
 
 	tasks     [maxTasks]taskState
 	taskCount TaskID
 
-	rr TaskID
-
-	tickWaitMask uint32
+	tick     uint64
+	tickCond *sync.Cond
 }
 
 // New creates a kernel instance.
 func New() *Kernel {
-	return &Kernel{}
+	k := &Kernel{}
+	k.tickCond = sync.NewCond(&k.mu)
+	return k
 }
 
 // NewEndpoint allocates a new endpoint and returns a capability for it.
 func (k *Kernel) NewEndpoint(rights Rights) Capability {
+	k.mu.Lock()
+	defer k.mu.Unlock()
 	if k.endpointCount >= maxEndpoints {
 		return Capability{}
 	}
 	ep := k.endpointCount
 	k.endpointCount++
+	k.endpoints[ep] = endpointState{ch: make(chan Message, mailboxSlots)}
 	return Capability{ep: ep, rights: rights}
 }
 
 // AddTask registers a task and returns its ID.
 func (k *Kernel) AddTask(t Task) TaskID {
+	k.mu.Lock()
 	if k.taskCount >= maxTasks {
+		k.mu.Unlock()
 		return 0
 	}
 	id := k.taskCount
 	k.taskCount++
-	k.tasks[id] = taskState{task: t, runnable: true}
+	k.tasks[id] = taskState{task: t}
+	k.mu.Unlock()
+
+	if t != nil {
+		go t.Run(&Context{k: k, taskID: id})
+	}
 	return id
 }
 
-// Step runs at most one runnable task step.
-func (k *Kernel) Step() {
-	if k.taskCount == 0 {
-		return
-	}
-
-	for i := TaskID(0); i < k.taskCount; i++ {
-		id := (k.rr + i) % k.taskCount
-		st := &k.tasks[id]
-		if st.task == nil || !st.runnable {
-			continue
-		}
-
-		k.rr = (id + 1) % k.taskCount
-		ctx := &Context{k: k, taskID: id}
-		st.task.Step(ctx)
-
-		if ctx.blocked {
-			st.runnable = false
-			if ctx.blockOnTick {
-				k.tickWaitMask |= 1 << id
-			} else {
-				st.waiting = ctx.blockOn
-				if st.waiting < k.endpointCount {
-					k.endpoints[st.waiting].waitMask |= 1 << id
-				}
-			}
-		}
-		return
-	}
-}
-
-// Tick wakes tasks blocked via Context.BlockOnTick.
-func (k *Kernel) Tick() {
-	wait := k.tickWaitMask
-	if wait == 0 {
-		return
-	}
-
-	for tid := TaskID(0); tid < k.taskCount; tid++ {
-		if wait&(1<<tid) == 0 {
-			continue
-		}
-		k.tasks[tid].runnable = true
-	}
-	k.tickWaitMask = 0
-}
-
 func (k *Kernel) send(from Endpoint, to Endpoint, kind uint16, payload []byte, xfer Capability) SendResult {
-	if to >= k.endpointCount {
+	k.mu.Lock()
+	if to >= k.endpointCount || k.endpoints[to].ch == nil {
+		k.mu.Unlock()
 		return SendErrNoEndpoint
 	}
+	ch := k.endpoints[to].ch
+	k.mu.Unlock()
+
 	if len(payload) > MaxMessageBytes {
 		return SendErrPayloadTooLarge
 	}
@@ -219,29 +188,38 @@ func (k *Kernel) send(from Endpoint, to Endpoint, kind uint16, payload []byte, x
 	copy(msg.Data[:], payload)
 	msg.Cap = xfer
 
-	ep := &k.endpoints[to]
-	if !ep.q.push(msg) {
+	select {
+	case ch <- msg:
+		return SendOK
+	default:
 		return SendErrQueueFull
 	}
-
-	wait := ep.waitMask
-	if wait == 0 {
-		return SendOK
-	}
-
-	for tid := TaskID(0); tid < k.taskCount; tid++ {
-		if wait&(1<<tid) == 0 {
-			continue
-		}
-		k.tasks[tid].runnable = true
-		ep.waitMask &^= 1 << tid
-	}
-	return SendOK
 }
 
-func (k *Kernel) recv(to Endpoint) (Message, bool) {
-	if to >= k.endpointCount {
-		return Message{}, false
+// TickTo broadcasts a new tick value to tick-waiters.
+func (k *Kernel) TickTo(seq uint64) {
+	k.mu.Lock()
+	if seq <= k.tick {
+		k.mu.Unlock()
+		return
 	}
-	return k.endpoints[to].q.pop()
+	k.tick = seq
+	k.tickCond.Broadcast()
+	k.mu.Unlock()
+}
+
+func (k *Kernel) nowTick() uint64 {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.tick
+}
+
+func (k *Kernel) waitTick(after uint64) uint64 {
+	k.mu.Lock()
+	for k.tick <= after {
+		k.tickCond.Wait()
+	}
+	seq := k.tick
+	k.mu.Unlock()
+	return seq
 }

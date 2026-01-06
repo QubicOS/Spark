@@ -1,7 +1,6 @@
 package timesvc
 
 import (
-	"spark/hal"
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
 )
@@ -16,72 +15,71 @@ type sleeper struct {
 }
 
 type Service struct {
-	ht hal.Time
-
 	ep kernel.Capability
 
 	now      uint64
 	sleepers [maxSleepers]sleeper
 }
 
-func New(ht hal.Time, ep kernel.Capability) *Service {
-	return &Service{ht: ht, ep: ep}
+func New(ep kernel.Capability) *Service {
+	return &Service{ep: ep}
 }
 
-func (s *Service) Step(ctx *kernel.Context) {
-	s.drainTicks()
-	s.wakeReady(ctx)
-
-	msg, ok := ctx.TryRecv(s.ep)
+func (s *Service) Run(ctx *kernel.Context) {
+	reqCh, ok := ctx.RecvChan(s.ep)
 	if !ok {
 		return
 	}
-	if msg.Kind != uint16(proto.MsgSleep) {
-		return
-	}
-	if !msg.Cap.Valid() {
-		return
-	}
 
-	requestID, dt, ok := proto.DecodeSleepPayload(msg.Data[:msg.Len])
-	if !ok {
-		payload := proto.ErrorPayload(
-			proto.ErrBadMessage,
-			proto.MsgSleep,
-			proto.ErrorDetailWithRequestID(0, nil),
-		)
-		_ = ctx.Send(s.ep, msg.Cap, uint16(proto.MsgError), payload)
-		return
-	}
-	if dt == 0 {
-		_ = ctx.Send(s.ep, msg.Cap, uint16(proto.MsgWake), proto.WakePayload(requestID))
-		return
-	}
-	if ok := s.schedule(s.now+uint64(dt), requestID, msg.Cap); !ok {
-		payload := proto.ErrorPayload(
-			proto.ErrOverflow,
-			proto.MsgSleep,
-			proto.ErrorDetailWithRequestID(requestID, nil),
-		)
-		_ = ctx.Send(s.ep, msg.Cap, uint16(proto.MsgError), payload)
-		return
-	}
-}
+	tickCh := make(chan uint64, 128)
+	go func() {
+		last := ctx.NowTick()
+		for {
+			last = ctx.WaitTick(last)
+			select {
+			case tickCh <- last:
+			default:
+			}
+		}
+	}()
 
-func (s *Service) drainTicks() {
-	if s.ht == nil {
-		return
-	}
-	ch := s.ht.Ticks()
-	if ch == nil {
-		return
-	}
 	for {
 		select {
-		case seq := <-ch:
-			s.now = seq
-		default:
-			return
+		case now := <-tickCh:
+			s.now = now
+			s.wakeReady(ctx)
+
+		case msg := <-reqCh:
+			if msg.Kind != uint16(proto.MsgSleep) {
+				continue
+			}
+			if !msg.Cap.Valid() {
+				continue
+			}
+
+			requestID, dt, ok := proto.DecodeSleepPayload(msg.Data[:msg.Len])
+			if !ok {
+				payload := proto.ErrorPayload(
+					proto.ErrBadMessage,
+					proto.MsgSleep,
+					proto.ErrorDetailWithRequestID(0, nil),
+				)
+				_ = ctx.Send(s.ep, msg.Cap, uint16(proto.MsgError), payload)
+				continue
+			}
+			if dt == 0 {
+				_ = ctx.Send(s.ep, msg.Cap, uint16(proto.MsgWake), proto.WakePayload(requestID))
+				continue
+			}
+			if ok := s.schedule(s.now+uint64(dt), requestID, msg.Cap); !ok {
+				payload := proto.ErrorPayload(
+					proto.ErrOverflow,
+					proto.MsgSleep,
+					proto.ErrorDetailWithRequestID(requestID, nil),
+				)
+				_ = ctx.Send(s.ep, msg.Cap, uint16(proto.MsgError), payload)
+				continue
+			}
 		}
 	}
 }

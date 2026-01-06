@@ -20,20 +20,14 @@ func New(d hal.Display, in hal.Input) *Service {
 	return &Service{disp: d, in: in}
 }
 
-func (s *Service) Step(ctx *kernel.Context) {
+func (s *Service) Run(ctx *kernel.Context) {
 	_ = ctx
 
-	if s.fb == nil && s.disp != nil {
+	if s.disp != nil {
 		s.fb = s.disp.Framebuffer()
-		if s.fb != nil {
-			s.x = s.fb.Width() / 2
-			s.y = s.fb.Height() / 2
-			s.fb.ClearRGB(0, 0, 0)
-			_ = s.fb.Present()
-		}
 	}
 
-	if s.events == nil && s.in != nil {
+	if s.in != nil {
 		if kbd := s.in.Keyboard(); kbd != nil {
 			s.events = kbd.Events()
 		}
@@ -43,44 +37,37 @@ func (s *Service) Step(ctx *kernel.Context) {
 		return
 	}
 
-	changed := false
-	for {
-		var ev hal.KeyEvent
-		select {
-		case ev = <-s.events:
-		default:
-			if changed {
-				drawCursorRGB565(s.fb, s.x, s.y, 255, 255, 255)
-				_ = s.fb.Present()
-			}
-			return
-		}
+	s.x = s.fb.Width() / 2
+	s.y = s.fb.Height() / 2
+	s.fb.ClearRGB(0, 0, 0)
+	_ = s.fb.Present()
 
+	for ev := range s.events {
 		switch ev.Code {
 		case hal.KeyUp:
 			if s.y > 0 {
 				s.y--
-				changed = true
 			}
 		case hal.KeyDown:
 			if s.y < s.fb.Height()-1 {
 				s.y++
-				changed = true
 			}
 		case hal.KeyLeft:
 			if s.x > 0 {
 				s.x--
-				changed = true
 			}
 		case hal.KeyRight:
 			if s.x < s.fb.Width()-1 {
 				s.x++
-				changed = true
 			}
 		case hal.KeyEnter:
 			s.fb.ClearRGB(0, 0, 0)
-			changed = true
+			_ = s.fb.Present()
+			continue
 		}
+
+		drawCursorRGB565(s.fb, s.x, s.y, 255, 255, 255)
+		_ = s.fb.Present()
 	}
 }
 
@@ -107,4 +94,3 @@ func drawCursorRGB565(fb hal.Framebuffer, x, y int, r, g, b uint8) {
 	buf[off] = byte(pixel)
 	buf[off+1] = byte(pixel >> 8)
 }
-

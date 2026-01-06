@@ -4,46 +4,60 @@ package kernel
 type Context struct {
 	k      *Kernel
 	taskID TaskID
-
-	blocked bool
-	blockOn Endpoint
-
-	blockOnTick bool
 }
 
 // TaskID returns the current task ID.
 func (c *Context) TaskID() TaskID { return c.taskID }
 
-// Recv reads one message from the capability endpoint.
-//
-// If the mailbox is empty, the task is blocked until a message arrives.
-func (c *Context) Recv(epCap Capability) (Message, bool) {
+// RecvChan returns the inbound message channel for an endpoint capability.
+func (c *Context) RecvChan(epCap Capability) (<-chan Message, bool) {
 	if !epCap.valid() || !epCap.canRecv() {
+		return nil, false
+	}
+
+	c.k.mu.Lock()
+	if epCap.ep >= c.k.endpointCount {
+		c.k.mu.Unlock()
+		return nil, false
+	}
+	ch := c.k.endpoints[epCap.ep].ch
+	c.k.mu.Unlock()
+	if ch == nil {
+		return nil, false
+	}
+	return ch, true
+}
+
+// Recv reads one message from the capability endpoint, blocking until a message arrives.
+func (c *Context) Recv(epCap Capability) (Message, bool) {
+	ch, ok := c.RecvChan(epCap)
+	if !ok {
 		return Message{}, false
 	}
-
-	msg, ok := c.k.recv(epCap.ep)
-	if ok {
-		return msg, true
-	}
-
-	c.blocked = true
-	c.blockOn = epCap.ep
-	return Message{}, false
+	return <-ch, true
 }
 
 // TryRecv reads one message from the capability endpoint without blocking.
 func (c *Context) TryRecv(epCap Capability) (Message, bool) {
-	if !epCap.valid() || !epCap.canRecv() {
+	ch, ok := c.RecvChan(epCap)
+	if !ok {
 		return Message{}, false
 	}
-	return c.k.recv(epCap.ep)
+	select {
+	case msg := <-ch:
+		return msg, true
+	default:
+		return Message{}, false
+	}
 }
 
 // BlockOnTick blocks the task until the next Kernel.Tick call.
 func (c *Context) BlockOnTick() {
-	c.blocked = true
-	c.blockOnTick = true
+	if c.k == nil {
+		return
+	}
+	after := c.k.nowTick()
+	_ = c.k.waitTick(after)
 }
 
 // Send sends a message to the capability endpoint.
@@ -106,4 +120,20 @@ func (c *Context) NewEndpoint(rights Rights) Capability {
 		return Capability{}
 	}
 	return c.k.NewEndpoint(rights)
+}
+
+// NowTick returns the last observed tick value.
+func (c *Context) NowTick() uint64 {
+	if c.k == nil {
+		return 0
+	}
+	return c.k.nowTick()
+}
+
+// WaitTick blocks until tick advances past the provided value and returns the new tick.
+func (c *Context) WaitTick(after uint64) uint64 {
+	if c.k == nil {
+		return 0
+	}
+	return c.k.waitTick(after)
 }

@@ -22,48 +22,30 @@ func Log(ctx *kernel.Context, logCap kernel.Capability, line string) kernel.Send
 	return ctx.SendToCapResult(logCap, uint16(proto.MsgLogLine), proto.LogLinePayload(b), kernel.Capability{})
 }
 
-type retryState struct {
-	sleeping bool
-}
-
-var retryStates [256]retryState
-
 // LogRetry sends a log line to the logger service, retrying on SendErrQueueFull.
 //
-// It uses the time service for backoff. The call is cooperative: if it returns
-// (done=false, err=nil), the caller should return from Task.Step immediately.
+// It uses the time service for backoff.
 func LogRetry(
 	ctx *kernel.Context,
 	timeCap kernel.Capability,
 	logCap kernel.Capability,
 	line string,
-) (done bool, err error) {
+) error {
 	if ctx == nil {
-		return false, fmt.Errorf("logger retry: nil context")
+		return fmt.Errorf("logger retry: nil context")
 	}
 
-	st := &retryStates[ctx.TaskID()]
-
-	if st.sleeping {
-		done, err := timeclient.Sleep(ctx, timeCap, 1)
-		if err != nil {
-			st.sleeping = false
-			return false, fmt.Errorf("logger retry backoff: %w", err)
+	for {
+		res := Log(ctx, logCap, line)
+		switch res {
+		case kernel.SendOK:
+			return nil
+		case kernel.SendErrQueueFull:
+			if err := timeclient.Sleep(ctx, timeCap, 1); err != nil {
+				return fmt.Errorf("logger retry backoff: %w", err)
+			}
+		default:
+			return fmt.Errorf("logger send: %s", res)
 		}
-		if !done {
-			return false, nil
-		}
-		st.sleeping = false
-	}
-
-	res := Log(ctx, logCap, line)
-	switch res {
-	case kernel.SendOK:
-		return true, nil
-	case kernel.SendErrQueueFull:
-		st.sleeping = true
-		return false, nil
-	default:
-		return false, fmt.Errorf("logger send: %s", res)
 	}
 }
