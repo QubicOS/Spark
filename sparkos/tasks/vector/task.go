@@ -3,6 +3,7 @@ package vector
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -13,11 +14,12 @@ import (
 	"tinygo.org/x/tinyfont"
 )
 
-type mode uint8
+type tab uint8
 
 const (
-	modeCalc mode = iota
-	modeGraph
+	tabTerminal tab = iota
+	tabPlot
+	tabStack
 )
 
 // Task implements a framebuffer-based math calculator with graphing.
@@ -42,7 +44,7 @@ type Task struct {
 
 	e *env
 
-	mode mode
+	tab tab
 
 	lines []string
 
@@ -58,6 +60,7 @@ type Task struct {
 	helpTop  int
 
 	message string
+	editVar string
 
 	graphExpr string
 	graph     node
@@ -68,6 +71,9 @@ type Task struct {
 	xMax float64
 	yMin float64
 	yMax float64
+
+	stackSel int
+	stackTop int
 }
 
 func New(disp hal.Display, ep kernel.Capability) *Task {
@@ -75,7 +81,7 @@ func New(disp hal.Display, ep kernel.Capability) *Task {
 		disp: disp,
 		ep:   ep,
 		e:    newEnv(),
-		mode: modeCalc,
+		tab:  tabTerminal,
 		xMin: -10,
 		xMax: 10,
 		yMin: -10,
@@ -157,7 +163,7 @@ func (t *Task) setActive(ctx *kernel.Context, active bool) {
 	if !t.active {
 		return
 	}
-	t.setMessage("H help | Enter eval | g graph | q quit")
+	t.setMessage("F1 term | F2 plot | F3 stack | H help | q quit")
 	t.render()
 }
 
@@ -211,6 +217,18 @@ func (t *Task) handleInput(ctx *kernel.Context, b []byte) {
 }
 
 func (t *Task) handleKey(ctx *kernel.Context, k key) {
+	switch k.kind {
+	case keyF1:
+		t.switchTab(tabTerminal)
+		return
+	case keyF2:
+		t.switchTab(tabPlot)
+		return
+	case keyF3:
+		t.switchTab(tabStack)
+		return
+	}
+
 	if k.kind == keyRune && (k.r == 'H' || k.r == 'h') {
 		t.showHelp = !t.showHelp
 		if t.showHelp {
@@ -223,48 +241,106 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		return
 	}
 
-	switch t.mode {
-	case modeGraph:
-		t.handleGraphKey(ctx, k)
+	if t.editVar != "" {
+		t.handleEditKey(ctx, k)
 		return
-	default:
 	}
 
 	switch k.kind {
 	case keyEsc:
 		t.requestExit(ctx)
 	case keyEnter:
-		t.submit(ctx)
+		if t.tab == tabTerminal {
+			t.submit(ctx)
+		}
 	case keyBackspace:
-		t.backspace()
+		if t.tab == tabTerminal {
+			t.backspace()
+		}
 	case keyDelete:
-		t.deleteForward()
+		if t.tab == tabTerminal {
+			t.deleteForward()
+		}
 	case keyLeft:
-		if t.cursor > 0 {
-			t.cursor--
+		switch t.tab {
+		case tabTerminal:
+			if t.cursor > 0 {
+				t.cursor--
+			}
+		case tabPlot:
+			t.handlePlotKey(ctx, k)
+		case tabStack:
+			t.handleStackKey(ctx, k)
 		}
 	case keyRight:
-		if t.cursor < len(t.input) {
-			t.cursor++
+		switch t.tab {
+		case tabTerminal:
+			if t.cursor < len(t.input) {
+				t.cursor++
+			}
+		case tabPlot:
+			t.handlePlotKey(ctx, k)
+		case tabStack:
+			t.handleStackKey(ctx, k)
 		}
 	case keyHome:
-		t.cursor = 0
+		switch t.tab {
+		case tabTerminal:
+			t.cursor = 0
+		case tabStack:
+			t.handleStackKey(ctx, k)
+		}
 	case keyEnd:
-		t.cursor = len(t.input)
+		switch t.tab {
+		case tabTerminal:
+			t.cursor = len(t.input)
+		case tabStack:
+			t.handleStackKey(ctx, k)
+		}
 	case keyUp:
-		t.histUp()
+		switch t.tab {
+		case tabTerminal:
+			t.histUp()
+		case tabPlot:
+			t.handlePlotKey(ctx, k)
+		case tabStack:
+			t.handleStackKey(ctx, k)
+		}
 	case keyDown:
-		t.histDown()
+		switch t.tab {
+		case tabTerminal:
+			t.histDown()
+		case tabPlot:
+			t.handlePlotKey(ctx, k)
+		case tabStack:
+			t.handleStackKey(ctx, k)
+		}
+	case keyPageUp, keyPageDown:
+		switch t.tab {
+		case tabPlot:
+			t.handlePlotKey(ctx, k)
+		case tabStack:
+			t.handleStackKey(ctx, k)
+		}
 	case keyRune:
-		switch k.r {
-		case 'q':
+		if k.r == 'q' {
 			t.requestExit(ctx)
-		case 'g':
-			t.toggleGraph(ctx)
-		default:
-			if k.r >= 0x20 && k.r != 0x7f {
-				t.insertRune(k.r)
+			return
+		}
+		switch t.tab {
+		case tabTerminal:
+			switch k.r {
+			case 'g':
+				t.switchTab(tabPlot)
+			default:
+				if k.r >= 0x20 && k.r != 0x7f {
+					t.insertRune(k.r)
+				}
 			}
+		case tabPlot:
+			t.handlePlotKey(ctx, k)
+		case tabStack:
+			t.handleStackKey(ctx, k)
 		}
 	}
 }
@@ -322,74 +398,20 @@ func (t *Task) submit(ctx *kernel.Context) {
 	line := strings.TrimSpace(string(t.input))
 	t.input = t.input[:0]
 	t.cursor = 0
-
-	if line == "" {
-		t.histPos = len(t.history)
-		return
-	}
-
-	if strings.HasPrefix(line, ":") {
-		t.handleCommand(strings.TrimSpace(line[1:]))
-		return
-	}
-
-	if len(t.history) == 0 || t.history[len(t.history)-1] != line {
-		t.history = append(t.history, line)
-	}
-	t.histPos = len(t.history)
-
-	acts, err := parseInput(line)
-	if err != nil {
-		t.appendLine(line)
-		t.appendLine("error: " + err.Error())
-		return
-	}
-
-	t.appendLine(line)
-	for _, act := range acts {
-		switch act.kind {
-		case actionAssignVar:
-			v, err := act.expr.Eval(t.e)
-			if err != nil {
-				t.appendLine("error: " + err.Error())
-				return
-			}
-			t.e.vars[act.varName] = v
-			t.appendLine(fmt.Sprintf("%s = %s", act.varName, t.formatValue(v)))
-			if v.IsArray() {
-				if act.varName == "x" {
-					t.setDomainFromArray(v.arr)
-				}
-				t.tryPlotSeries(act.varName, v)
-			} else {
-				t.setGraphFromExpr(act.varName, v.ToNode())
-			}
-
-		case actionAssignFunc:
-			t.e.funcs[act.funcName] = userFunc{param: act.funcParam, body: act.expr}
-			t.appendLine(fmt.Sprintf("%s(%s) = %s", act.funcName, act.funcParam, NodeString(act.expr)))
-
-		case actionEval:
-			v, err := act.expr.Eval(t.e)
-			if err != nil {
-				t.appendLine("error: " + err.Error())
-				return
-			}
-			t.appendLine("= " + t.formatValue(v))
-			if v.IsArray() {
-				t.tryPlotSeries("result", v)
-			} else {
-				t.setGraphFromExpr(NodeString(act.expr), v.ToNode())
-				if nodeHasIdent(act.expr, "x") {
-					t.addPlotFunc(NodeString(act.expr), act.expr)
-				}
-			}
-		}
-	}
+	t.evalLine(ctx, line, true)
 }
 
 func (t *Task) handleCommand(cmd string) {
 	switch {
+	case cmd == "term":
+		t.switchTab(tabTerminal)
+	case cmd == "plot":
+		t.switchTab(tabPlot)
+	case cmd == "stack":
+		t.switchTab(tabStack)
+	case cmd == "clear":
+		t.lines = nil
+		t.setMessage("cleared")
 	case cmd == "exact":
 		t.e.mode = modeExact
 		t.setMessage("mode: exact")
@@ -466,40 +488,13 @@ func (t *Task) addPlotSeries(src string, xs, ys []float64) {
 	t.plots = append(t.plots, plot{src: src, xs: xs, ys: ys})
 }
 
-func (t *Task) toggleGraph(ctx *kernel.Context) {
-	_ = ctx
-	if t.graph == nil && len(t.plots) == 0 {
-		t.setMessage("graph: no expression")
-		return
-	}
-	if t.mode == modeGraph {
-		t.mode = modeCalc
-		return
-	}
-	t.mode = modeGraph
-	if t.xMin >= t.xMax {
-		t.xMin, t.xMax = -10, 10
-	}
-	if t.yMin >= t.yMax {
-		t.yMin, t.yMax = -10, 10
-	}
-	if len(t.plots) == 0 && t.graph != nil && nodeHasIdent(t.graph, "x") {
-		t.addPlotFunc(t.graphExpr, t.graph)
-	}
-	t.autoscalePlots()
-}
-
-func (t *Task) handleGraphKey(ctx *kernel.Context, k key) {
+func (t *Task) handlePlotKey(ctx *kernel.Context, k key) {
 	_ = ctx
 	switch k.kind {
-	case keyEsc:
-		t.mode = modeCalc
 	case keyRune:
 		switch k.r {
-		case 'q':
-			t.mode = modeCalc
 		case 'c':
-			t.mode = modeCalc
+			t.switchTab(tabTerminal)
 		case 'a':
 			t.autoscalePlots()
 		case '+', '=':
@@ -681,19 +676,34 @@ func (t *Task) histDown() {
 }
 
 func (t *Task) headerText() string {
-	if t.mode == modeGraph {
+	switch t.tab {
+	case tabPlot:
 		if t.graphExpr == "" {
-			return "VECTOR graph"
+			return "VECTOR plot | F1 term F2 plot* F3 stack"
 		}
-		return "VECTOR graph: " + clipRunes(t.graphExpr, t.cols-13)
+		head := "VECTOR plot | F1 term F2 plot* F3 stack | "
+		return head + clipRunes(t.graphExpr, t.cols-len([]rune(head)))
+	case tabStack:
+		return "VECTOR stack | F1 term F2 plot F3 stack*"
+	default:
+		return "VECTOR | F1 term* F2 plot F3 stack"
 	}
-	return "VECTOR"
 }
 
 func (t *Task) statusText() string {
-	prefix := "> "
-	line := string(t.input)
-	base := prefix + line
+	var base string
+	if t.editVar != "" {
+		base = "edit " + t.editVar + " = " + string(t.input)
+	} else {
+		switch t.tab {
+		case tabTerminal:
+			base = "> " + string(t.input)
+		case tabPlot:
+			base = fmt.Sprintf("x:[%g..%g] y:[%g..%g]", t.xMin, t.xMax, t.yMin, t.yMax)
+		case tabStack:
+			base = "stack: Up/Down select | Enter edit | F1/F2 tabs"
+		}
+	}
 	if t.message == "" {
 		return clipRunes(base, t.cols)
 	}
@@ -757,7 +767,228 @@ func (t *Task) tryPlotSeries(label string, v Value) {
 	t.autoscalePlots()
 }
 
+func (t *Task) switchTab(newTab tab) {
+	if newTab == t.tab && t.editVar == "" {
+		return
+	}
+	if t.editVar != "" {
+		t.editVar = ""
+		t.input = t.input[:0]
+		t.cursor = 0
+	}
+
+	t.tab = newTab
+	switch t.tab {
+	case tabTerminal:
+		t.setMessage("Enter eval | g/F2 plot | F3 stack | :clear")
+	case tabPlot:
+		if t.graph == nil && len(t.plots) == 0 {
+			t.setMessage("no plot yet (enter sin(x) then g/F2)")
+			return
+		}
+		if t.xMin >= t.xMax {
+			t.xMin, t.xMax = -10, 10
+		}
+		if t.yMin >= t.yMax {
+			t.yMin, t.yMax = -10, 10
+		}
+		if len(t.plots) == 0 && t.graph != nil && nodeHasIdent(t.graph, "x") {
+			t.addPlotFunc(t.graphExpr, t.graph)
+		}
+		t.autoscalePlots()
+		t.setMessage("arrows pan | +/- zoom | a autoscale | F1 term | F3 stack")
+	case tabStack:
+		t.stackSel = 0
+		t.stackTop = 0
+		t.setMessage("Up/Down select | Enter edit | F1 term | F2 plot")
+	}
+}
+
+func (t *Task) evalLine(ctx *kernel.Context, line string, recordHistory bool) {
+	_ = ctx
+	line = strings.TrimSpace(line)
+	if line == "" {
+		if recordHistory {
+			t.histPos = len(t.history)
+		}
+		return
+	}
+
+	if strings.HasPrefix(line, ":") {
+		t.handleCommand(strings.TrimSpace(line[1:]))
+		return
+	}
+
+	if recordHistory {
+		if len(t.history) == 0 || t.history[len(t.history)-1] != line {
+			t.history = append(t.history, line)
+		}
+		t.histPos = len(t.history)
+	}
+
+	acts, err := parseInput(line)
+	if err != nil {
+		t.appendLine(line)
+		t.appendLine("error: " + err.Error())
+		return
+	}
+
+	t.appendLine(line)
+	for _, act := range acts {
+		switch act.kind {
+		case actionAssignVar:
+			v, err := act.expr.Eval(t.e)
+			if err != nil {
+				t.appendLine("error: " + err.Error())
+				return
+			}
+			t.e.vars[act.varName] = v
+			t.appendLine(fmt.Sprintf("%s = %s", act.varName, t.formatValue(v)))
+			if v.IsArray() {
+				if act.varName == "x" {
+					t.setDomainFromArray(v.arr)
+				}
+				t.tryPlotSeries(act.varName, v)
+			} else {
+				t.setGraphFromExpr(act.varName, v.ToNode())
+			}
+
+		case actionAssignFunc:
+			t.e.funcs[act.funcName] = userFunc{param: act.funcParam, body: act.expr}
+			t.appendLine(fmt.Sprintf("%s(%s) = %s", act.funcName, act.funcParam, NodeString(act.expr)))
+
+		case actionEval:
+			v, err := act.expr.Eval(t.e)
+			if err != nil {
+				t.appendLine("error: " + err.Error())
+				return
+			}
+			t.appendLine("= " + t.formatValue(v))
+			if v.IsArray() {
+				t.tryPlotSeries("result", v)
+			} else {
+				t.setGraphFromExpr(NodeString(act.expr), v.ToNode())
+				if nodeHasIdent(act.expr, "x") {
+					t.addPlotFunc(NodeString(act.expr), act.expr)
+				}
+			}
+		}
+	}
+}
+
+func (t *Task) handleStackKey(ctx *kernel.Context, k key) {
+	_ = ctx
+	vars := t.stackVars()
+	if len(vars) == 0 {
+		return
+	}
+
+	switch k.kind {
+	case keyUp:
+		if t.stackSel > 0 {
+			t.stackSel--
+		}
+	case keyDown:
+		if t.stackSel < len(vars)-1 {
+			t.stackSel++
+		}
+	case keyHome:
+		t.stackSel = 0
+	case keyEnd:
+		t.stackSel = len(vars) - 1
+	case keyEnter:
+		name := vars[t.stackSel]
+		t.editVar = name
+		t.setInput(t.valueEditString(t.e.vars[name]))
+		t.setMessage("Enter apply | Esc cancel")
+	case keyRune:
+		if k.r == 'e' {
+			name := vars[t.stackSel]
+			t.editVar = name
+			t.setInput(t.valueEditString(t.e.vars[name]))
+			t.setMessage("Enter apply | Esc cancel")
+		}
+	}
+
+	if t.stackSel < t.stackTop {
+		t.stackTop = t.stackSel
+	}
+	if t.stackSel >= t.stackTop+t.viewRows {
+		t.stackTop = t.stackSel - (t.viewRows - 1)
+	}
+	if t.stackTop < 0 {
+		t.stackTop = 0
+	}
+	maxTop := len(vars) - t.viewRows
+	if maxTop < 0 {
+		maxTop = 0
+	}
+	if t.stackTop > maxTop {
+		t.stackTop = maxTop
+	}
+}
+
+func (t *Task) handleEditKey(ctx *kernel.Context, k key) {
+	switch k.kind {
+	case keyEsc:
+		t.editVar = ""
+		t.input = t.input[:0]
+		t.cursor = 0
+		t.setMessage("edit canceled")
+	case keyEnter:
+		exprText := strings.TrimSpace(string(t.input))
+		name := t.editVar
+		t.editVar = ""
+		t.input = t.input[:0]
+		t.cursor = 0
+		t.evalLine(ctx, name+"="+exprText, true)
+	case keyBackspace:
+		t.backspace()
+	case keyDelete:
+		t.deleteForward()
+	case keyLeft:
+		if t.cursor > 0 {
+			t.cursor--
+		}
+	case keyRight:
+		if t.cursor < len(t.input) {
+			t.cursor++
+		}
+	case keyHome:
+		t.cursor = 0
+	case keyEnd:
+		t.cursor = len(t.input)
+	case keyRune:
+		if k.r >= 0x20 && k.r != 0x7f {
+			t.insertRune(k.r)
+		}
+	}
+}
+
+func (t *Task) stackVars() []string {
+	out := make([]string, 0, len(t.e.vars))
+	for k := range t.e.vars {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (t *Task) valueEditString(v Value) string {
+	switch v.kind {
+	case valueExpr:
+		return NodeString(v.expr)
+	case valueArray:
+		return ""
+	default:
+		return v.num.String(t.e.prec)
+	}
+}
+
 func clipRunes(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
 	rs := []rune(s)
 	if len(rs) > max {
 		rs = rs[:max]
