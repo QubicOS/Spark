@@ -1,6 +1,10 @@
 package shell
 
-import "spark/sparkos/kernel"
+import (
+	"fmt"
+
+	"spark/sparkos/kernel"
+)
 
 func (s *Service) moveLeft(ctx *kernel.Context) {
 	if s.cursor <= 0 {
@@ -119,4 +123,78 @@ func (s *Service) cancelLine(ctx *kernel.Context) {
 	s.cursor = 0
 	s.utf8buf = s.utf8buf[:0]
 	_ = s.prompt(ctx)
+}
+
+func (s *Service) prompt(ctx *kernel.Context) error {
+	s.cursor = 0
+	return s.writeString(ctx, promptANSI)
+}
+
+func (s *Service) histUp(ctx *kernel.Context) {
+	if len(s.history) == 0 {
+		return
+	}
+	if s.histPos == len(s.history) {
+		s.scratch = append(s.scratch[:0], s.line...)
+	}
+	if s.histPos <= 0 {
+		return
+	}
+	s.histPos--
+	s.replaceLine(ctx, []rune(s.history[s.histPos]))
+}
+
+func (s *Service) histDown(ctx *kernel.Context) {
+	if len(s.history) == 0 {
+		return
+	}
+	if s.histPos >= len(s.history) {
+		return
+	}
+	s.histPos++
+	if s.histPos == len(s.history) {
+		s.replaceLine(ctx, s.scratch)
+		return
+	}
+	s.replaceLine(ctx, []rune(s.history[s.histPos]))
+}
+
+func (s *Service) replaceLine(ctx *kernel.Context, r []rune) {
+	s.line = s.line[:0]
+	s.line = append(s.line, r...)
+	s.cursor = len(s.line)
+	_ = s.redrawLine(ctx)
+}
+
+func (s *Service) redrawLine(ctx *kernel.Context) error {
+	if err := s.writeString(ctx, "\x1b[1G\x1b[2K"); err != nil {
+		return err
+	}
+	if err := s.writeString(ctx, promptANSI); err != nil {
+		return err
+	}
+	if err := s.writeString(ctx, string(s.line)); err != nil {
+		return err
+	}
+	if err := s.writeString(ctx, "\x1b[K"); err != nil {
+		return err
+	}
+	col := promptCols + 1 + s.cursor
+	return s.writeString(ctx, fmt.Sprintf("\x1b[%dG", col))
+}
+
+func (s *Service) insertString(ctx *kernel.Context, tail string) {
+	rs := []rune(tail)
+	if len(rs) == 0 {
+		return
+	}
+	if len(s.line)+len(rs) > 256 {
+		rs = rs[:maxInt(0, 256-len(s.line))]
+	}
+	if len(rs) == 0 {
+		return
+	}
+	s.line = append(s.line, rs...)
+	s.cursor = len(s.line)
+	_ = s.writeString(ctx, string(rs))
 }
