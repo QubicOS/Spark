@@ -46,6 +46,7 @@ const (
 	KeyRight
 	KeyEnter
 	KeyEscape
+	KeyBackspace
 )
 
 // KeyEvent is a keyboard event.

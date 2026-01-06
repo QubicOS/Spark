@@ -4,6 +4,8 @@ package hal
 
 import "github.com/hajimehoshi/ebiten/v2"
 
+import "github.com/hajimehoshi/ebiten/v2/inpututil"
+
 type hostKeyboard struct {
 	ch chan KeyEvent
 }
@@ -22,6 +24,13 @@ func (k *hostKeyboard) poll() {
 		}
 	}
 
+	for _, r := range ebiten.AppendInputChars(nil) {
+		select {
+		case k.ch <- KeyEvent{Press: true, Rune: r}:
+		default:
+		}
+	}
+
 	if ebiten.IsKeyPressed(ebiten.KeyW) || ebiten.IsKeyPressed(ebiten.KeyArrowUp) {
 		emit(KeyUp)
 	}
@@ -34,11 +43,13 @@ func (k *hostKeyboard) poll() {
 	if ebiten.IsKeyPressed(ebiten.KeyD) || ebiten.IsKeyPressed(ebiten.KeyArrowRight) {
 		emit(KeyRight)
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyEnter) {
+	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
 		emit(KeyEnter)
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
+	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 		emit(KeyEscape)
 	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyBackspace) {
+		emit(KeyBackspace)
+	}
 }
-
