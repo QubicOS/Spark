@@ -16,6 +16,10 @@ type Service struct {
 	line []rune
 
 	utf8buf []byte
+
+	history []string
+	histPos int
+	scratch []rune
 }
 
 func New(inCap kernel.Capability, termCap kernel.Capability) *Service {
@@ -47,12 +51,18 @@ func (s *Service) handleInput(ctx *kernel.Context, b []byte) {
 
 	for len(b) > 0 {
 		if b[0] == 0x1b {
-			// Best-effort: skip VT100 escape sequences (e.g. arrows).
-			consumed := consumeEscape(b)
-			if consumed == 0 {
-				b = b[1:]
-			} else {
-				b = b[consumed:]
+			consumed, act, ok := parseEscape(b)
+			if !ok {
+				s.utf8buf = b
+				return
+			}
+			b = b[consumed:]
+
+			switch act {
+			case escUp:
+				s.histUp(ctx)
+			case escDown:
+				s.histDown(ctx)
 			}
 			continue
 		}
@@ -105,10 +115,17 @@ func (s *Service) submit(ctx *kernel.Context) {
 
 	line := strings.TrimSpace(string(s.line))
 	s.line = s.line[:0]
+	s.scratch = s.scratch[:0]
+	s.histPos = len(s.history)
 	if line == "" {
 		_ = s.prompt(ctx)
 		return
 	}
+
+	if len(s.history) == 0 || s.history[len(s.history)-1] != line {
+		s.history = append(s.history, line)
+	}
+	s.histPos = len(s.history)
 
 	args := strings.Fields(line)
 	cmd := args[0]
@@ -132,6 +149,44 @@ func (s *Service) submit(ctx *kernel.Context) {
 
 func (s *Service) prompt(ctx *kernel.Context) error {
 	return s.writeString(ctx, "\x1b[38;5;46m>\x1b[0m ")
+}
+
+func (s *Service) histUp(ctx *kernel.Context) {
+	if len(s.history) == 0 {
+		return
+	}
+	if s.histPos == len(s.history) {
+		s.scratch = append(s.scratch[:0], s.line...)
+	}
+	if s.histPos <= 0 {
+		return
+	}
+	s.histPos--
+	s.replaceLine(ctx, []rune(s.history[s.histPos]))
+}
+
+func (s *Service) histDown(ctx *kernel.Context) {
+	if len(s.history) == 0 {
+		return
+	}
+	if s.histPos >= len(s.history) {
+		return
+	}
+	s.histPos++
+	if s.histPos == len(s.history) {
+		s.replaceLine(ctx, s.scratch)
+		return
+	}
+	s.replaceLine(ctx, []rune(s.history[s.histPos]))
+}
+
+func (s *Service) replaceLine(ctx *kernel.Context, r []rune) {
+	for range s.line {
+		_ = s.writeString(ctx, "\x1b[D \x1b[D")
+	}
+	s.line = s.line[:0]
+	s.line = append(s.line, r...)
+	_ = s.writeString(ctx, string(r))
 }
 
 func (s *Service) writeString(ctx *kernel.Context, s2 string) error {
@@ -166,11 +221,41 @@ func (s *Service) sendToTerm(ctx *kernel.Context, kind proto.Kind, payload []byt
 	}
 }
 
+type escAction uint8
+
+const (
+	escNone escAction = iota
+	escUp
+	escDown
+)
+
+func parseEscape(b []byte) (consumed int, action escAction, ok bool) {
+	if len(b) < 2 || b[0] != 0x1b {
+		return 0, escNone, true
+	}
+	if b[1] != '[' {
+		if len(b) < 2 {
+			return 0, escNone, false
+		}
+		return 2, escNone, true
+	}
+	if len(b) < 3 {
+		return 0, escNone, false
+	}
+	switch b[2] {
+	case 'A':
+		return 3, escUp, true
+	case 'B':
+		return 3, escDown, true
+	default:
+		return consumeEscape(b), escNone, true
+	}
+}
+
 func consumeEscape(b []byte) int {
 	if len(b) < 2 || b[0] != 0x1b {
 		return 0
 	}
-	// CSI: ESC [ ... final
 	if b[1] == '[' {
 		for i := 2; i < len(b); i++ {
 			if b[i] >= 0x40 && b[i] <= 0x7e {
