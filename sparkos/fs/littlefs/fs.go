@@ -400,7 +400,7 @@ func (fs *FS) ReadAt(path string, p []byte, off uint32) (n int, eof bool, err er
 type Writer struct {
 	fs      *FS
 	path    string
-	file    C.lfs_file_t
+	file    *C.lfs_file_t
 	written uint32
 	closed  bool
 }
@@ -429,9 +429,14 @@ func (fs *FS) OpenWriter(path string, mode WriteMode) (*Writer, error) {
 		return nil, fmt.Errorf("littlefs open writer %q: invalid mode %d", path, mode)
 	}
 
-	var f C.lfs_file_t
-	rc := C.lfs_file_open(fs.lfs, &f, cpath, C.int(flags))
+	f := (*C.lfs_file_t)(C.calloc(1, C.size_t(unsafe.Sizeof(C.lfs_file_t{}))))
+	if f == nil {
+		return nil, errors.New("littlefs: failed to allocate file handle")
+	}
+
+	rc := C.lfs_file_open(fs.lfs, f, cpath, C.int(flags))
 	if rc != 0 {
+		C.free(unsafe.Pointer(f))
 		return nil, fmt.Errorf("littlefs open %q: %w", path, decodeErr(int(rc)))
 	}
 
@@ -450,7 +455,7 @@ func (w *Writer) Write(p []byte) (int, error) {
 	w.fs.mu.Lock()
 	defer w.fs.mu.Unlock()
 
-	rc := C.lfs_file_write(w.fs.lfs, &w.file, unsafe.Pointer(unsafe.SliceData(p)), C.lfs_size_t(len(p)))
+	rc := C.lfs_file_write(w.fs.lfs, w.file, unsafe.Pointer(unsafe.SliceData(p)), C.lfs_size_t(len(p)))
 	if rc < 0 {
 		return 0, fmt.Errorf("littlefs write %q: %w", w.path, decodeErr(int(rc)))
 	}
@@ -467,17 +472,23 @@ func (w *Writer) Close() error {
 
 	w.fs.mu.Lock()
 	defer w.fs.mu.Unlock()
+	defer func() {
+		if w.file != nil {
+			C.free(unsafe.Pointer(w.file))
+			w.file = nil
+		}
+	}()
 
 	if err := w.fs.ensureMountedLocked(); err != nil {
-		_ = C.lfs_file_close(w.fs.lfs, &w.file)
+		_ = C.lfs_file_close(w.fs.lfs, w.file)
 		return err
 	}
 
-	if rc := C.lfs_file_sync(w.fs.lfs, &w.file); rc < 0 {
-		_ = C.lfs_file_close(w.fs.lfs, &w.file)
+	if rc := C.lfs_file_sync(w.fs.lfs, w.file); rc < 0 {
+		_ = C.lfs_file_close(w.fs.lfs, w.file)
 		return fmt.Errorf("littlefs sync %q: %w", w.path, decodeErr(int(rc)))
 	}
-	if rc := C.lfs_file_close(w.fs.lfs, &w.file); rc != 0 {
+	if rc := C.lfs_file_close(w.fs.lfs, w.file); rc != 0 {
 		return fmt.Errorf("littlefs close %q: %w", w.path, decodeErr(int(rc)))
 	}
 	return nil
