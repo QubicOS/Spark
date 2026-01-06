@@ -356,10 +356,14 @@ func (s *Service) submit(ctx *kernel.Context) {
 		}
 	case "ticks":
 		_ = s.printString(ctx, fmt.Sprintf("%d\n", ctx.NowTick()))
+	case "uptime":
+		_ = s.printString(ctx, fmt.Sprintf("up %d ticks\n", ctx.NowTick()))
 	case "version":
 		_ = s.printString(ctx, fmt.Sprintf("%s %s %s\n", buildinfo.Version, buildinfo.Commit, buildinfo.Date))
 	case "uname":
-		_ = s.printString(ctx, fmt.Sprintf("%s %s\n", runtime.GOOS, runtime.GOARCH))
+		if err := s.uname(ctx, args); err != nil {
+			_ = s.printString(ctx, "uname: "+err.Error()+"\n")
+		}
 	case "panic":
 		panic("shell panic")
 	case "log":
@@ -403,6 +407,14 @@ func (s *Service) submit(ctx *kernel.Context) {
 	case "mkdir":
 		if err := s.mkdir(ctx, args); err != nil {
 			_ = s.printString(ctx, "mkdir: "+err.Error()+"\n")
+		}
+	case "touch":
+		if err := s.touch(ctx, args); err != nil {
+			_ = s.printString(ctx, "touch: "+err.Error()+"\n")
+		}
+	case "cp":
+		if err := s.cp(ctx, args); err != nil {
+			_ = s.printString(ctx, "cp: "+err.Error()+"\n")
 		}
 	case "stat":
 		if err := s.stat(ctx, args); err != nil {
@@ -633,6 +645,44 @@ func (s *Service) mkdir(ctx *kernel.Context, args []string) error {
 	return s.vfsClient().Mkdir(ctx, s.absPath(args[0]))
 }
 
+func (s *Service) touch(ctx *kernel.Context, args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: touch <path>")
+	}
+	_, err := s.vfsClient().Write(ctx, s.absPath(args[0]), proto.VFSWriteAppend, nil)
+	return err
+}
+
+func (s *Service) cp(ctx *kernel.Context, args []string) error {
+	if len(args) != 2 {
+		return errors.New("usage: cp <src> <dst>")
+	}
+	src := s.absPath(args[0])
+	dst := s.absPath(args[1])
+
+	const maxRead = kernel.MaxMessageBytes - 11
+	var off uint32
+	var buf []byte
+	for {
+		b, eof, err := s.vfsClient().ReadAt(ctx, src, off, maxRead)
+		if err != nil {
+			return err
+		}
+		if len(b) > 0 {
+			buf = append(buf, b...)
+			off += uint32(len(b))
+			if len(buf) > 512*1024 {
+				return errors.New("file too large")
+			}
+		}
+		if eof {
+			break
+		}
+	}
+	_, err := s.vfsClient().Write(ctx, dst, proto.VFSWriteTruncate, buf)
+	return err
+}
+
 func (s *Service) stat(ctx *kernel.Context, args []string) error {
 	if len(args) != 1 {
 		return errors.New("usage: stat <path>")
@@ -704,6 +754,21 @@ func (s *Service) put(ctx *kernel.Context, args []string) error {
 	data := []byte(strings.Join(args[1:], " "))
 	_, err := s.vfsClient().Write(ctx, path, proto.VFSWriteTruncate, data)
 	return err
+}
+
+func (s *Service) uname(ctx *kernel.Context, args []string) error {
+	if len(args) == 0 {
+		return s.printString(ctx, fmt.Sprintf("%s %s\n", runtime.GOOS, runtime.GOARCH))
+	}
+	if len(args) == 1 && args[0] == "-a" {
+		sys := "SparkOS"
+		node := "spark"
+		rel := buildinfo.Short()
+		ver := buildinfo.Commit
+		mach := runtime.GOARCH
+		return s.printString(ctx, fmt.Sprintf("%s %s %s %s %s\n", sys, node, rel, ver, mach))
+	}
+	return errors.New("usage: uname [-a]")
 }
 
 func (s *Service) echo(ctx *kernel.Context, args []string, redir redirection) error {
@@ -896,6 +961,7 @@ var builtinCommands = []string{
 	"cat",
 	"cd",
 	"clear",
+	"cp",
 	"echo",
 	"help",
 	"ls",
@@ -907,7 +973,9 @@ var builtinCommands = []string{
 	"scrollback",
 	"stat",
 	"ticks",
+	"touch",
 	"uname",
+	"uptime",
 	"version",
 }
 
@@ -925,11 +993,14 @@ var builtinCommandHelp = []commandHelp{
 	{Name: "pwd", Desc: "Print current directory."},
 	{Name: "cd", Desc: "Change current directory."},
 	{Name: "mkdir", Desc: "Create a directory."},
+	{Name: "touch", Desc: "Create file if missing."},
+	{Name: "cp", Desc: "Copy a file."},
 	{Name: "put", Desc: "Write bytes to a file."},
 	{Name: "stat", Desc: "Show file metadata."},
 	{Name: "ticks", Desc: "Show current kernel tick counter."},
+	{Name: "uptime", Desc: "Show uptime (ticks)."},
 	{Name: "version", Desc: "Show build version."},
-	{Name: "uname", Desc: "Show runtime OS/arch."},
+	{Name: "uname", Desc: "Show system information (try -a)."},
 	{Name: "panic", Desc: "Panic the shell task (test)."},
 	{Name: "log", Desc: "Send a log line to logger service."},
 	{Name: "scrollback", Desc: "Show the last N output lines."},
