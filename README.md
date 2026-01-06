@@ -41,6 +41,9 @@ Shell (window):
 go run . -shell
 ```
 
+Unicode:
+- terminal supports UTF-8 text rendering on host (Cyrillic via bundled DejaVu Sans Mono).
+
 Host framebuffer output:
 
 - opens a `320x320` window
