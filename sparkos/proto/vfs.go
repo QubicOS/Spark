@@ -130,6 +130,107 @@ func DecodeVFSMkdirRespPayload(b []byte) (requestID uint32, ok bool) {
 	return binary.LittleEndian.Uint32(b[0:4]), true
 }
 
+// VFSRemovePayload encodes a MsgVFSRemove request.
+//
+// Layout (little-endian):
+//   - u32: request id
+//   - u16: path length
+//   - bytes: path (UTF-8)
+func VFSRemovePayload(requestID uint32, path string) []byte {
+	p := []byte(path)
+	buf := make([]byte, 6+len(p))
+	binary.LittleEndian.PutUint32(buf[0:4], requestID)
+	binary.LittleEndian.PutUint16(buf[4:6], uint16(len(p)))
+	copy(buf[6:], p)
+	return buf
+}
+
+func DecodeVFSRemovePayload(b []byte) (requestID uint32, path string, ok bool) {
+	if len(b) < 6 {
+		return 0, "", false
+	}
+	requestID = binary.LittleEndian.Uint32(b[0:4])
+	pathLen := int(binary.LittleEndian.Uint16(b[4:6]))
+	if 6+pathLen != len(b) {
+		return 0, "", false
+	}
+	return requestID, string(b[6:]), true
+}
+
+// VFSRemoveRespPayload encodes a MsgVFSRemoveResp response.
+//
+// Layout (little-endian):
+//   - u32: request id
+func VFSRemoveRespPayload(requestID uint32) []byte {
+	buf := make([]byte, 4)
+	binary.LittleEndian.PutUint32(buf[0:4], requestID)
+	return buf
+}
+
+func DecodeVFSRemoveRespPayload(b []byte) (requestID uint32, ok bool) {
+	if len(b) != 4 {
+		return 0, false
+	}
+	return binary.LittleEndian.Uint32(b[0:4]), true
+}
+
+// VFSRenamePayload encodes a MsgVFSRename request.
+//
+// Layout (little-endian):
+//   - u32: request id
+//   - u16: old path length
+//   - bytes: old path (UTF-8)
+//   - u16: new path length
+//   - bytes: new path (UTF-8)
+func VFSRenamePayload(requestID uint32, oldPath, newPath string) []byte {
+	oldB := []byte(oldPath)
+	newB := []byte(newPath)
+	buf := make([]byte, 8+len(oldB)+len(newB))
+	binary.LittleEndian.PutUint32(buf[0:4], requestID)
+	binary.LittleEndian.PutUint16(buf[4:6], uint16(len(oldB)))
+	copy(buf[6:], oldB)
+	base := 6 + len(oldB)
+	binary.LittleEndian.PutUint16(buf[base:base+2], uint16(len(newB)))
+	copy(buf[base+2:], newB)
+	return buf
+}
+
+func DecodeVFSRenamePayload(b []byte) (requestID uint32, oldPath, newPath string, ok bool) {
+	if len(b) < 8 {
+		return 0, "", "", false
+	}
+	requestID = binary.LittleEndian.Uint32(b[0:4])
+	oldLen := int(binary.LittleEndian.Uint16(b[4:6]))
+	base := 6 + oldLen
+	if base+2 > len(b) {
+		return 0, "", "", false
+	}
+	newLen := int(binary.LittleEndian.Uint16(b[base : base+2]))
+	if base+2+newLen != len(b) {
+		return 0, "", "", false
+	}
+	oldPath = string(b[6:base])
+	newPath = string(b[base+2:])
+	return requestID, oldPath, newPath, true
+}
+
+// VFSRenameRespPayload encodes a MsgVFSRenameResp response.
+//
+// Layout (little-endian):
+//   - u32: request id
+func VFSRenameRespPayload(requestID uint32) []byte {
+	buf := make([]byte, 4)
+	binary.LittleEndian.PutUint32(buf[0:4], requestID)
+	return buf
+}
+
+func DecodeVFSRenameRespPayload(b []byte) (requestID uint32, ok bool) {
+	if len(b) != 4 {
+		return 0, false
+	}
+	return binary.LittleEndian.Uint32(b[0:4]), true
+}
+
 // VFSStatPayload encodes a MsgVFSStat request.
 func VFSStatPayload(requestID uint32, path string) []byte {
 	p := []byte(path)

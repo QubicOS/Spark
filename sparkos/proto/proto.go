@@ -26,6 +26,10 @@ const (
 	MsgTermRefresh
 	MsgAppControl
 	MsgAppSelect
+	MsgVFSRemove
+	MsgVFSRemoveResp
+	MsgVFSRename
+	MsgVFSRenameResp
 )
 
 // ErrCode is a generic error category for MsgError responses.
@@ -111,6 +115,14 @@ func (k Kind) String() string {
 		return "app_control"
 	case MsgAppSelect:
 		return "app_select"
+	case MsgVFSRemove:
+		return "vfs_remove"
+	case MsgVFSRemoveResp:
+		return "vfs_remove_resp"
+	case MsgVFSRename:
+		return "vfs_rename"
+	case MsgVFSRenameResp:
+		return "vfs_rename_resp"
 	default:
 		return "unknown"
 	}
