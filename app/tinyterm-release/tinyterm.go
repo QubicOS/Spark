@@ -57,6 +57,35 @@ type Terminal struct {
 	useSoftwareScroll bool
 }
 
+type clipDisplayer struct {
+	base Displayer
+	x0   int16
+	y0   int16
+	x1   int16
+	y1   int16
+}
+
+func (d clipDisplayer) Size() (x, y int16) { return d.base.Size() }
+
+func (d clipDisplayer) SetPixel(x, y int16, c color.RGBA) {
+	if x < d.x0 || x >= d.x1 || y < d.y0 || y >= d.y1 {
+		return
+	}
+	d.base.SetPixel(x, y, c)
+}
+
+func (d clipDisplayer) Display() error { return d.base.Display() }
+
+func (d clipDisplayer) FillRectangle(x, y, width, height int16, c color.RGBA) error {
+	return d.base.FillRectangle(x, y, width, height, c)
+}
+
+func (d clipDisplayer) SetScroll(line int16) { d.base.SetScroll(line) }
+
+func (d clipDisplayer) SetRotation(rotation drivers.Rotation) error {
+	return d.base.SetRotation(rotation)
+}
+
 // Config contains the configuration for a Terminal.
 type Config struct {
 	// the font to be used for the terminal
@@ -345,7 +374,14 @@ func (t *Terminal) drawrune(r rune) {
 	// after backspace/redraw.
 	const padX = int16(2)
 	t.display.FillRectangle(x-padX, t.scroll, t.fontWidth+padX*2, t.fontHeight, t.attrs.bgcol)
-	tinyfont.DrawChar(t.display, t.font, x, y, r, t.attrs.fgcol)
+	cell := clipDisplayer{
+		base: t.display,
+		x0:   x - padX,
+		y0:   t.scroll,
+		x1:   x + t.fontWidth + padX,
+		y1:   t.scroll + t.fontHeight,
+	}
+	tinyfont.DrawChar(cell, t.font, x, y, r, t.attrs.fgcol)
 	t.next += 1
 }
 

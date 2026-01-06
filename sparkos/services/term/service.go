@@ -82,7 +82,7 @@ func (s *Service) reset() {
 	s.t = tinyterm.NewTerminal(s.d)
 
 	font := &dejavumono9.DejaVuSansMono9
-	fontHeight, fontOffset, err := const2bitcolor.ComputeLineMetrics(font)
+	fontHeight, fontOffset, err := const2bitcolor.ComputeTerminalMetrics(font)
 	if err != nil {
 		fontHeight = 11
 		fontOffset = 8

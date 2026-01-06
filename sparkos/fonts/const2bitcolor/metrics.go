@@ -64,3 +64,32 @@ func ComputeLineMetrics(font *Font) (fontHeight int16, fontOffset int16, err err
 	}
 	return int16(height), int16(offset), nil
 }
+
+// ComputeTerminalMetrics returns compact per-line metrics for terminal-style rendering.
+//
+// It uses font.YAdvance as the line height and picks a baseline offset that minimizes
+// clipping at both the top and bottom based on the font's glyph extents.
+func ComputeTerminalMetrics(font *Font) (fontHeight int16, fontOffset int16, err error) {
+	bboxHeight, bboxOffset, err := ComputeLineMetrics(font)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	h := int16(font.YAdvance)
+	if h <= 0 {
+		h = bboxHeight
+	}
+
+	minY := -bboxOffset
+	maxY := bboxHeight - bboxOffset
+
+	// Choose offset to balance top/bottom clipping for the chosen line height.
+	off := (h - maxY - minY) / 2
+	if off < 0 {
+		off = 0
+	}
+	if off > h {
+		off = h
+	}
+	return h, off, nil
+}

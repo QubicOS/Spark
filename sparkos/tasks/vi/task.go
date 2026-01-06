@@ -77,7 +77,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 	t.font = &dejavumono9.DejaVuSansMono9
 	t.fontHeight, t.fontOffset = 11, 8
 	if f, ok := t.font.(*const2bitcolor.Font); ok {
-		if h, off, err := const2bitcolor.ComputeLineMetrics(f); err == nil {
+		if h, off, err := const2bitcolor.ComputeTerminalMetrics(f); err == nil {
 			t.fontHeight = h
 			t.fontOffset = off
 		}
