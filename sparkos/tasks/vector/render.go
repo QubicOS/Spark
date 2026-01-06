@@ -168,7 +168,7 @@ func (t *Task) render() {
 	case tabStack:
 		t.renderStack(panelY)
 	default:
-		t.renderHistory(panelY)
+		t.renderTerminal(panelY)
 	}
 
 	statusY := int16(t.rows-1) * t.fontHeight
@@ -193,6 +193,70 @@ func (t *Task) renderHistory(panelY int16) {
 		t.drawStringClipped(0, y, t.lines[i], colorFG, t.cols)
 		y += t.fontHeight
 	}
+}
+
+func (t *Task) renderTerminal(panelY int16) {
+	histRows := t.viewRows - 1
+	if histRows < 0 {
+		histRows = 0
+	}
+
+	start := 0
+	if len(t.lines) > histRows {
+		start = len(t.lines) - histRows
+	}
+	y := panelY
+	for i := start; i < len(t.lines); i++ {
+		t.drawStringClipped(0, y, t.lines[i], colorFG, t.cols)
+		y += t.fontHeight
+	}
+
+	inputY := panelY + int16(t.viewRows-1)*t.fontHeight
+	if t.viewRows <= 0 {
+		inputY = panelY
+	}
+	_ = t.d.FillRectangle(0, inputY, int16(t.cols)*t.fontWidth, t.fontHeight, colorBG)
+
+	prefix := []rune("> ")
+	visibleCols := t.cols - len(prefix)
+	if visibleCols < 0 {
+		visibleCols = 0
+	}
+
+	startCol := 0
+	if t.cursor > visibleCols-1 {
+		startCol = t.cursor - (visibleCols - 1)
+		if startCol < 0 {
+			startCol = 0
+		}
+	}
+	if startCol > len(t.input) {
+		startCol = len(t.input)
+	}
+
+	endCol := startCol + visibleCols
+	if endCol > len(t.input) {
+		endCol = len(t.input)
+	}
+
+	line := append(prefix, t.input[startCol:endCol]...)
+	t.drawRunesClipped(0, inputY, line, colorFG, t.cols)
+
+	cursorCol := len(prefix) + (t.cursor - startCol)
+	if cursorCol < len(prefix) {
+		cursorCol = len(prefix)
+	}
+	if cursorCol > t.cols-1 {
+		cursorCol = t.cols - 1
+	}
+
+	cursorX := int16(cursorCol) * t.fontWidth
+	_ = t.d.FillRectangle(cursorX, inputY, t.fontWidth, t.fontHeight, colorHeaderBG)
+	var cursorRune rune = ' '
+	if t.cursor >= startCol && t.cursor < endCol {
+		cursorRune = t.input[t.cursor]
+	}
+	t.drawRunesClipped(cursorX, inputY, []rune{cursorRune}, colorFG, 1)
 }
 
 func (t *Task) renderStack(panelY int16) {
@@ -544,13 +608,15 @@ func (t *Task) renderHelp() {
 		"  :prec N: float format",
 		"  :plotclear: clear plots",
 		"  :clear: clear output history",
-		"  g: jump to plot tab",
+		"  Ctrl+G: jump to plot tab",
 		"  H: toggle help",
 		"  q/ESC: exit",
 		"",
 		"Plot",
 		"  arrows: pan",
 		"  +/-: zoom in/out",
+		"  PgUp/PgDn: zoom",
+		"  z: cycle zoom step",
 		"  a: autoscale",
 		"  c: back to terminal",
 		"",

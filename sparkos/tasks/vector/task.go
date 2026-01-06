@@ -74,6 +74,9 @@ type Task struct {
 
 	stackSel int
 	stackTop int
+
+	zoomInFactor  float64
+	zoomOutFactor float64
 }
 
 func New(disp hal.Display, ep kernel.Capability) *Task {
@@ -86,6 +89,9 @@ func New(disp hal.Display, ep kernel.Capability) *Task {
 		xMax: 10,
 		yMin: -10,
 		yMax: 10,
+
+		zoomInFactor:  0.8,
+		zoomOutFactor: 1.25,
 	}
 }
 
@@ -322,6 +328,13 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		case tabStack:
 			t.handleStackKey(ctx, k)
 		}
+	case keyCtrl:
+		switch t.tab {
+		case tabTerminal:
+			if k.ctrl == 0x07 {
+				t.switchTab(tabPlot)
+			}
+		}
 	case keyRune:
 		if k.r == 'q' {
 			t.requestExit(ctx)
@@ -329,13 +342,8 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		}
 		switch t.tab {
 		case tabTerminal:
-			switch k.r {
-			case 'g':
-				t.switchTab(tabPlot)
-			default:
-				if k.r >= 0x20 && k.r != 0x7f {
-					t.insertRune(k.r)
-				}
+			if k.r >= 0x20 && k.r != 0x7f {
+				t.insertRune(k.r)
 			}
 		case tabPlot:
 			t.handlePlotKey(ctx, k)
@@ -498,9 +506,12 @@ func (t *Task) handlePlotKey(ctx *kernel.Context, k key) {
 		case 'a':
 			t.autoscalePlots()
 		case '+', '=':
-			t.zoom(0.8)
+			t.zoom(t.zoomInFactor)
 		case '-':
-			t.zoom(1.25)
+			t.zoom(t.zoomOutFactor)
+		case 'z':
+			t.cyclePlotZoomMode()
+			t.setMessage(fmt.Sprintf("zoom: in x%0.2f out x%0.2f", t.zoomInFactor, t.zoomOutFactor))
 		}
 	case keyLeft:
 		t.pan(-0.1, 0)
@@ -510,6 +521,10 @@ func (t *Task) handlePlotKey(ctx *kernel.Context, k key) {
 		t.pan(0, 0.1)
 	case keyDown:
 		t.pan(0, -0.1)
+	case keyPageUp:
+		t.zoom(t.zoomInFactor)
+	case keyPageDown:
+		t.zoom(t.zoomOutFactor)
 	}
 }
 
@@ -691,6 +706,10 @@ func (t *Task) headerText() string {
 }
 
 func (t *Task) statusText() string {
+	if t.tab == tabTerminal && t.editVar == "" {
+		return clipRunes(t.message, t.cols)
+	}
+
 	var base string
 	if t.editVar != "" {
 		base = "edit " + t.editVar + " = " + string(t.input)
@@ -796,11 +815,25 @@ func (t *Task) switchTab(newTab tab) {
 			t.addPlotFunc(t.graphExpr, t.graph)
 		}
 		t.autoscalePlots()
-		t.setMessage("arrows pan | +/- zoom | a autoscale | F1 term | F3 stack")
+		t.setMessage("arrows pan | +/- zoom | PgUp/PgDn zoom | z zoom step | a autoscale | F1 term | F3 stack")
 	case tabStack:
 		t.stackSel = 0
 		t.stackTop = 0
 		t.setMessage("Up/Down select | Enter edit | F1 term | F2 plot")
+	}
+}
+
+func (t *Task) cyclePlotZoomMode() {
+	switch {
+	case t.zoomInFactor >= 0.89:
+		t.zoomInFactor = 0.8
+		t.zoomOutFactor = 1.25
+	case t.zoomInFactor >= 0.79:
+		t.zoomInFactor = 0.5
+		t.zoomOutFactor = 2.0
+	default:
+		t.zoomInFactor = 0.9
+		t.zoomOutFactor = 1.0 / 0.9
 	}
 }
 
