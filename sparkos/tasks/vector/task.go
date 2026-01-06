@@ -1161,6 +1161,25 @@ func (t *Task) setDomainFromArray(xs []float64) {
 	}
 }
 
+func (t *Task) setRangeFromArray(ys []float64) {
+	if len(ys) < 2 {
+		return
+	}
+	min := ys[0]
+	max := ys[0]
+	for _, y := range ys[1:] {
+		if y < min {
+			min = y
+		}
+		if y > max {
+			max = y
+		}
+	}
+	if min < max {
+		t.yMin, t.yMax = min, max
+	}
+}
+
 func (t *Task) tryPlotSeries(label string, v Value) {
 	if label == "x" {
 		return
@@ -1297,6 +1316,10 @@ func (t *Task) evalLine(ctx *kernel.Context, line string, recordHistory bool) {
 					t.setDomainFromArray(v.arr)
 					break
 				}
+				if act.varName == "y" {
+					t.setRangeFromArray(v.arr)
+					break
+				}
 				t.tryPlotSeries(act.varName, v)
 			} else {
 				t.setGraphFromExpr(act.varName, v.ToNode())
@@ -1320,6 +1343,10 @@ func (t *Task) evalLine(ctx *kernel.Context, line string, recordHistory bool) {
 			}
 			t.appendLine("= " + t.formatValue(v))
 			if v.IsArray() {
+				// If the expression depends on y, treat it as a 3D surface even if x/y are arrays.
+				if nodeHasIdent(act.expr, "y") {
+					t.setGraphFromExpr(NodeString(act.expr), act.expr)
+				}
 				t.tryPlotSeries("result", v)
 			} else {
 				t.setGraphFromExpr(NodeString(act.expr), v.ToNode())
