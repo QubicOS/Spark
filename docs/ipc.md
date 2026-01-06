@@ -33,6 +33,8 @@
 - `MsgSleep`: запрос к time service (payload = `u32 requestID` + `u32 dt`, reply cap обязателен).
 - `MsgWake`: ответ от time service (payload = `u32 requestID`).
 - `MsgError`: универсальный ответ-ошибка.
+- `MsgTermWrite`: best-effort VT100/ANSI bytes в терминал.
+- `MsgTermClear`: очистка/сброс терминала.
 
 ## Протокол: Logger
 
@@ -60,6 +62,19 @@
 
 - Направление: time service -> reply endpoint.
 - Payload: `u32 requestID` (little-endian).
+
+## Протокол: Term
+
+**MsgTermWrite**
+
+- Направление: client -> term service (one-way).
+- Payload: байты VT100/ANSI (поток), максимум `kernel.MaxMessageBytes` на сообщение.
+- Переполнение: best-effort; клиент может дропать или ретраить (например, через `Context.BlockOnTick` или time-service sleep).
+
+**MsgTermClear**
+
+- Направление: client -> term service.
+- Payload: пусто.
 
 ## Универсальная ошибка (MsgError)
 

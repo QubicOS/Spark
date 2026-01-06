@@ -29,6 +29,12 @@ Dev (race detector):
 make dev
 ```
 
+VT100 demo (window):
+
+```bash
+go run . -term-demo
+```
+
 Host framebuffer output:
 
 - opens a `320x320` window
