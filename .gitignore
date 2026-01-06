@@ -22,6 +22,9 @@ coverage.*
 *.swo
 *~
 
+# Local accidental sources.
+app/rtdemo.cpp
+
 # Editor/OS.
 .DS_Store
 Thumbs.db
