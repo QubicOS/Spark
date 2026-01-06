@@ -1,0 +1,314 @@
+//go:build !tinygo
+
+package vfs
+
+import (
+	"errors"
+	"fmt"
+
+	"spark/hal"
+	"spark/sparkos/fs/littlefs"
+	"spark/sparkos/kernel"
+	"spark/sparkos/proto"
+)
+
+type Service struct {
+	inCap kernel.Capability
+	flash hal.Flash
+
+	fs *littlefs.FS
+
+	writers map[uint32]*writeSession
+}
+
+type writeSession struct {
+	reply  kernel.Capability
+	writer *littlefs.Writer
+}
+
+func New(flash hal.Flash, inCap kernel.Capability) *Service {
+	return &Service{flash: flash, inCap: inCap}
+}
+
+func (s *Service) Run(ctx *kernel.Context) {
+	ch, ok := ctx.RecvChan(s.inCap)
+	if !ok {
+		return
+	}
+
+	if s.flash != nil {
+		fs, err := littlefs.New(s.flash, littlefs.Options{})
+		if err == nil {
+			err = fs.MountOrFormat()
+		}
+		if err == nil {
+			s.fs = fs
+		}
+	}
+
+	if s.writers == nil {
+		s.writers = make(map[uint32]*writeSession)
+	}
+
+	for msg := range ch {
+		switch proto.Kind(msg.Kind) {
+		case proto.MsgVFSList:
+			s.handleList(ctx, msg)
+		case proto.MsgVFSMkdir:
+			s.handleMkdir(ctx, msg)
+		case proto.MsgVFSStat:
+			s.handleStat(ctx, msg)
+		case proto.MsgVFSRead:
+			s.handleRead(ctx, msg)
+		case proto.MsgVFSWriteOpen:
+			s.handleWriteOpen(ctx, msg)
+		case proto.MsgVFSWriteChunk:
+			s.handleWriteChunk(ctx, msg)
+		case proto.MsgVFSWriteClose:
+			s.handleWriteClose(ctx, msg)
+		}
+	}
+}
+
+func (s *Service) handleList(ctx *kernel.Context, msg kernel.Message) {
+	reply := msg.Cap
+	requestID, path, ok := proto.DecodeVFSListPayload(msg.Data[:msg.Len])
+	if !ok {
+		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSList, 0, "decode list")
+		return
+	}
+
+	fs := s.fs
+	if fs == nil {
+		_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSList, requestID, "vfs not ready")
+		return
+	}
+
+	if err := fs.ListDir(path, func(name string, info littlefs.Info) bool {
+		typ := proto.VFSEntryUnknown
+		switch info.Type {
+		case littlefs.TypeFile:
+			typ = proto.VFSEntryFile
+		case littlefs.TypeDir:
+			typ = proto.VFSEntryDir
+		}
+		_ = s.send(ctx, reply, proto.MsgVFSListResp, proto.VFSListRespPayload(requestID, false, typ, info.Size, name))
+		return true
+	}); err != nil {
+		_ = s.sendErr(ctx, reply, mapVFSError(err), proto.MsgVFSList, requestID, err.Error())
+		return
+	}
+
+	_ = s.send(ctx, reply, proto.MsgVFSListResp, proto.VFSListRespPayload(requestID, true, proto.VFSEntryUnknown, 0, ""))
+}
+
+func (s *Service) handleMkdir(ctx *kernel.Context, msg kernel.Message) {
+	reply := msg.Cap
+	requestID, path, ok := proto.DecodeVFSMkdirPayload(msg.Data[:msg.Len])
+	if !ok {
+		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSMkdir, 0, "decode mkdir")
+		return
+	}
+
+	fs := s.fs
+	if fs == nil {
+		_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSMkdir, requestID, "vfs not ready")
+		return
+	}
+
+	if err := fs.Mkdir(path); err != nil {
+		_ = s.sendErr(ctx, reply, mapVFSError(err), proto.MsgVFSMkdir, requestID, err.Error())
+		return
+	}
+	_ = s.send(ctx, reply, proto.MsgVFSMkdirResp, proto.VFSMkdirRespPayload(requestID))
+}
+
+func (s *Service) handleStat(ctx *kernel.Context, msg kernel.Message) {
+	reply := msg.Cap
+	requestID, path, ok := proto.DecodeVFSStatPayload(msg.Data[:msg.Len])
+	if !ok {
+		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSStat, 0, "decode stat")
+		return
+	}
+
+	fs := s.fs
+	if fs == nil {
+		_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSStat, requestID, "vfs not ready")
+		return
+	}
+
+	info, err := fs.Stat(path)
+	if err != nil {
+		_ = s.sendErr(ctx, reply, mapVFSError(err), proto.MsgVFSStat, requestID, err.Error())
+		return
+	}
+
+	typ := proto.VFSEntryUnknown
+	switch info.Type {
+	case littlefs.TypeFile:
+		typ = proto.VFSEntryFile
+	case littlefs.TypeDir:
+		typ = proto.VFSEntryDir
+	}
+
+	_ = s.send(ctx, reply, proto.MsgVFSStatResp, proto.VFSStatRespPayload(requestID, typ, info.Size))
+}
+
+func (s *Service) handleRead(ctx *kernel.Context, msg kernel.Message) {
+	reply := msg.Cap
+	requestID, path, off, maxBytes, ok := proto.DecodeVFSReadPayload(msg.Data[:msg.Len])
+	if !ok {
+		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSRead, 0, "decode read")
+		return
+	}
+
+	fs := s.fs
+	if fs == nil {
+		_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSRead, requestID, "vfs not ready")
+		return
+	}
+
+	max := int(maxBytes)
+	maxPayload := kernel.MaxMessageBytes - 11
+	if max > maxPayload {
+		max = maxPayload
+	}
+	if max < 0 {
+		max = 0
+	}
+	buf := make([]byte, max)
+
+	n, eof, err := fs.ReadAt(path, buf, off)
+	if err != nil {
+		_ = s.sendErr(ctx, reply, mapVFSError(err), proto.MsgVFSRead, requestID, err.Error())
+		return
+	}
+
+	_ = s.send(ctx, reply, proto.MsgVFSReadResp, proto.VFSReadRespPayload(requestID, off, eof, buf[:n]))
+}
+
+func (s *Service) handleWriteOpen(ctx *kernel.Context, msg kernel.Message) {
+	reply := msg.Cap
+	requestID, mode, path, ok := proto.DecodeVFSWriteOpenPayload(msg.Data[:msg.Len])
+	if !ok {
+		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSWriteOpen, 0, "decode write open")
+		return
+	}
+	if !reply.Valid() {
+		return
+	}
+
+	fs := s.fs
+	if fs == nil {
+		_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSWriteOpen, requestID, "vfs not ready")
+		return
+	}
+
+	if prev := s.writers[requestID]; prev != nil {
+		_ = prev.writer.Close()
+		delete(s.writers, requestID)
+	}
+
+	wmode := littlefs.WriteTruncate
+	if mode == proto.VFSWriteAppend {
+		wmode = littlefs.WriteAppend
+	}
+
+	w, err := fs.OpenWriter(path, wmode)
+	if err != nil {
+		_ = s.sendErr(ctx, reply, mapVFSError(err), proto.MsgVFSWriteOpen, requestID, err.Error())
+		return
+	}
+
+	s.writers[requestID] = &writeSession{reply: reply, writer: w}
+	_ = s.send(ctx, reply, proto.MsgVFSWriteResp, proto.VFSWriteRespPayload(requestID, false, 0))
+}
+
+func (s *Service) handleWriteChunk(ctx *kernel.Context, msg kernel.Message) {
+	requestID, data, ok := proto.DecodeVFSWriteChunkPayload(msg.Data[:msg.Len])
+	if !ok {
+		return
+	}
+
+	sess := s.writers[requestID]
+	if sess == nil || sess.writer == nil {
+		return
+	}
+
+	n, err := sess.writer.Write(data)
+	if err != nil {
+		_ = s.sendErr(ctx, sess.reply, mapVFSError(err), proto.MsgVFSWriteChunk, requestID, err.Error())
+		_ = sess.writer.Close()
+		delete(s.writers, requestID)
+		return
+	}
+	if n != len(data) {
+		_ = s.sendErr(ctx, sess.reply, proto.ErrInternal, proto.MsgVFSWriteChunk, requestID, "short write")
+		_ = sess.writer.Close()
+		delete(s.writers, requestID)
+		return
+	}
+}
+
+func (s *Service) handleWriteClose(ctx *kernel.Context, msg kernel.Message) {
+	requestID, ok := proto.DecodeVFSWriteClosePayload(msg.Data[:msg.Len])
+	if !ok {
+		return
+	}
+
+	sess := s.writers[requestID]
+	if sess == nil || sess.writer == nil {
+		return
+	}
+	delete(s.writers, requestID)
+
+	if err := sess.writer.Close(); err != nil {
+		_ = s.sendErr(ctx, sess.reply, mapVFSError(err), proto.MsgVFSWriteClose, requestID, err.Error())
+		return
+	}
+	_ = s.send(ctx, sess.reply, proto.MsgVFSWriteResp, proto.VFSWriteRespPayload(requestID, true, sess.writer.BytesWritten()))
+}
+
+func (s *Service) send(ctx *kernel.Context, to kernel.Capability, kind proto.Kind, payload []byte) error {
+	for {
+		res := ctx.SendToCapResult(to, uint16(kind), payload, kernel.Capability{})
+		switch res {
+		case kernel.SendOK:
+			return nil
+		case kernel.SendErrQueueFull:
+			ctx.BlockOnTick()
+		default:
+			return fmt.Errorf("vfs send %s: %s", kind, res)
+		}
+	}
+}
+
+func (s *Service) sendErr(
+	ctx *kernel.Context,
+	to kernel.Capability,
+	code proto.ErrCode,
+	ref proto.Kind,
+	requestID uint32,
+	detail string,
+) error {
+	if !to.Valid() {
+		return nil
+	}
+	d := proto.ErrorDetailWithRequestID(requestID, []byte(detail))
+	return s.send(ctx, to, proto.MsgError, proto.ErrorPayload(code, ref, d))
+}
+
+func mapVFSError(err error) proto.ErrCode {
+	switch {
+	case errors.Is(err, littlefs.ErrNotFound):
+		return proto.ErrNotFound
+	case errors.Is(err, littlefs.ErrExists):
+		return proto.ErrBusy
+	case errors.Is(err, littlefs.ErrNoSpace):
+		return proto.ErrOverflow
+	case errors.Is(err, littlefs.ErrNotDir), errors.Is(err, littlefs.ErrIsDir), errors.Is(err, littlefs.ErrInvalid):
+		return proto.ErrBadMessage
+	default:
+		return proto.ErrInternal
+	}
+}

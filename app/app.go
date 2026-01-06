@@ -9,6 +9,7 @@ import (
 	"spark/sparkos/services/termkbd"
 	timesvc "spark/sparkos/services/time"
 	"spark/sparkos/services/ui"
+	"spark/sparkos/services/vfs"
 	"spark/sparkos/tasks/termdemo"
 )
 
@@ -50,9 +51,11 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	timeEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	termEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	shellEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	vfsEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 
 	k.AddTask(logger.New(h.Logger(), logEP.Restrict(kernel.RightRecv)))
 	k.AddTask(timesvc.New(timeEP))
+	k.AddTask(vfs.New(h.Flash(), vfsEP.Restrict(kernel.RightRecv)))
 
 	if cfg.Shell {
 		k.AddTask(term.New(h.Display(), termEP.Restrict(kernel.RightRecv)))
@@ -61,6 +64,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			shellEP.Restrict(kernel.RightRecv),
 			termEP.Restrict(kernel.RightSend),
 			logEP.Restrict(kernel.RightSend),
+			vfsEP.Restrict(kernel.RightSend),
 		))
 	} else if cfg.TermDemo {
 		k.AddTask(term.New(h.Display(), termEP.Restrict(kernel.RightRecv)))

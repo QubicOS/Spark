@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 
 	"spark/internal/buildinfo"
 	logclient "spark/sparkos/client/logger"
+	vfsclient "spark/sparkos/client/vfs"
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
 )
@@ -17,6 +19,9 @@ type Service struct {
 	inCap   kernel.Capability
 	termCap kernel.Capability
 	logCap  kernel.Capability
+	vfsCap  kernel.Capability
+
+	vfs *vfsclient.Client
 
 	line   []rune
 	cursor int
@@ -30,8 +35,8 @@ type Service struct {
 	scrollback []string
 }
 
-func New(inCap kernel.Capability, termCap kernel.Capability, logCap kernel.Capability) *Service {
-	return &Service{inCap: inCap, termCap: termCap, logCap: logCap}
+func New(inCap kernel.Capability, termCap kernel.Capability, logCap kernel.Capability, vfsCap kernel.Capability) *Service {
+	return &Service{inCap: inCap, termCap: termCap, logCap: logCap, vfsCap: vfsCap}
 }
 
 const (
@@ -334,7 +339,9 @@ func (s *Service) submit(ctx *kernel.Context) {
 	case "clear":
 		_ = s.sendToTerm(ctx, proto.MsgTermClear, nil)
 	case "echo":
-		_ = s.printString(ctx, strings.Join(args, " ")+"\n")
+		if err := s.echo(ctx, line, args); err != nil {
+			_ = s.printString(ctx, "echo: "+err.Error()+"\n")
+		}
 	case "ticks":
 		_ = s.printString(ctx, fmt.Sprintf("%d\n", ctx.NowTick()))
 	case "version":
@@ -371,11 +378,157 @@ func (s *Service) submit(ctx *kernel.Context) {
 		for _, ln := range s.scrollback[start:] {
 			_ = s.writeString(ctx, ln+"\n")
 		}
+	case "ls":
+		if err := s.ls(ctx, args); err != nil {
+			_ = s.printString(ctx, "ls: "+err.Error()+"\n")
+		}
+	case "mkdir":
+		if err := s.mkdir(ctx, args); err != nil {
+			_ = s.printString(ctx, "mkdir: "+err.Error()+"\n")
+		}
+	case "stat":
+		if err := s.stat(ctx, args); err != nil {
+			_ = s.printString(ctx, "stat: "+err.Error()+"\n")
+		}
+	case "cat":
+		if err := s.cat(ctx, args); err != nil {
+			_ = s.printString(ctx, "cat: "+err.Error()+"\n")
+		}
+	case "put":
+		if err := s.put(ctx, args); err != nil {
+			_ = s.printString(ctx, "put: "+err.Error()+"\n")
+		}
 	default:
 		_ = s.printString(ctx, "unknown command: "+cmd+"\n")
 	}
 
 	_ = s.prompt(ctx)
+}
+
+func (s *Service) vfsClient() *vfsclient.Client {
+	if s.vfs == nil {
+		s.vfs = vfsclient.New(s.vfsCap)
+	}
+	return s.vfs
+}
+
+func (s *Service) ls(ctx *kernel.Context, args []string) error {
+	path := "/"
+	if len(args) == 1 {
+		path = args[0]
+	} else if len(args) > 1 {
+		return errors.New("usage: ls [path]")
+	}
+
+	ents, err := s.vfsClient().List(ctx, path)
+	if err != nil {
+		return err
+	}
+	for _, e := range ents {
+		switch e.Type {
+		case proto.VFSEntryDir:
+			if err := s.printString(ctx, fmt.Sprintf("d        %s/\n", e.Name)); err != nil {
+				return err
+			}
+		case proto.VFSEntryFile:
+			if err := s.printString(ctx, fmt.Sprintf("f %7d %s\n", e.Size, e.Name)); err != nil {
+				return err
+			}
+		default:
+			if err := s.printString(ctx, fmt.Sprintf("?        %s\n", e.Name)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Service) mkdir(ctx *kernel.Context, args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: mkdir <path>")
+	}
+	return s.vfsClient().Mkdir(ctx, args[0])
+}
+
+func (s *Service) stat(ctx *kernel.Context, args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: stat <path>")
+	}
+	typ, size, err := s.vfsClient().Stat(ctx, args[0])
+	if err != nil {
+		return err
+	}
+	t := "?"
+	switch typ {
+	case proto.VFSEntryFile:
+		t = "file"
+	case proto.VFSEntryDir:
+		t = "dir"
+	}
+	return s.printString(ctx, fmt.Sprintf("%s size=%d\n", t, size))
+}
+
+func (s *Service) cat(ctx *kernel.Context, args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: cat <path>")
+	}
+	path := args[0]
+
+	const maxRead = kernel.MaxMessageBytes - 11
+	var off uint32
+	for {
+		b, eof, err := s.vfsClient().ReadAt(ctx, path, off, maxRead)
+		if err != nil {
+			return err
+		}
+		if len(b) > 0 {
+			if err := s.writeBytes(ctx, b); err != nil {
+				return err
+			}
+			off += uint32(len(b))
+		}
+		if eof {
+			return s.writeString(ctx, "\n")
+		}
+	}
+}
+
+func (s *Service) put(ctx *kernel.Context, args []string) error {
+	if len(args) < 2 {
+		return errors.New("usage: put <path> <data...>")
+	}
+	path := args[0]
+	data := []byte(strings.Join(args[1:], " "))
+	_, err := s.vfsClient().Write(ctx, path, proto.VFSWriteTruncate, data)
+	return err
+}
+
+func (s *Service) echo(ctx *kernel.Context, line string, args []string) error {
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "echo"))
+
+	if i := strings.Index(rest, ">>"); i >= 0 {
+		text := strings.TrimSpace(rest[:i])
+		path := strings.TrimSpace(rest[i+2:])
+		if path == "" {
+			return errors.New("usage: echo <text> >> <path>")
+		}
+		_, err := s.vfsClient().Write(ctx, path, proto.VFSWriteAppend, []byte(text+"\n"))
+		return err
+	}
+	if i := strings.Index(rest, ">"); i >= 0 {
+		text := strings.TrimSpace(rest[:i])
+		path := strings.TrimSpace(rest[i+1:])
+		if path == "" {
+			return errors.New("usage: echo <text> > <path>")
+		}
+		_, err := s.vfsClient().Write(ctx, path, proto.VFSWriteTruncate, []byte(text+"\n"))
+		return err
+	}
+
+	if len(args) == 0 {
+		return s.printString(ctx, "\n")
+	}
+	return s.printString(ctx, strings.Join(args, " ")+"\n")
 }
 
 func (s *Service) prompt(ctx *kernel.Context) error {
@@ -543,12 +696,17 @@ func maxInt(a, b int) int {
 }
 
 var builtinCommands = []string{
+	"cat",
 	"clear",
 	"echo",
 	"help",
+	"ls",
 	"log",
+	"mkdir",
 	"panic",
+	"put",
 	"scrollback",
+	"stat",
 	"ticks",
 	"uname",
 	"version",
@@ -563,6 +721,11 @@ var builtinCommandHelp = []commandHelp{
 	{Name: "help", Desc: "Show available commands."},
 	{Name: "clear", Desc: "Clear the terminal."},
 	{Name: "echo", Desc: "Print arguments."},
+	{Name: "cat", Desc: "Print a file."},
+	{Name: "ls", Desc: "List directory entries."},
+	{Name: "mkdir", Desc: "Create a directory."},
+	{Name: "put", Desc: "Write bytes to a file."},
+	{Name: "stat", Desc: "Show file metadata."},
 	{Name: "ticks", Desc: "Show current kernel tick counter."},
 	{Name: "version", Desc: "Show build version."},
 	{Name: "uname", Desc: "Show runtime OS/arch."},
