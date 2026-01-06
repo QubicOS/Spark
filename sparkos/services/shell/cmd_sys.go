@@ -1,0 +1,58 @@
+package shell
+
+import (
+	"errors"
+	"fmt"
+	"runtime"
+
+	"spark/internal/buildinfo"
+	"spark/sparkos/kernel"
+)
+
+func registerSysCommands(r *registry) error {
+	for _, cmd := range []command{
+		{Name: "ticks", Usage: "ticks", Desc: "Show current kernel tick counter.", Run: cmdTicks},
+		{Name: "uptime", Usage: "uptime", Desc: "Show uptime (ticks).", Run: cmdUptime},
+		{Name: "version", Usage: "version", Desc: "Show build version.", Run: cmdVersion},
+		{Name: "uname", Usage: "uname [-a]", Desc: "Show system information.", Run: cmdUname},
+	} {
+		if err := r.register(cmd); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func cmdTicks(ctx *kernel.Context, s *Service, _ []string, _ redirection) error {
+	_ = s.printString(ctx, fmt.Sprintf("%d\n", ctx.NowTick()))
+	return nil
+}
+
+func cmdUptime(ctx *kernel.Context, s *Service, _ []string, _ redirection) error {
+	_ = s.printString(ctx, fmt.Sprintf("up %d ticks\n", ctx.NowTick()))
+	return nil
+}
+
+func cmdVersion(ctx *kernel.Context, s *Service, _ []string, _ redirection) error {
+	_ = s.printString(ctx, fmt.Sprintf("%s %s %s\n", buildinfo.Version, buildinfo.Commit, buildinfo.Date))
+	return nil
+}
+
+func cmdUname(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	return s.uname(ctx, args)
+}
+
+func (s *Service) uname(ctx *kernel.Context, args []string) error {
+	if len(args) == 0 {
+		return s.printString(ctx, fmt.Sprintf("%s %s\n", runtime.GOOS, runtime.GOARCH))
+	}
+	if len(args) == 1 && args[0] == "-a" {
+		sys := "SparkOS"
+		node := "spark"
+		rel := buildinfo.Short()
+		ver := buildinfo.Commit
+		mach := runtime.GOARCH
+		return s.printString(ctx, fmt.Sprintf("%s %s %s %s %s\n", sys, node, rel, ver, mach))
+	}
+	return errors.New("usage: uname [-a]")
+}

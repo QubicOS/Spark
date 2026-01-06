@@ -1,0 +1,62 @@
+package shell
+
+import (
+	"errors"
+
+	"spark/sparkos/kernel"
+	"spark/sparkos/proto"
+	vitask "spark/sparkos/tasks/vi"
+)
+
+func registerAppCommands(r *registry) error {
+	for _, cmd := range []command{
+		{Name: "vi", Usage: "vi [file]", Desc: "Edit a file (SparkVi; build with -tags spark_vi).", Run: cmdVi},
+		{Name: "rtdemo", Usage: "rtdemo [on|off]", Desc: "Start raytracing demo (exit with q/ESC).", Run: cmdRTDemo},
+	} {
+		if err := r.register(cmd); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func cmdVi(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	if !vitask.Enabled {
+		return errors.New("not enabled in this build (build with -tags spark_vi)")
+	}
+
+	var target string
+	if len(args) == 1 {
+		target = s.absPath(args[0])
+	} else if len(args) > 1 {
+		return errors.New("usage: vi [file]")
+	}
+
+	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppVi, target)); err != nil {
+		return err
+	}
+	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))
+}
+
+func cmdRTDemo(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	active := true
+	if len(args) == 1 {
+		switch args[0] {
+		case "on":
+			active = true
+		case "off":
+			active = false
+		default:
+			return errors.New("usage: rtdemo [on|off]")
+		}
+	} else if len(args) > 1 {
+		return errors.New("usage: rtdemo [on|off]")
+	}
+
+	if active {
+		if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppRTDemo, "")); err != nil {
+			return err
+		}
+	}
+	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(active))
+}
