@@ -3,6 +3,7 @@ package imgview
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"spark/hal"
 	vfsclient "spark/sparkos/client/vfs"
@@ -11,6 +12,7 @@ import (
 )
 
 const maxVFSRead = kernel.MaxMessageBytes - 11
+const maxImageBytes = 4 * 1024 * 1024
 
 type Task struct {
 	disp hal.Display
@@ -134,7 +136,8 @@ func (t *Task) render(ctx *kernel.Context) {
 		t.showError()
 		return
 	}
-	if err := t.renderBMP(ctx, t.path); err != nil {
+
+	if err := t.renderFile(ctx, t.path); err != nil {
 		t.showError()
 	}
 }
@@ -142,6 +145,67 @@ func (t *Task) render(ctx *kernel.Context) {
 func (t *Task) showError() {
 	t.fb.ClearRGB(80, 0, 0)
 	_ = t.fb.Present()
+}
+
+func (t *Task) renderFile(ctx *kernel.Context, path string) error {
+	head := make([]byte, 16)
+	if err := t.readExact(ctx, path, 0, head); err != nil {
+		return fmt.Errorf("imgview: read header: %w", err)
+	}
+
+	switch detectFormat(head, path) {
+	case formatBMP:
+		return t.renderBMP(ctx, path)
+	case formatPNG, formatJPEG:
+		return t.renderRaster(ctx, path)
+	default:
+		return errors.New("imgview: unsupported format")
+	}
+}
+
+type fileFormat uint8
+
+const (
+	formatUnknown fileFormat = iota
+	formatBMP
+	formatPNG
+	formatJPEG
+)
+
+func detectFormat(head []byte, path string) fileFormat {
+	if len(head) >= 2 && head[0] == 'B' && head[1] == 'M' {
+		return formatBMP
+	}
+	if len(head) >= 8 && head[0] == 0x89 && head[1] == 'P' && head[2] == 'N' && head[3] == 'G' && head[4] == 0x0D && head[5] == 0x0A && head[6] == 0x1A && head[7] == 0x0A {
+		return formatPNG
+	}
+	if len(head) >= 2 && head[0] == 0xFF && head[1] == 0xD8 {
+		return formatJPEG
+	}
+
+	ext := strings.ToLower(pathExt(path))
+	switch ext {
+	case ".bmp":
+		return formatBMP
+	case ".png":
+		return formatPNG
+	case ".jpg", ".jpeg":
+		return formatJPEG
+	default:
+		return formatUnknown
+	}
+}
+
+func pathExt(p string) string {
+	for i := len(p) - 1; i >= 0; i-- {
+		if p[i] == '/' {
+			return ""
+		}
+		if p[i] == '.' {
+			return p[i:]
+		}
+	}
+	return ""
 }
 
 // renderBMP loads an uncompressed BMP (24/32bpp) from VFS and draws it scaled to the framebuffer.
@@ -287,6 +351,34 @@ func (t *Task) readExact(ctx *kernel.Context, path string, off uint32, dst []byt
 		}
 	}
 	return nil
+}
+
+func (t *Task) readAll(ctx *kernel.Context, path string, maxBytes int) ([]byte, error) {
+	if maxBytes <= 0 {
+		maxBytes = maxImageBytes
+	}
+
+	var out []byte
+	var off uint32
+	for {
+		chunk, eof, err := t.vfsClient().ReadAt(ctx, path, off, maxVFSRead)
+		if err != nil {
+			return nil, err
+		}
+		if len(chunk) > 0 {
+			out = append(out, chunk...)
+			if len(out) > maxBytes {
+				return nil, errors.New("imgview: file too large")
+			}
+			off += uint32(len(chunk))
+		}
+		if eof {
+			return out, nil
+		}
+		if len(chunk) == 0 {
+			return nil, errors.New("imgview: read returned no data")
+		}
+	}
 }
 
 func leU16(b []byte) uint16 {
