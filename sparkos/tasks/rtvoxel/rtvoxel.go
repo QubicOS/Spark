@@ -180,8 +180,10 @@ func (t *Task) initScene() {
 	if w != t.width || h != t.height || t.small == nil || t.camDirs == nil {
 		t.width = w
 		t.height = h
-		t.sW = w / 2
-		t.sH = h / 2
+		// Raymarching is significantly heavier than the sphere RT demo, so render
+		// at a lower internal resolution to keep frame times reasonable.
+		t.sW = w / 4
+		t.sH = h / 4
 		if t.sW <= 0 || t.sH <= 0 {
 			t.active = false
 			return
@@ -255,49 +257,21 @@ func (t *Task) renderFrame() {
 	}
 
 	for y := 0; y < h; y++ {
-		sy := y >> 1
-		sy1 := sy + 1
-		if sy1 >= t.sH {
-			sy1 = t.sH - 1
+		sy := (y * t.sH) / h
+		if sy < 0 {
+			sy = 0
+		} else if sy >= t.sH {
+			sy = t.sH - 1
 		}
-		dy := (y & 1) != 0
-
 		row := y * stride
 		for x := 0; x < w; x++ {
-			sx := x >> 1
-			sx1 := sx + 1
-			if sx1 >= t.sW {
-				sx1 = t.sW - 1
+			sx := (x * t.sW) / w
+			if sx < 0 {
+				sx = 0
+			} else if sx >= t.sW {
+				sx = t.sW - 1
 			}
-			dx := (x & 1) != 0
-
-			c00 := t.small[sy*t.sW+sx]
-			c := c00
-			switch {
-			case dx && !dy:
-				c10 := t.small[sy*t.sW+sx1]
-				c = rgb{
-					r: uint8((int(c00.r) + int(c10.r)) / 2),
-					g: uint8((int(c00.g) + int(c10.g)) / 2),
-					b: uint8((int(c00.b) + int(c10.b)) / 2),
-				}
-			case !dx && dy:
-				c01 := t.small[sy1*t.sW+sx]
-				c = rgb{
-					r: uint8((int(c00.r) + int(c01.r)) / 2),
-					g: uint8((int(c00.g) + int(c01.g)) / 2),
-					b: uint8((int(c00.b) + int(c01.b)) / 2),
-				}
-			case dx && dy:
-				c10 := t.small[sy*t.sW+sx1]
-				c01 := t.small[sy1*t.sW+sx]
-				c11 := t.small[sy1*t.sW+sx1]
-				c = rgb{
-					r: uint8((int(c00.r) + int(c10.r) + int(c01.r) + int(c11.r)) / 4),
-					g: uint8((int(c00.g) + int(c10.g) + int(c01.g) + int(c11.g)) / 4),
-					b: uint8((int(c00.b) + int(c10.b) + int(c01.b) + int(c11.b)) / 4),
-				}
-			}
+			c := t.small[sy*t.sW+sx]
 
 			pixel := rgb565(c.r, c.g, c.b)
 			off := row + x*2
@@ -389,8 +363,8 @@ const (
 
 func shadeRay(origin, dir, light vec3) rgb {
 	const (
-		maxDist  = 48
-		maxSteps = 96
+		maxDist  = 32
+		maxSteps = 64
 	)
 
 	dist, normal, b, hit := cast(origin, dir, maxDist, maxSteps)
