@@ -11,6 +11,7 @@ const (
 	AppImgView AppID = 4
 	AppMC      AppID = 5
 	AppHex     AppID = 6
+	AppVector  AppID = 7
 )
 
 // AppSelectPayload encodes an app selection request.
