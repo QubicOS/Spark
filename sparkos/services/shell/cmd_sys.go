@@ -18,6 +18,7 @@ func registerSysCommands(r *registry) error {
 		{Name: "sleep", Usage: "sleep <ticks>", Desc: "Sleep for dt ticks via time service.", Run: cmdSleep},
 		{Name: "version", Usage: "version", Desc: "Show build version.", Run: cmdVersion},
 		{Name: "uname", Usage: "uname [-a]", Desc: "Show system information.", Run: cmdUname},
+		{Name: "free", Usage: "free [-h]", Desc: "Show memory usage.", Run: cmdFree},
 	} {
 		if err := r.register(cmd); err != nil {
 			return err
@@ -57,6 +58,66 @@ func cmdVersion(ctx *kernel.Context, s *Service, _ []string, _ redirection) erro
 
 func cmdUname(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
 	return s.uname(ctx, args)
+}
+
+func cmdFree(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	_ = ctx
+
+	human := false
+	if len(args) == 1 {
+		if args[0] != "-h" {
+			return errors.New("usage: free [-h]")
+		}
+		human = true
+	} else if len(args) > 1 {
+		return errors.New("usage: free [-h]")
+	}
+
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+
+	fmtVal := func(v uint64) string {
+		if human {
+			return fmtBytes(v)
+		}
+		return fmt.Sprintf("%d", v)
+	}
+
+	heapTotal := ms.HeapSys
+	heapUsed := ms.HeapAlloc
+	heapFree := uint64(0)
+	if heapTotal >= heapUsed {
+		heapFree = heapTotal - heapUsed
+	}
+
+	sysFree := uint64(0)
+	if ms.Sys >= ms.Alloc {
+		sysFree = ms.Sys - ms.Alloc
+	}
+
+	_ = s.printString(ctx, "           total       used       free\n")
+	_ = s.printString(ctx, fmt.Sprintf("heap %11s %10s %10s\n", fmtVal(heapTotal), fmtVal(heapUsed), fmtVal(heapFree)))
+	_ = s.printString(ctx, fmt.Sprintf("sys  %11s %10s %10s\n", fmtVal(ms.Sys), fmtVal(ms.Alloc), fmtVal(sysFree)))
+	return nil
+}
+
+func fmtBytes(v uint64) string {
+	const (
+		kib = 1024
+		mib = 1024 * kib
+		gib = 1024 * mib
+	)
+
+	switch {
+	case v >= gib:
+		return fmt.Sprintf("%.1fGiB", float64(v)/float64(gib))
+	case v >= mib:
+		return fmt.Sprintf("%.1fMiB", float64(v)/float64(mib))
+	case v >= kib:
+		return fmt.Sprintf("%.1fKiB", float64(v)/float64(kib))
+	default:
+		return fmt.Sprintf("%dB", v)
+	}
 }
 
 func (s *Service) uname(ctx *kernel.Context, args []string) error {
