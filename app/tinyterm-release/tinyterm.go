@@ -229,6 +229,7 @@ func (t *Terminal) putchar(b byte) {
 				// CUD: Cursor Down
 			case 'C':
 				// CUF: Cursor Forward
+				t.cursorForward()
 			case 'D':
 				// CUB: Cursor Back
 				t.cursorBack()
@@ -341,6 +342,12 @@ func (t *Terminal) drawrune(r rune) {
 func (t *Terminal) cursorBack() {
 	if t.next > 0 {
 		t.next -= 1
+	}
+}
+
+func (t *Terminal) cursorForward() {
+	if t.next < t.cols-1 {
+		t.next += 1
 	}
 }
 
