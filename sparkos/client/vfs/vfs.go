@@ -143,6 +143,72 @@ func (c *Client) Mkdir(ctx *kernel.Context, path string) error {
 	}
 }
 
+func (c *Client) Remove(ctx *kernel.Context, path string) error {
+	if err := c.ensureReply(ctx); err != nil {
+		return err
+	}
+
+	reqID := c.nextID()
+	if err := c.send(ctx, proto.MsgVFSRemove, proto.VFSRemovePayload(reqID, path)); err != nil {
+		return err
+	}
+
+	for {
+		msg := <-c.replyCh
+		switch proto.Kind(msg.Kind) {
+		case proto.MsgError:
+			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
+			if !ok || ref != proto.MsgVFSRemove {
+				return fmt.Errorf("vfs remove: %s", code)
+			}
+			gotID, rest, ok := proto.DecodeErrorDetailWithRequestID(detail)
+			if !ok || gotID != reqID {
+				return fmt.Errorf("vfs remove: %s", code)
+			}
+			return fmt.Errorf("vfs remove: %s: %s", code, string(rest))
+		case proto.MsgVFSRemoveResp:
+			gotID, ok := proto.DecodeVFSRemoveRespPayload(msg.Data[:msg.Len])
+			if !ok || gotID != reqID {
+				continue
+			}
+			return nil
+		}
+	}
+}
+
+func (c *Client) Rename(ctx *kernel.Context, oldPath, newPath string) error {
+	if err := c.ensureReply(ctx); err != nil {
+		return err
+	}
+
+	reqID := c.nextID()
+	if err := c.send(ctx, proto.MsgVFSRename, proto.VFSRenamePayload(reqID, oldPath, newPath)); err != nil {
+		return err
+	}
+
+	for {
+		msg := <-c.replyCh
+		switch proto.Kind(msg.Kind) {
+		case proto.MsgError:
+			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
+			if !ok || ref != proto.MsgVFSRename {
+				return fmt.Errorf("vfs rename: %s", code)
+			}
+			gotID, rest, ok := proto.DecodeErrorDetailWithRequestID(detail)
+			if !ok || gotID != reqID {
+				return fmt.Errorf("vfs rename: %s", code)
+			}
+			return fmt.Errorf("vfs rename: %s: %s", code, string(rest))
+		case proto.MsgVFSRenameResp:
+			gotID, ok := proto.DecodeVFSRenameRespPayload(msg.Data[:msg.Len])
+			if !ok || gotID != reqID {
+				continue
+			}
+			return nil
+		}
+	}
+}
+
 func (c *Client) Stat(ctx *kernel.Context, path string) (proto.VFSEntryType, uint32, error) {
 	if err := c.ensureReply(ctx); err != nil {
 		return 0, 0, err
