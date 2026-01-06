@@ -1,0 +1,6 @@
+{
+  "go.goroot": "/usr/local/lib/tinygo/go",
+  "go.toolsEnvVars": {
+    "GOFLAGS": "-tags=tinygo,pico2"
+  }
+}

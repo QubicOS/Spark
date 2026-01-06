@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go-test:
+    name: Go test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test ./...
+
+  tinygo-rp2350:
+    name: TinyGo (RP2350 / Pico 2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: tinygo-org/setup-tinygo@v2
+        with:
+          tinygo-version: "0.40.1"
+      - name: Build UF2
+        run: |
+          mkdir -p build
+          tinygo version
+          tinygo build -target=pico2 -size=short -o build/spark-pico2.uf2 .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spark-pico2-uf2
+          path: build/spark-pico2.uf2

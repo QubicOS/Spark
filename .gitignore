@@ -1,0 +1,19 @@
+/bin/
+/dist/
+
+# Firmware/build artifacts.
+*.uf2
+*.elf
+*.hex
+*.bin
+*.map
+*.d
+
+# Go build/test outputs.
+*.test
+*.out
+coverage.*
+
+# Editor/OS.
+.DS_Store
+Thumbs.db
