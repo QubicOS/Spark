@@ -11,8 +11,7 @@ import (
 
 	"spark/hal"
 	vfsclient "spark/sparkos/client/vfs"
-	"spark/sparkos/fonts/const2bitcolor"
-	"spark/sparkos/fonts/dejavumono9"
+	"spark/sparkos/fonts/font6x8cp1251"
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
 
@@ -74,14 +73,9 @@ func (t *Task) Run(ctx *kernel.Context) {
 	}
 	t.d = newFBDisplay(t.fb)
 
-	t.font = &dejavumono9.DejaVuSansMono9
-	t.fontHeight, t.fontOffset = 11, 8
-	if f, ok := t.font.(*const2bitcolor.Font); ok {
-		if h, off, err := const2bitcolor.ComputeTerminalMetrics(f); err == nil {
-			t.fontHeight = h
-			t.fontOffset = off
-		}
-	}
+	t.font = font6x8cp1251.Font
+	t.fontHeight = 8
+	t.fontOffset = 7
 	_, outboxWidth := tinyfont.LineWidth(t.font, "0")
 	t.fontWidth = int16(outboxWidth)
 	if t.fontWidth <= 0 || t.fontHeight <= 0 {

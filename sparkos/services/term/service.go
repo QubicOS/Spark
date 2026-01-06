@@ -2,8 +2,7 @@ package term
 
 import (
 	"spark/hal"
-	"spark/sparkos/fonts/const2bitcolor"
-	"spark/sparkos/fonts/dejavumono9"
+	"spark/sparkos/fonts/font6x8cp1251"
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
 
@@ -81,17 +80,10 @@ func (s *Service) Run(ctx *kernel.Context) {
 func (s *Service) reset() {
 	s.t = tinyterm.NewTerminal(s.d)
 
-	font := &dejavumono9.DejaVuSansMono9
-	fontHeight, fontOffset, err := const2bitcolor.ComputeTerminalMetrics(font)
-	if err != nil {
-		fontHeight = 11
-		fontOffset = 8
-	}
-
 	s.t.Configure(&tinyterm.Config{
-		Font:              font,
-		FontHeight:        fontHeight,
-		FontOffset:        fontOffset,
+		Font:              font6x8cp1251.Font,
+		FontHeight:        8,
+		FontOffset:        7,
 		UseSoftwareScroll: true,
 	})
 	s.fb.ClearRGB(0, 0, 0)
