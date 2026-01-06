@@ -622,11 +622,11 @@ func (t *Task) headerText() string {
 func (t *Task) statusText() string {
 	prefix := "> "
 	line := string(t.input)
-	msg := prefix + line
-	if t.message != "" {
-		msg = t.message + " | " + msg
+	base := prefix + line
+	if t.message == "" {
+		return clipRunes(base, t.cols)
 	}
-	return clipRunes(msg, t.cols)
+	return clipRunes(base+" | "+t.message, t.cols)
 }
 
 func (t *Task) formatValue(v Value) string {
