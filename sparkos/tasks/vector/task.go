@@ -60,6 +60,8 @@ type Task struct {
 	helpTop  int
 
 	message string
+	hint    string
+	ghost   string
 	editVar string
 
 	graphExpr string
@@ -170,11 +172,16 @@ func (t *Task) setActive(ctx *kernel.Context, active bool) {
 		return
 	}
 	t.setMessage("F1 term | F2 plot | F3 stack | H help | q quit")
+	t.updateHint()
 	t.render()
 }
 
 func (t *Task) setMessage(msg string) {
 	t.message = msg
+}
+
+func (t *Task) setHint(hint string) {
+	t.hint = hint
 }
 
 func (t *Task) requestExit(ctx *kernel.Context) {
@@ -259,6 +266,10 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		if t.tab == tabTerminal {
 			t.submit(ctx)
 		}
+	case keyTab:
+		if t.tab == tabTerminal {
+			t.autocomplete()
+		}
 	case keyBackspace:
 		if t.tab == tabTerminal {
 			t.backspace()
@@ -272,6 +283,7 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		case tabTerminal:
 			if t.cursor > 0 {
 				t.cursor--
+				t.updateHint()
 			}
 		case tabPlot:
 			t.handlePlotKey(ctx, k)
@@ -283,6 +295,7 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		case tabTerminal:
 			if t.cursor < len(t.input) {
 				t.cursor++
+				t.updateHint()
 			}
 		case tabPlot:
 			t.handlePlotKey(ctx, k)
@@ -293,6 +306,7 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		switch t.tab {
 		case tabTerminal:
 			t.cursor = 0
+			t.updateHint()
 		case tabStack:
 			t.handleStackKey(ctx, k)
 		}
@@ -300,6 +314,7 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		switch t.tab {
 		case tabTerminal:
 			t.cursor = len(t.input)
+			t.updateHint()
 		case tabStack:
 			t.handleStackKey(ctx, k)
 		}
@@ -307,6 +322,7 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		switch t.tab {
 		case tabTerminal:
 			t.histUp()
+			t.updateHint()
 		case tabPlot:
 			t.handlePlotKey(ctx, k)
 		case tabStack:
@@ -316,6 +332,7 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		switch t.tab {
 		case tabTerminal:
 			t.histDown()
+			t.updateHint()
 		case tabPlot:
 			t.handlePlotKey(ctx, k)
 		case tabStack:
@@ -344,6 +361,7 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		case tabTerminal:
 			if k.r >= 0x20 && k.r != 0x7f {
 				t.insertRune(k.r)
+				t.updateHint()
 			}
 		case tabPlot:
 			t.handlePlotKey(ctx, k)
@@ -387,6 +405,7 @@ func (t *Task) backspace() {
 	copy(t.input[t.cursor-1:], t.input[t.cursor:])
 	t.input = t.input[:len(t.input)-1]
 	t.cursor--
+	t.updateHint()
 }
 
 func (t *Task) deleteForward() {
@@ -395,17 +414,21 @@ func (t *Task) deleteForward() {
 	}
 	copy(t.input[t.cursor:], t.input[t.cursor+1:])
 	t.input = t.input[:len(t.input)-1]
+	t.updateHint()
 }
 
 func (t *Task) setInput(s string) {
 	t.input = []rune(s)
 	t.cursor = len(t.input)
+	t.updateHint()
 }
 
 func (t *Task) submit(ctx *kernel.Context) {
 	line := strings.TrimSpace(string(t.input))
 	t.input = t.input[:0]
 	t.cursor = 0
+	t.ghost = ""
+	t.hint = ""
 	t.evalLine(ctx, line, true)
 }
 
@@ -707,7 +730,14 @@ func (t *Task) headerText() string {
 
 func (t *Task) statusText() string {
 	if t.tab == tabTerminal && t.editVar == "" {
-		return clipRunes(t.message, t.cols)
+		var parts []string
+		if t.hint != "" {
+			parts = append(parts, t.hint)
+		}
+		if t.message != "" {
+			parts = append(parts, t.message)
+		}
+		return clipRunes(strings.Join(parts, " | "), t.cols)
 	}
 
 	var base string
@@ -799,10 +829,13 @@ func (t *Task) switchTab(newTab tab) {
 	t.tab = newTab
 	switch t.tab {
 	case tabTerminal:
-		t.setMessage("Enter eval | g/F2 plot | F3 stack | :clear")
+		t.setMessage("Enter eval | Ctrl+G plot | F2 plot | F3 stack | :clear")
+		t.updateHint()
 	case tabPlot:
+		t.hint = ""
+		t.ghost = ""
 		if t.graph == nil && len(t.plots) == 0 {
-			t.setMessage("no plot yet (enter sin(x) then g/F2)")
+			t.setMessage("no plot yet (enter sin(x) then Ctrl+G/F2)")
 			return
 		}
 		if t.xMin >= t.xMax {
@@ -817,6 +850,8 @@ func (t *Task) switchTab(newTab tab) {
 		t.autoscalePlots()
 		t.setMessage("arrows pan | +/- zoom | PgUp/PgDn zoom | z zoom step | a autoscale | F1 term | F3 stack")
 	case tabStack:
+		t.hint = ""
+		t.ghost = ""
 		t.stackSel = 0
 		t.stackTop = 0
 		t.setMessage("Up/Down select | Enter edit | F1 term | F2 plot")
@@ -996,6 +1031,263 @@ func (t *Task) handleEditKey(ctx *kernel.Context, k key) {
 			t.insertRune(k.r)
 		}
 	}
+}
+
+func (t *Task) updateHint() {
+	t.hint = ""
+	t.ghost = ""
+
+	if t.tab != tabTerminal {
+		return
+	}
+	if t.editVar != "" {
+		return
+	}
+
+	line := string(t.input)
+	if strings.HasPrefix(line, ":") {
+		t.updateCommandHint(line)
+		return
+	}
+
+	start, end := identBoundsAt(t.input, t.cursor)
+	if start == end || t.cursor < start {
+		return
+	}
+
+	prefix := string(t.input[start:t.cursor])
+	if prefix == "" {
+		return
+	}
+	cands := t.completeFromPrefix(prefix, false)
+	if len(cands) == 0 {
+		return
+	}
+
+	best := cands[0]
+	if best != prefix && end == len(t.input) && t.cursor == end && strings.HasPrefix(best, prefix) {
+		t.ghost = best[len(prefix):]
+	}
+
+	switch prefix {
+	case "range":
+		t.hint = "range(a, b[, n])"
+	case "diff":
+		t.hint = "diff(expr, x)"
+	case "simp":
+		t.hint = "simp(expr)"
+	default:
+		if len(cands) > 1 {
+			t.hint = fmt.Sprintf("Tab: complete (%d)", len(cands))
+		}
+	}
+}
+
+func (t *Task) updateCommandHint(line string) {
+	_ = line
+	start := 1
+	for start < len(t.input) && t.input[start] == ' ' {
+		start++
+	}
+	end := start
+	for end < len(t.input) && isIdentContinue(t.input[end]) {
+		end++
+	}
+	if start >= end {
+		return
+	}
+	prefixEnd := end
+	if t.cursor >= start && t.cursor < end {
+		prefixEnd = t.cursor
+	}
+	cmd := string(t.input[start:prefixEnd])
+	switch cmd {
+	case "prec":
+		t.hint = ":prec N"
+	case "plotclear":
+		t.hint = ":plotclear"
+	case "plots":
+		t.hint = ":plots"
+	case "exact":
+		t.hint = ":exact"
+	case "float":
+		t.hint = ":float"
+	case "clear":
+		t.hint = ":clear (clear output)"
+	case "term":
+		t.hint = ":term"
+	case "plot":
+		t.hint = ":plot"
+	case "stack":
+		t.hint = ":stack"
+	}
+
+	prefix := cmd
+	cands := t.completeFromPrefix(prefix, true)
+	if len(cands) == 0 {
+		return
+	}
+	best := cands[0]
+	if best != prefix && t.cursor == prefixEnd && prefixEnd == len(t.input) {
+		t.ghost = best[len(prefix):]
+	}
+	if len(cands) > 1 && t.hint == "" {
+		t.hint = fmt.Sprintf("Tab: complete (%d)", len(cands))
+	}
+}
+
+func (t *Task) autocomplete() {
+	if t.tab != tabTerminal || t.editVar != "" {
+		return
+	}
+
+	isCmd := len(t.input) > 0 && t.input[0] == ':'
+	if isCmd {
+		t.autocompleteCommand()
+		t.updateHint()
+		return
+	}
+
+	start, end := identBoundsAt(t.input, t.cursor)
+	if start == end || t.cursor < start {
+		return
+	}
+	prefix := string(t.input[start:t.cursor])
+	if prefix == "" {
+		return
+	}
+	cands := t.completeFromPrefix(prefix, false)
+	t.applyCompletion(start, end, prefix, cands)
+	t.updateHint()
+}
+
+func (t *Task) autocompleteCommand() {
+	start := 1
+	for start < len(t.input) && t.input[start] == ' ' {
+		start++
+	}
+	end := start
+	for end < len(t.input) && isIdentContinue(t.input[end]) {
+		end++
+	}
+	if start >= end {
+		return
+	}
+	prefixEnd := end
+	if t.cursor >= start && t.cursor < end {
+		prefixEnd = t.cursor
+	}
+	prefix := string(t.input[start:prefixEnd])
+	if prefix == "" {
+		return
+	}
+	cands := t.completeFromPrefix(prefix, true)
+	t.applyCompletion(start, end, prefix, cands)
+}
+
+func (t *Task) applyCompletion(start, end int, prefix string, cands []string) {
+	if len(cands) == 0 {
+		t.setHint("no completions")
+		return
+	}
+
+	common := commonPrefix(cands)
+	if common != "" && common != prefix {
+		t.replaceInputRange(start, end, common)
+		return
+	}
+
+	if len(cands) == 1 {
+		t.replaceInputRange(start, end, cands[0])
+		return
+	}
+
+	if len(cands) > 0 {
+		show := cands
+		if len(show) > 6 {
+			show = show[:6]
+		}
+		t.setHint("candidates: " + strings.Join(show, " "))
+	}
+}
+
+func (t *Task) replaceInputRange(start, end int, replacement string) {
+	if start < 0 || end < start || start > len(t.input) || end > len(t.input) {
+		return
+	}
+	before := append([]rune(nil), t.input[:start]...)
+	after := append([]rune(nil), t.input[end:]...)
+	t.input = append(before, append([]rune(replacement), after...)...)
+	t.cursor = start + len([]rune(replacement))
+}
+
+func (t *Task) completeFromPrefix(prefix string, commands bool) []string {
+	var cands []string
+	add := func(s string) {
+		if strings.HasPrefix(s, prefix) {
+			cands = append(cands, s)
+		}
+	}
+
+	if commands {
+		for _, s := range []string{
+			"exact", "float", "prec", "plotclear", "plots", "clear", "term", "plot", "stack",
+		} {
+			add(s)
+		}
+		sort.Strings(cands)
+		return cands
+	}
+
+	for _, s := range []string{
+		"range", "simp", "diff",
+		"sin", "cos", "tan", "asin", "acos", "atan",
+		"sqrt", "abs", "exp", "ln", "min", "max",
+	} {
+		add(s)
+	}
+	for name := range t.e.funcs {
+		add(name)
+	}
+	for name := range t.e.vars {
+		add(name)
+	}
+	sort.Strings(cands)
+	return cands
+}
+
+func commonPrefix(ss []string) string {
+	if len(ss) == 0 {
+		return ""
+	}
+	p := ss[0]
+	for _, s := range ss[1:] {
+		for !strings.HasPrefix(s, p) {
+			if p == "" {
+				return ""
+			}
+			p = p[:len(p)-1]
+		}
+	}
+	return p
+}
+
+func identBoundsAt(rs []rune, cursor int) (start, end int) {
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor > len(rs) {
+		cursor = len(rs)
+	}
+	start = cursor
+	for start > 0 && isIdentContinue(rs[start-1]) {
+		start--
+	}
+	end = cursor
+	for end < len(rs) && isIdentContinue(rs[end]) {
+		end++
+	}
+	return start, end
 }
 
 func (t *Task) stackVars() []string {
