@@ -239,6 +239,7 @@ func (t *Terminal) putchar(b byte) {
 				// CPL: Cursor Previous Line
 			case 'G':
 				// CHA: Cursor Horizontal Absolute
+				t.cursorHorizontalAbsolute()
 			case 'H':
 				// CUP: Cursor Position
 			case 'J':
@@ -410,4 +411,24 @@ func (t *Terminal) eraseInLine() {
 	default:
 		_ = t.display.FillRectangle(x, t.scroll, t.width-x, t.fontHeight, t.attrs.bgcol)
 	}
+}
+
+func (t *Terminal) cursorHorizontalAbsolute() {
+	col := 1
+	if p := strings.TrimSpace(t.params.String()); p != "" {
+		params := strings.Split(p, ";")
+		n, err := strconv.Atoi(params[0])
+		if err == nil && n > 0 {
+			col = n
+		}
+	}
+
+	n := int16(col - 1)
+	if n < 0 {
+		n = 0
+	}
+	if n >= t.cols {
+		n = t.cols - 1
+	}
+	t.next = n
 }
