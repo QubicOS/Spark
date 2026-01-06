@@ -23,6 +23,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 
 	_ = writeAll(ctx, t.termCap, []byte(
 		"\x1b[1mSparkOS VT100 demo (tinyterm)\x1b[0m\n"+
+			"Привет, мир!\n"+
 			"SGR colors, scroll, and cursor-back.\n\n"+
 			"\x1b[38;5;39m256-color:\x1b[0m "+
 			"\x1b[38;5;196mRED\x1b[0m "+
