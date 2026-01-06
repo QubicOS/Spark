@@ -73,7 +73,13 @@ func (l *lexer) next() token {
 	case '(':
 		l.i++
 		return token{kind: tokLParen, text: "("}
+	case '[':
+		l.i++
+		return token{kind: tokLParen, text: "("}
 	case ')':
+		l.i++
+		return token{kind: tokRParen, text: ")"}
+	case ']':
 		l.i++
 		return token{kind: tokRParen, text: ")"}
 	case ',':
