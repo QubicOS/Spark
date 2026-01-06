@@ -12,6 +12,7 @@ const (
 	tokEOF tokenKind = iota
 	tokNumber
 	tokIdent
+	tokSemi
 	tokPlus
 	tokMinus
 	tokStar
@@ -26,7 +27,7 @@ const (
 type token struct {
 	kind tokenKind
 	text string
-	num  float64
+	num  Number
 }
 
 type lexer struct {
@@ -35,7 +36,15 @@ type lexer struct {
 }
 
 func (l *lexer) next() token {
-	for l.i < len(l.s) && unicode.IsSpace(rune(l.s[l.i])) {
+	for l.i < len(l.s) {
+		r := rune(l.s[l.i])
+		if r == '\n' || r == ';' {
+			l.i++
+			return token{kind: tokSemi, text: ";"}
+		}
+		if !unicode.IsSpace(r) {
+			break
+		}
 		l.i++
 	}
 	if l.i >= len(l.s) {
@@ -43,6 +52,9 @@ func (l *lexer) next() token {
 	}
 
 	switch l.s[l.i] {
+	case ';':
+		l.i++
+		return token{kind: tokSemi, text: ";"}
 	case '+':
 		l.i++
 		return token{kind: tokPlus, text: "+"}
@@ -85,11 +97,11 @@ func (l *lexer) next() token {
 		start := l.i
 		l.i = scanNumber(l.s, l.i)
 		txt := l.s[start:l.i]
-		v, err := strconv.ParseFloat(txt, 64)
-		if err != nil {
+		n, ok := parseNumber(txt)
+		if !ok {
 			return token{kind: tokEOF, text: txt}
 		}
-		return token{kind: tokNumber, text: txt, num: v}
+		return token{kind: tokNumber, text: txt, num: n}
 	}
 
 	l.i++
@@ -129,6 +141,27 @@ func scanNumber(s string, i int) int {
 	return i
 }
 
+func parseNumber(txt string) (Number, bool) {
+	isFloat := false
+	for i := 0; i < len(txt); i++ {
+		switch txt[i] {
+		case '.', 'e', 'E':
+			isFloat = true
+		}
+	}
+	if !isFloat {
+		u, err := strconv.ParseInt(txt, 10, 64)
+		if err == nil {
+			return RatNumber(RatInt(u)), true
+		}
+	}
+	f, err := strconv.ParseFloat(txt, 64)
+	if err != nil {
+		return Number{}, false
+	}
+	return Float(f), true
+}
+
 func isIdentStart(r rune) bool {
 	return r == '_' || unicode.IsLetter(r)
 }
@@ -158,17 +191,29 @@ type action struct {
 	funcParam string
 }
 
-func parseInput(s string) (action, error) {
+func parseInput(s string) ([]action, error) {
 	p := &parser{l: lexer{s: s}}
 	p.cur = p.l.next()
-	act, err := p.parseTop()
-	if err != nil {
-		return action{}, err
+	var out []action
+	for {
+		for p.cur.kind == tokSemi {
+			p.next()
+		}
+		if p.cur.kind == tokEOF {
+			return out, nil
+		}
+		act, err := p.parseTop()
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, act)
+		for p.cur.kind == tokSemi {
+			p.next()
+		}
+		if p.cur.kind == tokEOF {
+			return out, nil
+		}
 	}
-	if p.cur.kind != tokEOF {
-		return action{}, fmt.Errorf("%w: unexpected %q", ErrParse, p.cur.text)
-	}
-	return act, nil
 }
 
 func (p *parser) parseTop() (action, error) {
