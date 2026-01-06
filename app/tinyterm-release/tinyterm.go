@@ -122,8 +122,12 @@ func (t *Terminal) Configure(config *Config) {
 	t.cols = t.width / t.fontWidth
 
 	t.useSoftwareScroll = config.UseSoftwareScroll
-	t.scroll = t.fontHeight
-	t.lf()
+	t.scroll = 0
+	t.next = 0
+	if !t.useSoftwareScroll {
+		t.display.SetScroll(0)
+	}
+	_ = t.display.FillRectangle(0, t.scroll, t.width, t.fontHeight, t.attrs.bgcol)
 }
 
 // Write some data to the terminal.
