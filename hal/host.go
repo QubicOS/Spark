@@ -25,7 +25,7 @@ func New() HAL {
 	return &hostHAL{
 		logger: logger,
 		led:    &hostLED{logger: logger},
-		fb:     newHostFramebuffer(320, 320),
+		fb:     newHostFramebuffer(106, 106),
 		kbd:    newHostKeyboard(),
 		t:      t,
 		flash:  newHostFlash(),
@@ -33,8 +33,8 @@ func New() HAL {
 	}
 }
 
-func (h *hostHAL) Logger() Logger { return h.logger }
-func (h *hostHAL) LED() LED       { return h.led }
+func (h *hostHAL) Logger() Logger   { return h.logger }
+func (h *hostHAL) LED() LED         { return h.led }
 func (h *hostHAL) Display() Display { return hostDisplay{fb: h.fb} }
 func (h *hostHAL) Input() Input     { return hostInput{kbd: h.kbd} }
 func (h *hostHAL) Flash() Flash     { return h.flash }

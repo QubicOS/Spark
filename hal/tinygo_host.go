@@ -26,7 +26,7 @@ func New() HAL {
 	return &tinyGoHostHAL{
 		logger: l,
 		led:    &tinyGoHostLED{logger: l},
-		fb:     newTinyGoHostFramebuffer(320, 320),
+		fb:     newTinyGoHostFramebuffer(106, 106),
 		kbd:    newTinyGoHostKeyboard(),
 		t:      newTinyGoHostTime(),
 		flash:  stubFlash{},
@@ -34,8 +34,8 @@ func New() HAL {
 	}
 }
 
-func (h *tinyGoHostHAL) Logger() Logger { return h.logger }
-func (h *tinyGoHostHAL) LED() LED       { return h.led }
+func (h *tinyGoHostHAL) Logger() Logger   { return h.logger }
+func (h *tinyGoHostHAL) LED() LED         { return h.led }
 func (h *tinyGoHostHAL) Display() Display { return tinyGoHostDisplay{fb: h.fb} }
 func (h *tinyGoHostHAL) Input() Input     { return tinyGoHostInput{kbd: h.kbd} }
 func (h *tinyGoHostHAL) Flash() Flash     { return h.flash }
