@@ -458,13 +458,6 @@ func (s *Service) submit(ctx *kernel.Context) {
 	_ = s.prompt(ctx)
 }
 
-func (s *Service) vfsClient() *vfsclient.Client {
-	if s.vfs == nil {
-		s.vfs = vfsclient.New(s.vfsCap)
-	}
-	return s.vfs
-}
-
 func (s *Service) cd(ctx *kernel.Context, args []string) error {
 	target := "/"
 	if len(args) == 1 {
