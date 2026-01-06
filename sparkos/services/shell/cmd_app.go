@@ -12,6 +12,7 @@ func registerAppCommands(r *registry) error {
 	for _, cmd := range []command{
 		{Name: "vi", Usage: "vi [file]", Desc: "Edit a file (SparkVi; build with -tags spark_vi).", Run: cmdVi},
 		{Name: "mc", Usage: "mc [dir]", Desc: "Midnight Commander-like file manager (q/ESC to exit).", Run: cmdMC},
+		{Name: "hex", Usage: "hex <file>", Desc: "Hex viewer/editor (q/ESC to exit, w to save).", Run: cmdHex},
 		{Name: "rtdemo", Usage: "rtdemo [on|off]", Desc: "Start raytracing demo (exit with q/ESC).", Run: cmdRTDemo},
 		{Name: "rtvoxel", Usage: "rtvoxel [on|off]", Desc: "Start voxel world demo (exit with q/ESC).", Run: cmdRTVoxel},
 		{Name: "imgview", Usage: "imgview <file>", Desc: "View an image (BMP/PNG/JPEG; q/ESC to exit).", Run: cmdImgView},
@@ -52,6 +53,18 @@ func cmdMC(ctx *kernel.Context, s *Service, args []string, _ redirection) error 
 	}
 
 	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppMC, target)); err != nil {
+		return err
+	}
+	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))
+}
+
+func cmdHex(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	if len(args) != 1 {
+		return errors.New("usage: hex <file>")
+	}
+	target := s.absPath(args[0])
+
+	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppHex, target)); err != nil {
 		return err
 	}
 	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))

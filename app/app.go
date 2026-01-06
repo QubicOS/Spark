@@ -11,6 +11,7 @@ import (
 	timesvc "spark/sparkos/services/time"
 	"spark/sparkos/services/ui"
 	"spark/sparkos/services/vfs"
+	"spark/sparkos/tasks/hexedit"
 	"spark/sparkos/tasks/imgview"
 	"spark/sparkos/tasks/mc"
 	"spark/sparkos/tasks/rtdemo"
@@ -65,6 +66,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	imgviewEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	viEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	mcEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	hexEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 
 	k.AddTask(logger.New(h.Logger(), logEP.Restrict(kernel.RightRecv)))
 	k.AddTask(timesvc.New(timeEP))
@@ -77,6 +79,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 		k.AddTask(imgview.New(h.Display(), imgviewEP.Restrict(kernel.RightRecv), vfsEP.Restrict(kernel.RightSend)))
 		k.AddTask(vi.New(h.Display(), viEP.Restrict(kernel.RightRecv), vfsEP.Restrict(kernel.RightSend)))
 		k.AddTask(mc.New(h.Display(), mcEP.Restrict(kernel.RightRecv), vfsEP.Restrict(kernel.RightSend)))
+		k.AddTask(hexedit.New(h.Display(), hexEP.Restrict(kernel.RightRecv), vfsEP.Restrict(kernel.RightSend)))
 		k.AddTask(consolemux.New(
 			muxEP.Restrict(kernel.RightRecv),
 			muxEP.Restrict(kernel.RightSend),
@@ -86,6 +89,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			imgviewEP.Restrict(kernel.RightSend),
 			viEP.Restrict(kernel.RightSend),
 			mcEP.Restrict(kernel.RightSend),
+			hexEP.Restrict(kernel.RightSend),
 			termEP.Restrict(kernel.RightSend),
 		))
 		k.AddTask(termkbd.NewInput(h.Input(), muxEP.Restrict(kernel.RightSend)))

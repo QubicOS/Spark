@@ -10,6 +10,7 @@ const (
 	AppRTVoxel AppID = 3
 	AppImgView AppID = 4
 	AppMC      AppID = 5
+	AppHex     AppID = 6
 )
 
 // AppSelectPayload encodes an app selection request.
