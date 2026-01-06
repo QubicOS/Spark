@@ -13,6 +13,7 @@ import (
 	"spark/sparkos/services/vfs"
 	"spark/sparkos/tasks/rtdemo"
 	"spark/sparkos/tasks/termdemo"
+	"spark/sparkos/tasks/vi"
 )
 
 type system struct {
@@ -56,6 +57,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	vfsEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	muxEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	rtdemoEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	viEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 
 	k.AddTask(logger.New(h.Logger(), logEP.Restrict(kernel.RightRecv)))
 	k.AddTask(timesvc.New(timeEP))
@@ -64,11 +66,13 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	if cfg.Shell {
 		k.AddTask(term.New(h.Display(), termEP.Restrict(kernel.RightRecv)))
 		k.AddTask(rtdemo.New(h.Display(), rtdemoEP.Restrict(kernel.RightRecv)))
+		k.AddTask(vi.New(h.Display(), viEP.Restrict(kernel.RightRecv), vfsEP.Restrict(kernel.RightSend)))
 		k.AddTask(consolemux.New(
 			muxEP.Restrict(kernel.RightRecv),
 			muxEP.Restrict(kernel.RightSend),
 			shellEP.Restrict(kernel.RightSend),
 			rtdemoEP.Restrict(kernel.RightSend),
+			viEP.Restrict(kernel.RightSend),
 			termEP.Restrict(kernel.RightSend),
 		))
 		k.AddTask(termkbd.NewInput(h.Input(), muxEP.Restrict(kernel.RightSend)))

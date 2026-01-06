@@ -11,20 +11,24 @@ type Service struct {
 	inCap  kernel.Capability
 	ctlCap kernel.Capability
 
-	shellCap kernel.Capability
-	appCap   kernel.Capability
-	termCap  kernel.Capability
+	shellCap  kernel.Capability
+	rtdemoCap kernel.Capability
+	viCap     kernel.Capability
+	termCap   kernel.Capability
 
+	activeApp proto.AppID
 	appActive bool
 }
 
-func New(inCap, ctlCap, shellCap, appCap, termCap kernel.Capability) *Service {
+func New(inCap, ctlCap, shellCap, rtdemoCap, viCap, termCap kernel.Capability) *Service {
 	return &Service{
-		inCap:    inCap,
-		ctlCap:   ctlCap,
-		shellCap: shellCap,
-		appCap:   appCap,
-		termCap:  termCap,
+		inCap:     inCap,
+		ctlCap:    ctlCap,
+		shellCap:  shellCap,
+		rtdemoCap: rtdemoCap,
+		viCap:     viCap,
+		termCap:   termCap,
+		activeApp: proto.AppRTDemo,
 	}
 }
 
@@ -44,18 +48,29 @@ func (s *Service) Run(ctx *kernel.Context) {
 				continue
 			}
 			s.setActive(ctx, active)
+		case proto.MsgAppSelect:
+			appID, arg, ok := proto.DecodeAppSelectPayload(msg.Data[:msg.Len])
+			if !ok {
+				continue
+			}
+			s.handleAppSelect(ctx, appID, arg)
 		}
 	}
 }
 
 func (s *Service) handleInput(ctx *kernel.Context, b []byte) {
+	if s.appActive {
+		s.flushInput(ctx, b)
+		return
+	}
+
 	start := 0
 	for i := 0; i < len(b); i++ {
 		switch b[i] {
 		case interruptByte:
 			s.flushInput(ctx, b[start:i])
 			start = i + 1
-			s.setActive(ctx, !s.appActive)
+			s.setActive(ctx, true)
 		}
 	}
 	s.flushInput(ctx, b[start:])
@@ -67,7 +82,7 @@ func (s *Service) flushInput(ctx *kernel.Context, b []byte) {
 	}
 	dst := s.shellCap
 	if s.appActive {
-		dst = s.appCap
+		dst = s.selectedAppCap()
 	}
 	_ = sendWithRetry(ctx, dst, proto.MsgTermInput, b, kernel.Capability{})
 }
@@ -76,15 +91,41 @@ func (s *Service) setActive(ctx *kernel.Context, active bool) {
 	if active == s.appActive {
 		return
 	}
+	if active && !s.selectedAppCap().Valid() {
+		return
+	}
 	s.appActive = active
 
+	appCap := s.selectedAppCap()
 	var xfer kernel.Capability
 	if s.appActive && s.ctlCap.Valid() {
 		xfer = s.ctlCap
 	}
-	_ = sendWithRetry(ctx, s.appCap, proto.MsgAppControl, proto.AppControlPayload(active), xfer)
-	if !s.appActive {
-		_ = sendWithRetry(ctx, s.termCap, proto.MsgTermRefresh, nil, kernel.Capability{})
+	_ = sendWithRetry(ctx, appCap, proto.MsgAppControl, proto.AppControlPayload(active), xfer)
+	_ = sendWithRetry(ctx, s.shellCap, proto.MsgAppControl, proto.AppControlPayload(!active), kernel.Capability{})
+}
+
+func (s *Service) handleAppSelect(ctx *kernel.Context, id proto.AppID, arg string) {
+	appCap := s.appCapByID(id)
+	if !appCap.Valid() {
+		return
+	}
+	s.activeApp = id
+	_ = sendWithRetry(ctx, appCap, proto.MsgAppSelect, proto.AppSelectPayload(id, arg), kernel.Capability{})
+}
+
+func (s *Service) selectedAppCap() kernel.Capability {
+	return s.appCapByID(s.activeApp)
+}
+
+func (s *Service) appCapByID(id proto.AppID) kernel.Capability {
+	switch id {
+	case proto.AppRTDemo:
+		return s.rtdemoCap
+	case proto.AppVi:
+		return s.viCap
+	default:
+		return kernel.Capability{}
 	}
 }
 
