@@ -10,19 +10,15 @@ import (
 
 // HeadlessConfig controls the no-window host runner.
 type HeadlessConfig struct {
-	Enabled    bool
-	Hz         int
-	Ticks      uint64
-	StepBudget int
+	Enabled bool
+	Hz      int
+	Ticks   uint64
 }
 
 // RunHeadless runs the OS without opening a window.
 func RunHeadless(ctx context.Context, newApp func(HAL) func() error, cfg HeadlessConfig) error {
 	if cfg.Hz <= 0 {
 		cfg.Hz = 60
-	}
-	if cfg.StepBudget <= 0 {
-		cfg.StepBudget = 1
 	}
 
 	h := New().(*hostHAL)

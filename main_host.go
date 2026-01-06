@@ -17,14 +17,13 @@ func main() {
 	flag.BoolVar(&cfg.Enabled, "headless", false, "Run without a window.")
 	flag.IntVar(&cfg.Hz, "hz", 60, "Tick rate in headless mode.")
 	flag.Uint64Var(&cfg.Ticks, "ticks", 0, "Stop after N ticks in headless mode (0 = run forever).")
-	flag.IntVar(&cfg.StepBudget, "budget", 64, "Kernel step budget per tick in headless mode.")
 	flag.Parse()
 
 	if cfg.Enabled {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
 		if err := hal.RunHeadless(ctx, func(h hal.HAL) func() error {
-			return app.NewWithBudget(h, cfg.StepBudget)
+			return app.New(h)
 		}, cfg); err != nil {
 			if err == context.Canceled {
 				return
