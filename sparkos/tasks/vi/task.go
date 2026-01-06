@@ -18,6 +18,9 @@ import (
 	"tinygo.org/x/tinyfont"
 )
 
+// Enabled reports whether SparkVi is compiled into this build.
+const Enabled = true
+
 const (
 	maxFileBytes = 512 * 1024
 

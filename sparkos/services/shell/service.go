@@ -14,6 +14,7 @@ import (
 	vfsclient "spark/sparkos/client/vfs"
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
+	vitask "spark/sparkos/tasks/vi"
 )
 
 type Service struct {
@@ -287,6 +288,10 @@ func (s *Service) submit(ctx *kernel.Context) {
 			_ = s.printString(ctx, "put: "+err.Error()+"\n")
 		}
 	case "vi":
+		if !vitask.Enabled {
+			_ = s.printString(ctx, "vi: not enabled in this build (build with -tags spark_vi)\n")
+			break
+		}
 		var target string
 		if len(args) == 1 {
 			target = s.absPath(args[0])
