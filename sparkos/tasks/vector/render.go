@@ -422,6 +422,12 @@ func (t *Task) renderGraph(panelY int16, w int16, viewHPx int) {
 	t.drawGrid(plotX, plotY, plotW, plotH, leftMargin, bottomMargin)
 	t.drawAxes(plotX, plotY, plotW, plotH)
 	t.drawPlots(plotX, plotY, plotW, plotH)
+
+	plots := t.plots
+	if len(plots) == 0 && t.graph != nil {
+		plots = []plot{{src: t.graphExpr, expr: t.graph}}
+	}
+	t.drawLegend(plotX, plotY, plotW, plotH, plots)
 }
 
 func (t *Task) drawGrid(plotX, plotY, plotW, plotH, leftMargin, bottomMargin int16) {
@@ -479,6 +485,85 @@ func (t *Task) drawAxes(px0, py0, pw, ph int16) {
 		for x := int16(0); x < pw; x++ {
 			t.d.SetPixel(px0+x, py0+y, colorAxis)
 		}
+	}
+}
+
+func (t *Task) drawLegend(px0, py0, pw, ph int16, plots []plot) {
+	if len(plots) == 0 {
+		return
+	}
+	if pw <= 2*t.fontWidth || ph <= t.fontHeight {
+		return
+	}
+
+	plotCols := int(pw / t.fontWidth)
+	if plotCols < 8 {
+		return
+	}
+
+	maxEntries := int((ph - 2) / t.fontHeight)
+	if maxEntries > 6 {
+		maxEntries = 6
+	}
+	if maxEntries <= 0 {
+		return
+	}
+
+	if len(plots) > maxEntries {
+		plots = plots[:maxEntries]
+	}
+
+	boxCols := 26
+	if plotCols-2 < boxCols {
+		boxCols = plotCols - 2
+	}
+	if boxCols < 10 {
+		boxCols = plotCols - 2
+	}
+	if boxCols < 8 {
+		return
+	}
+
+	boxW := int16(boxCols) * t.fontWidth
+	boxH := int16(len(plots))*t.fontHeight + 2
+	if boxW > pw-2 {
+		boxW = pw - 2
+	}
+	if boxH > ph-2 {
+		boxH = ph - 2
+	}
+
+	x := px0 + 1
+	y := py0 + 1
+
+	_ = t.d.FillRectangle(x, y, boxW, boxH, colorHeaderBG)
+	_ = t.d.FillRectangle(x, y, boxW, 1, colorAxis)
+	_ = t.d.FillRectangle(x, y+boxH-1, boxW, 1, colorAxis)
+	_ = t.d.FillRectangle(x, y, 1, boxH, colorAxis)
+	_ = t.d.FillRectangle(x+boxW-1, y, 1, boxH, colorAxis)
+
+	colors := []color.RGBA{colorPlot0, colorPlot1, colorPlot2, colorPlot3}
+	swatchW := t.fontWidth * 2
+	if swatchW < 6 {
+		swatchW = 6
+	}
+	textX := x + 2 + swatchW + t.fontWidth
+	textCols := int((boxW - (textX - x)) / t.fontWidth)
+	if textCols < 1 {
+		return
+	}
+
+	for i, p := range plots {
+		c := colors[i%len(colors)]
+		rowY := y + 1 + int16(i)*t.fontHeight
+
+		_ = t.d.FillRectangle(x+2, rowY+t.fontHeight/2-1, swatchW, 3, c)
+
+		label := p.src
+		if label == "" {
+			label = "plot"
+		}
+		t.drawStringClipped(textX, rowY, label, colorFG, textCols)
 	}
 }
 
