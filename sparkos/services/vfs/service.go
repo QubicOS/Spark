@@ -56,6 +56,10 @@ func (s *Service) Run(ctx *kernel.Context) {
 			s.handleList(ctx, msg)
 		case proto.MsgVFSMkdir:
 			s.handleMkdir(ctx, msg)
+		case proto.MsgVFSRemove:
+			s.handleRemove(ctx, msg)
+		case proto.MsgVFSRename:
+			s.handleRename(ctx, msg)
 		case proto.MsgVFSStat:
 			s.handleStat(ctx, msg)
 		case proto.MsgVFSRead:
@@ -121,6 +125,48 @@ func (s *Service) handleMkdir(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 	_ = s.send(ctx, reply, proto.MsgVFSMkdirResp, proto.VFSMkdirRespPayload(requestID))
+}
+
+func (s *Service) handleRemove(ctx *kernel.Context, msg kernel.Message) {
+	reply := msg.Cap
+	requestID, path, ok := proto.DecodeVFSRemovePayload(msg.Data[:msg.Len])
+	if !ok {
+		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSRemove, 0, "decode remove")
+		return
+	}
+
+	fs := s.fs
+	if fs == nil {
+		_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSRemove, requestID, "vfs not ready")
+		return
+	}
+
+	if err := fs.Remove(path); err != nil {
+		_ = s.sendErr(ctx, reply, mapVFSError(err), proto.MsgVFSRemove, requestID, err.Error())
+		return
+	}
+	_ = s.send(ctx, reply, proto.MsgVFSRemoveResp, proto.VFSRemoveRespPayload(requestID))
+}
+
+func (s *Service) handleRename(ctx *kernel.Context, msg kernel.Message) {
+	reply := msg.Cap
+	requestID, oldPath, newPath, ok := proto.DecodeVFSRenamePayload(msg.Data[:msg.Len])
+	if !ok {
+		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSRename, 0, "decode rename")
+		return
+	}
+
+	fs := s.fs
+	if fs == nil {
+		_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSRename, requestID, "vfs not ready")
+		return
+	}
+
+	if err := fs.Rename(oldPath, newPath); err != nil {
+		_ = s.sendErr(ctx, reply, mapVFSError(err), proto.MsgVFSRename, requestID, err.Error())
+		return
+	}
+	_ = s.send(ctx, reply, proto.MsgVFSRenameResp, proto.VFSRenameRespPayload(requestID))
 }
 
 func (s *Service) handleStat(ctx *kernel.Context, msg kernel.Message) {
@@ -303,6 +349,8 @@ func mapVFSError(err error) proto.ErrCode {
 	case errors.Is(err, littlefs.ErrNotFound):
 		return proto.ErrNotFound
 	case errors.Is(err, littlefs.ErrExists):
+		return proto.ErrBusy
+	case errors.Is(err, littlefs.ErrNotEmpty):
 		return proto.ErrBusy
 	case errors.Is(err, littlefs.ErrNoSpace):
 		return proto.ErrOverflow
