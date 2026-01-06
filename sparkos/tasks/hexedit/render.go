@@ -175,6 +175,16 @@ func (t *Task) render(ctx *kernel.Context) {
 		return
 	}
 
+	if t.viewASCII {
+		t.renderASCII(ctx, panelY)
+		t.renderStatus(w)
+		if t.showHelp {
+			t.renderHelp()
+		}
+		_ = t.fb.Present()
+		return
+	}
+
 	bytesPerRow, showASCII := t.layout()
 	t.ensureVisible(bytesPerRow)
 
@@ -234,6 +244,40 @@ func (t *Task) render(ctx *kernel.Context) {
 	_ = t.fb.Present()
 }
 
+func (t *Task) renderASCII(ctx *kernel.Context, panelY int16) {
+	bytesPerRow := t.layoutASCIIBytesPerRow()
+	t.ensureVisible(bytesPerRow)
+
+	asciiStartCol := 10
+	for row := 0; row < t.viewRows; row++ {
+		lineOff := uint32(t.topRow+row) * uint32(bytesPerRow)
+		if t.size != 0 && lineOff >= t.size {
+			break
+		}
+		y := panelY + int16(row)*t.fontHeight
+
+		t.drawHexOffset(0, y, lineOff)
+		t.drawCell(int16(8)*t.fontWidth, y, ':', colorDim)
+		t.drawCell(int16(9)*t.fontWidth, y, ' ', colorDim)
+
+		for i := 0; i < bytesPerRow; i++ {
+			off := lineOff + uint32(i)
+			b, ok := t.byteAt(ctx, off)
+			if !ok {
+				continue
+			}
+			ax := int16(asciiStartCol+i) * t.fontWidth
+			sel := off == t.cursor
+			fg := colorFG
+			if sel {
+				_ = t.d.FillRectangle(ax, y, t.fontWidth, t.fontHeight, colorSelBG)
+				fg = colorSelFG
+			}
+			t.drawCell(ax, y, printableASCII(b), fg)
+		}
+	}
+}
+
 func (t *Task) renderStatus(w int16) {
 	statusY := int16(t.rows-1) * t.fontHeight
 	_ = t.d.FillRectangle(0, statusY, w, t.fontHeight, colorStatusBG)
@@ -249,6 +293,7 @@ func (t *Task) renderHelp() {
 		"  PgUp/PgDn: page",
 		"",
 		"Edit",
+		"  v: toggle view (HEX/ASCII)",
 		"  i: toggle HEX/ASCII input",
 		"  0-9 a-f: edit byte (HEX)",
 		"  printable chars: edit byte (ASCII)",

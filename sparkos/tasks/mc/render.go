@@ -281,9 +281,20 @@ func (t *Task) renderHex(w int16) {
 	viewH := int16(t.viewRows) * t.fontHeight
 	_ = t.d.FillRectangle(0, panelY, w, viewH, colorPanelBG)
 
+	if t.hexView == hexViewASCII {
+		t.renderHexASCII(panelY)
+		statusY := int16(t.rows-1) * t.fontHeight
+		_ = t.d.FillRectangle(0, statusY, w, t.fontHeight, colorStatusBG)
+		t.drawString(0, statusY, t.hexStatusText(), colorFG)
+		return
+	}
+
 	bytesPerRow, showASCII := t.hexLayout()
 	if bytesPerRow <= 0 {
 		bytesPerRow = 16
+	}
+	if t.hexView == hexViewHexOnly {
+		showASCII = false
 	}
 	t.hexEnsureVisible(bytesPerRow)
 
@@ -338,6 +349,39 @@ func (t *Task) renderHex(w int16) {
 	t.drawString(0, statusY, t.hexStatusText(), colorFG)
 }
 
+func (t *Task) renderHexASCII(panelY int16) {
+	bytesPerRow := t.hexASCIIBytesPerRow()
+	t.hexEnsureVisible(bytesPerRow)
+
+	asciiStartCol := 10
+	for row := 0; row < t.viewRows; row++ {
+		off := (t.hexTop + row) * bytesPerRow
+		if off >= len(t.hexData) && len(t.hexData) != 0 {
+			break
+		}
+		y := panelY + int16(row)*t.fontHeight
+
+		t.drawHexOffset(0, y, uint32(off))
+		t.drawCell(int16(8)*t.fontWidth, y, ':', colorDim)
+		t.drawCell(int16(9)*t.fontWidth, y, ' ', colorDim)
+
+		for i := 0; i < bytesPerRow; i++ {
+			idx := off + i
+			if idx >= len(t.hexData) {
+				continue
+			}
+			ax := int16(asciiStartCol+i) * t.fontWidth
+			sel := idx == t.hexCursor
+			fg := colorFG
+			if sel {
+				_ = t.d.FillRectangle(ax, y, t.fontWidth, t.fontHeight, colorSelBG)
+				fg = colorSelFG
+			}
+			t.drawCell(ax, y, printableASCII(t.hexData[idx]), fg)
+		}
+	}
+}
+
 func (t *Task) renderHelp() {
 	lines := []string{
 		"Panels",
@@ -360,6 +404,7 @@ func (t *Task) renderHelp() {
 		"x: open hex (from panels or viewer)",
 		"UP DOWN LEFT RIGHT: move cursor",
 		"HOME/END: start/end",
+		"v: toggle view (HEX/ASCII)",
 		"i: toggle HEX/ASCII edit",
 		"0-9 a-f: edit byte in HEX mode",
 		"printable: edit byte in ASCII mode",

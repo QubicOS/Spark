@@ -21,6 +21,14 @@ const (
 	modeHex
 )
 
+type hexViewMode uint8
+
+const (
+	hexViewAuto hexViewMode = iota
+	hexViewHexOnly
+	hexViewASCII
+)
+
 type panelID uint8
 
 const (
@@ -84,6 +92,7 @@ type Task struct {
 	hexDirty       bool
 	hexQuitConfirm bool
 	hexEditASCII   bool
+	hexView        hexViewMode
 }
 
 func New(disp hal.Display, ep kernel.Capability, vfsCap kernel.Capability) *Task {
@@ -549,12 +558,16 @@ func (t *Task) openHex(ctx *kernel.Context, p string) error {
 	t.hexDirty = false
 	t.hexQuitConfirm = false
 	t.hexEditASCII = false
+	t.hexView = hexViewAuto
 	t.mode = modeHex
 	return nil
 }
 
 func (t *Task) handleHexKey(ctx *kernel.Context, k key) {
 	bytesPerRow, _ := t.hexLayout()
+	if t.hexView == hexViewASCII {
+		bytesPerRow = t.hexASCIIBytesPerRow()
+	}
 	if bytesPerRow <= 0 {
 		bytesPerRow = 16
 	}
@@ -625,6 +638,19 @@ func (t *Task) handleHexKey(ctx *kernel.Context, k key) {
 				t.setMessage("edit: ASCII")
 			} else {
 				t.setMessage("edit: HEX")
+			}
+			return
+		case 'v':
+			switch t.hexView {
+			case hexViewAuto:
+				t.hexView = hexViewHexOnly
+				t.setMessage("view: HEX")
+			case hexViewHexOnly:
+				t.hexView = hexViewASCII
+				t.setMessage("view: ASCII")
+			default:
+				t.hexView = hexViewAuto
+				t.setMessage("view: HEX+ASCII")
 			}
 			return
 		case 'w':
@@ -725,6 +751,17 @@ func (t *Task) hexLayout() (bytesPerRow int, showASCII bool) {
 		}
 	}
 	return 4, false
+}
+
+func (t *Task) hexASCIIBytesPerRow() int {
+	n := t.cols - 10
+	if n > 64 {
+		n = 64
+	}
+	if n < 4 {
+		n = 4
+	}
+	return n
 }
 
 func (t *Task) hexEnsureVisible(bytesPerRow int) {
@@ -847,6 +884,14 @@ func (t *Task) hexStatusText() string {
 		edit = "ASCII"
 	}
 
+	view := "HEX+ASCII"
+	switch t.hexView {
+	case hexViewHexOnly:
+		view = "HEX"
+	case hexViewASCII:
+		view = "ASCII"
+	}
+
 	nibble := ""
 	if !t.hexEditASCII {
 		if t.hexNibble == 0 {
@@ -857,12 +902,13 @@ func (t *Task) hexStatusText() string {
 	}
 
 	base := fmt.Sprintf(
-		"%soff=%08X size=%08X %s%s | i edit | w save | t text | q back",
+		"%soff=%08X size=%08X %s%s %s | i edit | v view | w save | t text | q back",
 		flags,
 		t.hexCursor,
 		len(t.hexData),
 		edit,
 		nibble,
+		view,
 	)
 	if t.message == "" {
 		return clipRunes(base, t.cols)
