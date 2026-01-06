@@ -1,8 +1,10 @@
 module spark
 
-go 1.22.0
+go 1.22.1
 
 require github.com/hajimehoshi/ebiten/v2 v2.7.10
+
+replace tinygo.org/x/tinyterm => ./app/tinyterm-release
 
 require (
 	github.com/ebitengine/gomobile v0.0.0-20240518074828-e86332849895 // indirect
