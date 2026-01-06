@@ -39,6 +39,8 @@ var (
 	ErrIsDir = errors.New("littlefs: is a directory")
 	// ErrNoSpace indicates that the filesystem is out of space.
 	ErrNoSpace = errors.New("littlefs: no space")
+	// ErrNotEmpty indicates that a directory is not empty.
+	ErrNotEmpty = errors.New("littlefs: directory not empty")
 	// ErrInvalid indicates invalid arguments or an invalid filesystem state.
 	ErrInvalid = errors.New("littlefs: invalid")
 	// ErrCorrupt indicates corrupted on-flash metadata.
@@ -273,6 +275,53 @@ func (fs *FS) Mkdir(path string) error {
 	rc := C.lfs_mkdir(fs.lfs, cpath)
 	if rc != 0 {
 		return fmt.Errorf("littlefs mkdir %q: %w", path, decodeErr(int(rc)))
+	}
+	return nil
+}
+
+// Remove deletes a file or an empty directory.
+func (fs *FS) Remove(path string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	if err := fs.ensureMountedLocked(); err != nil {
+		return err
+	}
+	cpath, freeFn, err := cString(path)
+	if err != nil {
+		return err
+	}
+	defer freeFn()
+
+	rc := C.lfs_remove(fs.lfs, cpath)
+	if rc != 0 {
+		return fmt.Errorf("littlefs remove %q: %w", path, decodeErr(int(rc)))
+	}
+	return nil
+}
+
+// Rename renames (moves) a file or directory.
+func (fs *FS) Rename(oldPath, newPath string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	if err := fs.ensureMountedLocked(); err != nil {
+		return err
+	}
+	cold, freeOld, err := cString(oldPath)
+	if err != nil {
+		return err
+	}
+	defer freeOld()
+	cnew, freeNew, err := cString(newPath)
+	if err != nil {
+		return err
+	}
+	defer freeNew()
+
+	rc := C.lfs_rename(fs.lfs, cold, cnew)
+	if rc != 0 {
+		return fmt.Errorf("littlefs rename %q -> %q: %w", oldPath, newPath, decodeErr(int(rc)))
 	}
 	return nil
 }
@@ -528,6 +577,8 @@ func decodeErr(rc int) error {
 		return ErrIsDir
 	case int(C.LFS_ERR_NOSPC):
 		return ErrNoSpace
+	case int(C.LFS_ERR_NOTEMPTY):
+		return ErrNotEmpty
 	case int(C.LFS_ERR_INVAL):
 		return ErrInvalid
 	case int(C.LFS_ERR_OK):
