@@ -46,11 +46,8 @@ func (s *Service) tab(ctx *kernel.Context) {
 }
 
 func (s *Service) commandMatches(prefix string) []string {
-	var out []string
-	for _, cmd := range builtinCommands {
-		if strings.HasPrefix(cmd, prefix) {
-			out = append(out, cmd)
-		}
+	if s.reg == nil {
+		return nil
 	}
-	return out
+	return s.reg.matches(prefix)
 }
