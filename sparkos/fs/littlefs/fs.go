@@ -9,6 +9,8 @@ package littlefs
 #include <stdlib.h>
 
 #include "lfs.h"
+
+void spark_lfs_config_init(struct lfs_config *cfg);
 */
 import "C"
 
@@ -372,18 +374,18 @@ func (fs *FS) OpenWriter(path string, mode WriteMode) (*Writer, error) {
 	}
 	defer freeFn()
 
-	flags := C.LFS_O_WRONLY | C.LFS_O_CREAT
+	flags := C.int(C.LFS_O_WRONLY) | C.int(C.LFS_O_CREAT)
 	switch mode {
 	case WriteTruncate:
-		flags |= C.LFS_O_TRUNC
+		flags |= C.int(C.LFS_O_TRUNC)
 	case WriteAppend:
-		flags |= C.LFS_O_APPEND
+		flags |= C.int(C.LFS_O_APPEND)
 	default:
 		return nil, fmt.Errorf("littlefs open writer %q: invalid mode %d", path, mode)
 	}
 
 	var f C.lfs_file_t
-	rc := C.lfs_file_open(&fs.lfs, &f, cpath, flags)
+	rc := C.lfs_file_open(&fs.lfs, &f, cpath, C.int(flags))
 	if rc != 0 {
 		return nil, fmt.Errorf("littlefs open %q: %w", path, decodeErr(int(rc)))
 	}
