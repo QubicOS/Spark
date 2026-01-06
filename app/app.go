@@ -12,20 +12,10 @@ type system struct {
 	k *kernel.Kernel
 }
 
-// New initializes the OS and returns a single-step function.
-//
-// The stepper is intended for the host emulator game loop.
+// New initializes and starts the OS.
 func New(h hal.HAL) func() error {
 	_ = newSystem(h)
 	return func() error { return nil }
-}
-
-// NewWithBudget initializes the OS and returns a single-step function.
-//
-// The budget controls how many kernel steps are executed per call.
-func NewWithBudget(h hal.HAL, budget int) func() error {
-	_ = budget
-	return New(h)
 }
 
 // Run starts the OS and blocks forever (TinyGo/native entrypoint).
