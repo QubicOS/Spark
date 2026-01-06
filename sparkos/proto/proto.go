@@ -23,6 +23,8 @@ const (
 	MsgVFSWriteChunk
 	MsgVFSWriteClose
 	MsgVFSWriteResp
+	MsgTermRefresh
+	MsgAppControl
 )
 
 // ErrCode is a generic error category for MsgError responses.
@@ -102,6 +104,10 @@ func (k Kind) String() string {
 		return "vfs_write_close"
 	case MsgVFSWriteResp:
 		return "vfs_write_resp"
+	case MsgTermRefresh:
+		return "term_refresh"
+	case MsgAppControl:
+		return "app_control"
 	default:
 		return "unknown"
 	}

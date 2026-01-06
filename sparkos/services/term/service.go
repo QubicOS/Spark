@@ -69,6 +69,9 @@ func (s *Service) Run(ctx *kernel.Context) {
 			case proto.MsgTermClear:
 				s.reset()
 				dirty = true
+			case proto.MsgTermRefresh:
+				s.t.Display()
+				dirty = false
 			}
 		}
 	}
