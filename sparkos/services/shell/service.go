@@ -3,6 +3,7 @@ package shell
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
@@ -12,7 +13,9 @@ type Service struct {
 	inCap   kernel.Capability
 	termCap kernel.Capability
 
-	line []byte
+	line []rune
+
+	utf8buf []byte
 }
 
 func New(inCap kernel.Capability, termCap kernel.Capability) *Service {
@@ -39,6 +42,9 @@ func (s *Service) Run(ctx *kernel.Context) {
 }
 
 func (s *Service) handleInput(ctx *kernel.Context, b []byte) {
+	s.utf8buf = append(s.utf8buf, b...)
+	b = s.utf8buf
+
 	for len(b) > 0 {
 		if b[0] == 0x1b {
 			// Best-effort: skip VT100 escape sequences (e.g. arrows).
@@ -61,18 +67,28 @@ func (s *Service) handleInput(ctx *kernel.Context, b []byte) {
 			b = b[1:]
 			s.backspace(ctx)
 		default:
-			c := b[0]
-			b = b[1:]
-			if c < 0x20 || c > 0x7e {
+			if !utf8.FullRune(b) {
+				s.utf8buf = b
+				return
+			}
+			r, sz := utf8.DecodeRune(b)
+			if r == utf8.RuneError && sz == 1 {
+				b = b[1:]
 				continue
 			}
-			if len(s.line) >= 128 {
+			b = b[sz:]
+
+			if r < 0x20 {
 				continue
 			}
-			s.line = append(s.line, c)
-			_ = s.writeBytes(ctx, []byte{c})
+			if len(s.line) >= 256 {
+				continue
+			}
+			s.line = append(s.line, r)
+			_ = s.writeString(ctx, string(r))
 		}
 	}
+	s.utf8buf = s.utf8buf[:0]
 }
 
 func (s *Service) backspace(ctx *kernel.Context) {
