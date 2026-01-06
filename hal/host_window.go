@@ -4,7 +4,6 @@ package hal
 
 import (
 	"image"
-	"image/color"
 	"spark/internal/buildinfo"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -26,6 +25,7 @@ func RunWindow(newApp func(HAL) func() error) error {
 type hostGame struct {
 	h       *hostHAL
 	img     *image.RGBA
+	fbImg   *ebiten.Image
 	scratch []byte
 	step    func() error
 }
@@ -46,20 +46,27 @@ func (g *hostGame) Draw(screen *ebiten.Image) {
 	if g.img == nil || g.img.Bounds().Dx() != fb.width || g.img.Bounds().Dy() != fb.height {
 		g.img = image.NewRGBA(image.Rect(0, 0, fb.width, fb.height))
 		g.scratch = make([]byte, len(fb.buf))
+		if g.fbImg != nil {
+			g.fbImg.Deallocate()
+		}
+		g.fbImg = ebiten.NewImage(fb.width, fb.height)
 	}
 
 	fb.snapshotRGB565(g.scratch)
 
-	p := 0
-	for y := 0; y < fb.height; y++ {
-		for x := 0; x < fb.width; x++ {
-			r, gg, b := rgb888From565(uint16(g.scratch[p]) | uint16(g.scratch[p+1])<<8)
-			g.img.SetRGBA(x, y, color.RGBA{R: r, G: gg, B: b, A: 0xFF})
-			p += 2
-		}
+	src := g.scratch
+	dst := g.img.Pix
+	for i := 0; i+1 < len(src) && i/2*4+3 < len(dst); i += 2 {
+		r, gg, b := rgb888From565(uint16(src[i]) | uint16(src[i+1])<<8)
+		j := (i / 2) * 4
+		dst[j+0] = r
+		dst[j+1] = gg
+		dst[j+2] = b
+		dst[j+3] = 0xFF
 	}
 
-	screen.ReplacePixels(g.img.Pix)
+	g.fbImg.ReplacePixels(g.img.Pix)
+	screen.DrawImage(g.fbImg, nil)
 }
 
 func (g *hostGame) Layout(outsideWidth, outsideHeight int) (int, int) {
