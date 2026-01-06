@@ -245,6 +245,7 @@ func (t *Terminal) putchar(b byte) {
 				// ED: Erase in Display
 			case 'K':
 				// EL: Erase in Line
+				t.eraseInLine()
 			case 'S':
 				// SU: Scroll Up
 			case 'T':
@@ -264,6 +265,10 @@ func (t *Terminal) putchar(b byte) {
 			t.state = stateInput
 		}
 	}
+}
+
+type scrollUpper interface {
+	ScrollUp(pixels int16, bg color.RGBA) error
 }
 
 func (t *Terminal) selectGraphicRendition() {
@@ -334,7 +339,11 @@ func (t *Terminal) drawrune(r rune) {
 	}
 	x := t.next * t.fontWidth
 	y := t.scroll + t.fontOffset
-	t.display.FillRectangle(x, t.scroll, t.fontWidth, t.fontHeight, t.attrs.bgcol)
+	// Clear slightly wider than a single cell: many fonts have negative XOffset and
+	// can paint a few pixels into the previous cell, which would otherwise "stick"
+	// after backspace/redraw.
+	const padX = int16(2)
+	t.display.FillRectangle(x-padX, t.scroll, t.fontWidth+padX*2, t.fontHeight, t.attrs.bgcol)
 	tinyfont.DrawChar(t.display, t.font, x, y, r, t.attrs.fgcol)
 	t.next += 1
 }
@@ -356,14 +365,49 @@ func (t *Terminal) cr() {
 
 func (t *Terminal) lf() {
 	t.next = 0
-	t.scroll = (t.scroll + t.fontHeight) % (t.rows * t.fontHeight)
 	if t.useSoftwareScroll {
-		// blank screen if we have reached bottom
-		if t.scroll == 0 {
-			t.display.FillRectangle(0, 0, t.width, t.height, t.attrs.bgcol)
+		usableHeight := t.rows * t.fontHeight
+		if usableHeight <= 0 {
+			usableHeight = t.height
+		}
+
+		if t.scroll+t.fontHeight >= usableHeight {
+			scroller, ok := t.display.(scrollUpper)
+			if ok {
+				_ = scroller.ScrollUp(t.fontHeight, t.attrs.bgcol)
+			} else {
+				_ = t.display.FillRectangle(0, 0, t.width, t.height, t.attrs.bgcol)
+			}
+			t.scroll = usableHeight - t.fontHeight
+		} else {
+			t.scroll += t.fontHeight
 		}
 	} else {
+		t.scroll = (t.scroll + t.fontHeight) % (t.rows * t.fontHeight)
 		t.display.SetScroll((t.scroll + t.fontHeight) % t.height)
 	}
 	t.display.FillRectangle(0, t.scroll, t.width, t.fontHeight, t.attrs.bgcol)
+}
+
+func (t *Terminal) eraseInLine() {
+	mode := 0
+	if p := strings.TrimSpace(t.params.String()); p != "" {
+		params := strings.Split(p, ";")
+		n, err := strconv.Atoi(params[0])
+		if err == nil {
+			mode = n
+		}
+	}
+
+	x := t.next * t.fontWidth
+	switch mode {
+	case 0:
+		_ = t.display.FillRectangle(x, t.scroll, t.width-x, t.fontHeight, t.attrs.bgcol)
+	case 1:
+		_ = t.display.FillRectangle(0, t.scroll, x+t.fontWidth, t.fontHeight, t.attrs.bgcol)
+	case 2:
+		_ = t.display.FillRectangle(0, t.scroll, t.width, t.fontHeight, t.attrs.bgcol)
+	default:
+		_ = t.display.FillRectangle(x, t.scroll, t.width-x, t.fontHeight, t.attrs.bgcol)
+	}
 }
