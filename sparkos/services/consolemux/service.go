@@ -14,6 +14,7 @@ type Service struct {
 	shellCap   kernel.Capability
 	rtdemoCap  kernel.Capability
 	rtvoxelCap kernel.Capability
+	imgviewCap kernel.Capability
 	viCap      kernel.Capability
 	termCap    kernel.Capability
 
@@ -21,13 +22,14 @@ type Service struct {
 	appActive bool
 }
 
-func New(inCap, ctlCap, shellCap, rtdemoCap, rtvoxelCap, viCap, termCap kernel.Capability) *Service {
+func New(inCap, ctlCap, shellCap, rtdemoCap, rtvoxelCap, imgviewCap, viCap, termCap kernel.Capability) *Service {
 	return &Service{
 		inCap:      inCap,
 		ctlCap:     ctlCap,
 		shellCap:   shellCap,
 		rtdemoCap:  rtdemoCap,
 		rtvoxelCap: rtvoxelCap,
+		imgviewCap: imgviewCap,
 		viCap:      viCap,
 		termCap:    termCap,
 		activeApp:  proto.AppRTDemo,
@@ -126,6 +128,8 @@ func (s *Service) appCapByID(id proto.AppID) kernel.Capability {
 		return s.rtdemoCap
 	case proto.AppRTVoxel:
 		return s.rtvoxelCap
+	case proto.AppImgView:
+		return s.imgviewCap
 	case proto.AppVi:
 		return s.viCap
 	default:

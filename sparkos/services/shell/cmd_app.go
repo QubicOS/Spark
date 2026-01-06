@@ -13,6 +13,7 @@ func registerAppCommands(r *registry) error {
 		{Name: "vi", Usage: "vi [file]", Desc: "Edit a file (SparkVi; build with -tags spark_vi).", Run: cmdVi},
 		{Name: "rtdemo", Usage: "rtdemo [on|off]", Desc: "Start raytracing demo (exit with q/ESC).", Run: cmdRTDemo},
 		{Name: "rtvoxel", Usage: "rtvoxel [on|off]", Desc: "Start voxel world demo (exit with q/ESC).", Run: cmdRTVoxel},
+		{Name: "imgview", Usage: "imgview <file.bmp>", Desc: "View a BMP image (q/ESC to exit).", Run: cmdImgView},
 	} {
 		if err := r.register(cmd); err != nil {
 			return err
@@ -83,4 +84,16 @@ func cmdRTVoxel(ctx *kernel.Context, s *Service, args []string, _ redirection) e
 		}
 	}
 	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(active))
+}
+
+func cmdImgView(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	if len(args) != 1 {
+		return errors.New("usage: imgview <file.bmp>")
+	}
+	target := s.absPath(args[0])
+
+	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppImgView, target)); err != nil {
+		return err
+	}
+	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))
 }

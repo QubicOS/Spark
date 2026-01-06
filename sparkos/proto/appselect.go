@@ -8,6 +8,7 @@ const (
 	AppRTDemo  AppID = 1
 	AppVi      AppID = 2
 	AppRTVoxel AppID = 3
+	AppImgView AppID = 4
 )
 
 // AppSelectPayload encodes an app selection request.
