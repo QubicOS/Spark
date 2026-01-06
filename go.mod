@@ -5,6 +5,7 @@ go 1.22.1
 require (
 	github.com/hajimehoshi/ebiten/v2 v2.7.10
 	tinygo.org/x/drivers v0.33.0
+	tinygo.org/x/tinyfont v0.6.0
 	tinygo.org/x/tinyterm v0.1.0
 )
 
@@ -18,5 +19,4 @@ require (
 	github.com/jezek/xgb v1.1.1 // indirect
 	golang.org/x/sync v0.7.0 // indirect
 	golang.org/x/sys v0.20.0 // indirect
-	tinygo.org/x/tinyfont v0.6.0 // indirect
 )
