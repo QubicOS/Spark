@@ -6,6 +6,8 @@ This repository is developed with Codex-style agents in mind. Follow these rules
 
 - Never commit directly to `main`.
 - Create a dedicated branch per task/feature/bugfix (one branch per agent run).
+- Multiple agents may work in parallel, but never on the same branch.
+- Use a clear branch naming scheme, e.g. `agent/<name>/<topic>` or `feat/<topic>`.
 - Keep the branch focused: avoid mixing unrelated changes.
 - Merge to `main` only via a reviewed merge (fast-forward or merge commit is fine, but keep history readable).
 
@@ -35,4 +37,3 @@ Before merging to `main`, run:
 - Kernel: mechanism only (IPC + minimal task/endpoint primitives); no policy.
 - Everything else is a service/task communicating via IPC.
 - No hidden global access “by name”: pass capabilities explicitly.
-
