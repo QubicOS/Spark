@@ -23,7 +23,7 @@ func registerFSCommands(r *registry) error {
 		{Name: "mv", Usage: "mv <src> <dst>", Desc: "Rename (move) a path.", Run: cmdMv},
 		{Name: "rm", Usage: "rm [-rf] <path...>", Desc: "Remove files or directories.", Run: cmdRm},
 		{Name: "stat", Usage: "stat <path>", Desc: "Show file metadata.", Run: cmdStat},
-		{Name: "cat", Usage: "cat <path>", Desc: "Print a file.", Run: cmdCat},
+		{Name: "cat", Usage: "cat <path...>", Desc: "Print files.", Run: cmdCat},
 		{Name: "put", Usage: "put <path> <data...>", Desc: "Write bytes to a file.", Run: cmdPut},
 	} {
 		if err := r.register(cmd); err != nil {
@@ -238,26 +238,34 @@ func (s *Service) cp(ctx *kernel.Context, args []string) error {
 	src := s.absPath(args[0])
 	dst := s.absPath(args[1])
 
+	w, err := s.vfsClient().OpenWriter(ctx, dst, proto.VFSWriteTruncate)
+	if err != nil {
+		return err
+	}
+
 	const maxRead = kernel.MaxMessageBytes - 11
 	var off uint32
-	var buf []byte
+
 	for {
 		b, eof, err := s.vfsClient().ReadAt(ctx, src, off, maxRead)
 		if err != nil {
+			_, _ = w.Close()
 			return err
 		}
-		if len(b) > 0 {
-			buf = append(buf, b...)
-			off += uint32(len(b))
-			if len(buf) > 512*1024 {
-				return errors.New("file too large")
-			}
+		if len(b) == 0 && !eof {
+			_, _ = w.Close()
+			return errors.New("cp: short read")
 		}
+		if _, err := w.Write(b); err != nil {
+			_, _ = w.Close()
+			return err
+		}
+		off += uint32(len(b))
 		if eof {
 			break
 		}
 	}
-	_, err := s.vfsClient().Write(ctx, dst, proto.VFSWriteTruncate, buf)
+	_, err = w.Close()
 	return err
 }
 
@@ -358,46 +366,70 @@ func (s *Service) stat(ctx *kernel.Context, args []string) error {
 }
 
 func (s *Service) cat(ctx *kernel.Context, args []string, redir redirection) error {
-	if len(args) != 1 {
-		return errors.New("usage: cat <path>")
+	if len(args) == 0 {
+		return errors.New("usage: cat <path...>")
 	}
-	path := s.absPath(args[0])
 
 	const maxRead = kernel.MaxMessageBytes - 11
-	var off uint32
-	var buf []byte
-	for {
-		b, eof, err := s.vfsClient().ReadAt(ctx, path, off, maxRead)
-		if err != nil {
-			return err
-		}
-		if len(b) == 0 && eof {
-			break
-		}
-
-		if len(b) > 0 {
-			if redir.Path != "" {
-				buf = append(buf, b...)
-			} else {
-				if err := s.writeBytes(ctx, b); err != nil {
-					return err
-				}
-			}
-			off += uint32(len(b))
-		}
-		if eof {
-			break
-		}
-	}
 
 	if redir.Path != "" {
-		redir.Path = s.absPath(redir.Path)
+		outPath := s.absPath(redir.Path)
 		mode := proto.VFSWriteTruncate
 		if redir.Append {
 			mode = proto.VFSWriteAppend
 		}
-		_, err := s.vfsClient().Write(ctx, redir.Path, mode, buf)
+		w, err := s.vfsClient().OpenWriter(ctx, outPath, mode)
+		if err != nil {
+			return err
+		}
+		for _, a := range args {
+			inPath := s.absPath(a)
+			var off uint32
+			for {
+				b, eof, err := s.vfsClient().ReadAt(ctx, inPath, off, maxRead)
+				if err != nil {
+					_, _ = w.Close()
+					return err
+				}
+				if len(b) == 0 && !eof {
+					_, _ = w.Close()
+					return errors.New("cat: short read")
+				}
+				if _, err := w.Write(b); err != nil {
+					_, _ = w.Close()
+					return err
+				}
+				off += uint32(len(b))
+				if eof {
+					break
+				}
+			}
+		}
+		_, err = w.Close()
 		return err
+	}
+
+	for _, a := range args {
+		inPath := s.absPath(a)
+		var off uint32
+		for {
+			b, eof, err := s.vfsClient().ReadAt(ctx, inPath, off, maxRead)
+			if err != nil {
+				return err
+			}
+			if len(b) == 0 && !eof {
+				return errors.New("cat: short read")
+			}
+			if len(b) > 0 {
+				if err := s.writeBytes(ctx, b); err != nil {
+					return err
+				}
+				off += uint32(len(b))
+			}
+			if eof {
+				break
+			}
+		}
 	}
 	return nil
 }
