@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	hostFlashDefaultPath      = "spark.flash"
+	hostFlashDefaultPath      = "Flash.bin"
 	hostFlashDefaultSizeBytes = 2 * 1024 * 1024
 	hostFlashEraseBlockBytes  = 4096
 )
@@ -37,17 +37,20 @@ func newHostFlash() *hostFlash {
 	}
 
 	size := uint32(hostFlashDefaultSizeBytes)
-	if st, err := f.Stat(); err == nil && st.Size() > 0 {
+	if st, err := f.Stat(); err == nil {
 		if st.Size() > int64(^uint32(0)) {
 			_ = f.Close()
 			return &hostFlash{f: nil}
 		}
-		size = uint32(st.Size())
-	} else {
-		if err := f.Truncate(int64(size)); err != nil {
-			_ = f.Close()
-			return &hostFlash{f: nil}
+		if st.Size() != int64(size) {
+			if err := f.Truncate(int64(size)); err != nil {
+				_ = f.Close()
+				return &hostFlash{f: nil}
+			}
 		}
+	} else {
+		_ = f.Close()
+		return &hostFlash{f: nil}
 	}
 
 	hf := &hostFlash{f: f, size: size}
