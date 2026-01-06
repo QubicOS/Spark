@@ -175,6 +175,12 @@ func vt100FromKey(ev hal.KeyEvent) []byte {
 		return []byte("\x1b[H")
 	case hal.KeyEnd:
 		return []byte("\x1b[F")
+	case hal.KeyF1:
+		return []byte("\x1b[11~")
+	case hal.KeyF2:
+		return []byte("\x1b[12~")
+	case hal.KeyF3:
+		return []byte("\x1b[13~")
 	default:
 		return nil
 	}

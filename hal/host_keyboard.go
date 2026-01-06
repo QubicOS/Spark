@@ -123,4 +123,22 @@ func (k *hostKeyboard) poll() {
 	if inpututil.IsKeyJustReleased(ebiten.KeyEnd) {
 		emit(KeyEnd, false)
 	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyF1) {
+		emit(KeyF1, true)
+	}
+	if inpututil.IsKeyJustReleased(ebiten.KeyF1) {
+		emit(KeyF1, false)
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyF2) {
+		emit(KeyF2, true)
+	}
+	if inpututil.IsKeyJustReleased(ebiten.KeyF2) {
+		emit(KeyF2, false)
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyF3) {
+		emit(KeyF3, true)
+	}
+	if inpututil.IsKeyJustReleased(ebiten.KeyF3) {
+		emit(KeyF3, false)
+	}
 }
