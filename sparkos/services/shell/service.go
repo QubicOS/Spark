@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -573,32 +574,53 @@ func (s *Service) cd(ctx *kernel.Context, args []string) error {
 }
 
 func (s *Service) ls(ctx *kernel.Context, args []string) error {
-	path := "/"
-	if len(args) == 1 {
-		path = args[0]
-	} else if len(args) > 1 {
-		return errors.New("usage: ls [path]")
+	long := false
+	var target string
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			if a == "-l" {
+				long = true
+				continue
+			}
+			return errors.New("usage: ls [-l] [path]")
+		}
+		if target != "" {
+			return errors.New("usage: ls [-l] [path]")
+		}
+		target = a
 	}
-	path = s.absPath(path)
+	if target == "" {
+		target = "."
+	}
+	path := s.absPath(target)
 
 	ents, err := s.vfsClient().List(ctx, path)
 	if err != nil {
 		return err
 	}
+
+	sort.Slice(ents, func(i, j int) bool { return ents[i].Name < ents[j].Name })
 	for _, e := range ents {
-		switch e.Type {
-		case proto.VFSEntryDir:
-			if err := s.printString(ctx, fmt.Sprintf("d        %s/\n", e.Name)); err != nil {
+		name := e.Name
+		mode := "----------"
+		if e.Type == proto.VFSEntryDir {
+			mode = "drwxr-xr-x"
+			name += "/"
+		} else if e.Type == proto.VFSEntryFile {
+			mode = "-rw-r--r--"
+		} else {
+			mode = "?---------"
+		}
+
+		if !long {
+			if err := s.printString(ctx, name+"\n"); err != nil {
 				return err
 			}
-		case proto.VFSEntryFile:
-			if err := s.printString(ctx, fmt.Sprintf("f %7d %s\n", e.Size, e.Name)); err != nil {
-				return err
-			}
-		default:
-			if err := s.printString(ctx, fmt.Sprintf("?        %s\n", e.Name)); err != nil {
-				return err
-			}
+			continue
+		}
+
+		if err := s.printString(ctx, fmt.Sprintf("%s %5d %s\n", mode, e.Size, name)); err != nil {
+			return err
 		}
 	}
 	return nil
