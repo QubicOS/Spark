@@ -14,14 +14,16 @@ const (
 )
 
 func parseEscape(b []byte) (consumed int, action escAction, ok bool) {
-	if len(b) < 2 || b[0] != 0x1b {
+	if len(b) == 0 || b[0] != 0x1b {
 		return 0, escNone, true
 	}
+	if len(b) == 1 {
+		// Treat bare ESC as a no-op key.
+		return 1, escNone, true
+	}
 	if b[1] != '[' {
-		if len(b) < 2 {
-			return 0, escNone, false
-		}
-		return 2, escNone, true
+		// Treat unknown ESC sequences as a no-op ESC key.
+		return 1, escNone, true
 	}
 	if len(b) < 3 {
 		return 0, escNone, false

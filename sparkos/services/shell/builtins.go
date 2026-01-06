@@ -22,6 +22,7 @@ var builtinCommands = []string{
 	"touch",
 	"uname",
 	"uptime",
+	"vi",
 	"version",
 }
 
@@ -50,5 +51,6 @@ var builtinCommandHelp = []commandHelp{
 	{Name: "panic", Desc: "Panic the shell task (test)."},
 	{Name: "log", Desc: "Send a log line to logger service."},
 	{Name: "scrollback", Desc: "Show the last N output lines."},
-	{Name: "rtdemo", Desc: "Toggle raytracing demo (Ctrl+G or `rtdemo`)."},
+	{Name: "vi", Desc: "Edit a file (SparkVi)."},
+	{Name: "rtdemo", Desc: "Start raytracing demo (exit with q/ESC)."},
 }

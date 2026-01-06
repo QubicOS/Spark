@@ -64,11 +64,27 @@ func (s *Service) Run(ctx *kernel.Context) {
 	_ = s.prompt(ctx)
 
 	for msg := range ch {
-		if proto.Kind(msg.Kind) != proto.MsgTermInput {
-			continue
+		switch proto.Kind(msg.Kind) {
+		case proto.MsgTermInput:
+			s.handleInput(ctx, msg.Data[:msg.Len])
+		case proto.MsgAppControl:
+			active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
+			if !ok {
+				continue
+			}
+			s.handleFocus(ctx, active)
 		}
-		s.handleInput(ctx, msg.Data[:msg.Len])
 	}
+}
+
+func (s *Service) handleFocus(ctx *kernel.Context, active bool) {
+	if !active {
+		return
+	}
+	s.utf8buf = s.utf8buf[:0]
+	_ = s.sendToTerm(ctx, proto.MsgTermClear, nil)
+	_ = s.writeString(ctx, "\x1b[0m")
+	_ = s.redrawLine(ctx)
 }
 
 func (s *Service) handleInput(ctx *kernel.Context, b []byte) {
@@ -157,45 +173,6 @@ func (s *Service) handleInput(ctx *kernel.Context, b []byte) {
 		}
 	}
 	s.utf8buf = s.utf8buf[:0]
-}
-
-func (s *Service) tab(ctx *kernel.Context) {
-	if s.cursor != len(s.line) {
-		return
-	}
-	if s.cursor == 0 {
-		return
-	}
-	if strings.IndexByte(string(s.line[:s.cursor]), ' ') >= 0 {
-		// TODO: arg completion (later via IPC).
-		return
-	}
-
-	prefix := string(s.line[:s.cursor])
-	matches := s.commandMatches(prefix)
-	if len(matches) == 0 {
-		return
-	}
-
-	common := matches[0]
-	for _, m := range matches[1:] {
-		common = commonPrefix(common, m)
-	}
-	if len(common) > len(prefix) {
-		s.insertString(ctx, common[len(prefix):])
-		prefix = common
-	}
-
-	if len(matches) == 1 {
-		s.insertString(ctx, " ")
-		return
-	}
-
-	_ = s.writeString(ctx, "\n")
-	for _, m := range matches {
-		_ = s.writeString(ctx, m+"\n")
-	}
-	_ = s.redrawLine(ctx)
 }
 
 func (s *Service) submit(ctx *kernel.Context) {
@@ -309,6 +286,21 @@ func (s *Service) submit(ctx *kernel.Context) {
 		if err := s.put(ctx, args); err != nil {
 			_ = s.printString(ctx, "put: "+err.Error()+"\n")
 		}
+	case "vi":
+		var target string
+		if len(args) == 1 {
+			target = s.absPath(args[0])
+		} else if len(args) > 1 {
+			_ = s.printString(ctx, "usage: vi [file]\n")
+			break
+		}
+		if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppVi, target)); err != nil {
+			_ = s.printString(ctx, "vi: "+err.Error()+"\n")
+			break
+		}
+		if err := s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true)); err != nil {
+			_ = s.printString(ctx, "vi: "+err.Error()+"\n")
+		}
 	case "rtdemo":
 		active := true
 		if len(args) == 1 {
@@ -324,6 +316,12 @@ func (s *Service) submit(ctx *kernel.Context) {
 		} else if len(args) > 1 {
 			_ = s.printString(ctx, "usage: rtdemo [on|off]\n")
 			break
+		}
+		if active {
+			if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppRTDemo, "")); err != nil {
+				_ = s.printString(ctx, "rtdemo: "+err.Error()+"\n")
+				break
+			}
 		}
 		if err := s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(active)); err != nil {
 			_ = s.printString(ctx, "rtdemo: "+err.Error()+"\n")
@@ -564,37 +562,4 @@ func (s *Service) echo(ctx *kernel.Context, args []string, redir redirection) er
 	}
 	_, err := s.vfsClient().Write(ctx, redir.Path, mode, []byte(out))
 	return err
-}
-
-func (s *Service) commandMatches(prefix string) []string {
-	var out []string
-	for _, cmd := range builtinCommands {
-		if strings.HasPrefix(cmd, prefix) {
-			out = append(out, cmd)
-		}
-	}
-	return out
-}
-
-func commonPrefix(a, b string) string {
-	n := minInt(len(a), len(b))
-	i := 0
-	for i < n && a[i] == b[i] {
-		i++
-	}
-	return a[:i]
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
