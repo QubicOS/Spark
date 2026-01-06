@@ -28,6 +28,11 @@ func New(inCap kernel.Capability, termCap kernel.Capability, logCap kernel.Capab
 	return &Service{inCap: inCap, termCap: termCap, logCap: logCap}
 }
 
+const (
+	promptANSI = "\x1b[38;5;46m>\x1b[0m "
+	promptCols = 2
+)
+
 func (s *Service) Run(ctx *kernel.Context) {
 	ch, ok := ctx.RecvChan(s.inCap)
 	if !ok {
@@ -88,6 +93,29 @@ func (s *Service) handleInput(ctx *kernel.Context, b []byte) {
 		case 0x7f, 0x08:
 			b = b[1:]
 			s.backspace(ctx)
+		case '\t':
+			b = b[1:]
+			s.tab(ctx)
+		case 0x01:
+			// Ctrl+A.
+			b = b[1:]
+			s.home(ctx)
+		case 0x05:
+			// Ctrl+E.
+			b = b[1:]
+			s.end(ctx)
+		case 0x15:
+			// Ctrl+U.
+			b = b[1:]
+			s.killLeft(ctx)
+		case 0x17:
+			// Ctrl+W.
+			b = b[1:]
+			s.deletePrevWord(ctx)
+		case 0x03:
+			// Ctrl+C.
+			b = b[1:]
+			s.cancelLine(ctx)
 		default:
 			if !utf8.FullRune(b) {
 				s.utf8buf = b
@@ -147,7 +175,9 @@ func (s *Service) insertRune(ctx *kernel.Context, r rune) {
 		_ = s.writeString(ctx, string(r))
 		return
 	}
-	s.line = append(s.line[:s.cursor], append([]rune{r}, s.line[s.cursor:]...)...)
+	s.line = append(s.line, 0)
+	copy(s.line[s.cursor+1:], s.line[s.cursor:])
+	s.line[s.cursor] = r
 	_ = s.writeString(ctx, string(r))
 	s.cursor++
 	_ = s.redrawFromCursor(ctx)
@@ -163,14 +193,13 @@ func (s *Service) deleteForward(ctx *kernel.Context) {
 
 func (s *Service) redrawFromCursor(ctx *kernel.Context) error {
 	tail := s.line[s.cursor:]
-	// Print tail and clear one extra cell to erase leftovers, then restore cursor position.
 	if err := s.writeString(ctx, string(tail)); err != nil {
 		return err
 	}
-	if err := s.writeString(ctx, " "); err != nil {
+	if err := s.writeString(ctx, "\x1b[K"); err != nil {
 		return err
 	}
-	for i := 0; i < len(tail)+1; i++ {
+	for range tail {
 		if err := s.writeString(ctx, "\x1b[D"); err != nil {
 			return err
 		}
@@ -187,6 +216,51 @@ func (s *Service) backspace(ctx *kernel.Context) {
 
 	_ = s.writeString(ctx, "\x1b[D")
 	_ = s.redrawFromCursor(ctx)
+}
+
+func (s *Service) killLeft(ctx *kernel.Context) {
+	if s.cursor <= 0 {
+		return
+	}
+	s.line = append([]rune{}, s.line[s.cursor:]...)
+	s.cursor = 0
+	_ = s.redrawLine(ctx)
+}
+
+func (s *Service) deletePrevWord(ctx *kernel.Context) {
+	if s.cursor <= 0 {
+		return
+	}
+	i := s.cursor
+	for i > 0 && s.line[i-1] == ' ' {
+		i--
+	}
+	for i > 0 && s.line[i-1] != ' ' {
+		i--
+	}
+	if i == s.cursor {
+		return
+	}
+	s.line = append(s.line[:i], s.line[s.cursor:]...)
+	s.cursor = i
+	_ = s.redrawLine(ctx)
+}
+
+func (s *Service) cancelLine(ctx *kernel.Context) {
+	if len(s.line) == 0 {
+		_ = s.writeString(ctx, "\n")
+		_ = s.prompt(ctx)
+		return
+	}
+	_ = s.writeString(ctx, "\n")
+	s.line = s.line[:0]
+	s.cursor = 0
+	s.utf8buf = s.utf8buf[:0]
+	_ = s.prompt(ctx)
+}
+
+func (s *Service) tab(ctx *kernel.Context) {
+	// TODO: implement completion; for now ignore.
 }
 
 func (s *Service) submit(ctx *kernel.Context) {
@@ -229,7 +303,7 @@ func (s *Service) submit(ctx *kernel.Context) {
 
 func (s *Service) prompt(ctx *kernel.Context) error {
 	s.cursor = 0
-	return s.writeString(ctx, "\x1b[38;5;46m>\x1b[0m ")
+	return s.writeString(ctx, promptANSI)
 }
 
 func (s *Service) histUp(ctx *kernel.Context) {
@@ -262,20 +336,27 @@ func (s *Service) histDown(ctx *kernel.Context) {
 }
 
 func (s *Service) replaceLine(ctx *kernel.Context, r []rune) {
-	for s.cursor > 0 {
-		_ = s.writeString(ctx, "\x1b[D")
-		s.cursor--
-	}
-	for range s.line {
-		_ = s.writeString(ctx, " ")
-	}
-	for range s.line {
-		_ = s.writeString(ctx, "\x1b[D")
-	}
 	s.line = s.line[:0]
 	s.line = append(s.line, r...)
 	s.cursor = len(s.line)
-	_ = s.writeString(ctx, string(s.line))
+	_ = s.redrawLine(ctx)
+}
+
+func (s *Service) redrawLine(ctx *kernel.Context) error {
+	if err := s.writeString(ctx, "\x1b[1G\x1b[2K"); err != nil {
+		return err
+	}
+	if err := s.writeString(ctx, promptANSI); err != nil {
+		return err
+	}
+	if err := s.writeString(ctx, string(s.line)); err != nil {
+		return err
+	}
+	if err := s.writeString(ctx, "\x1b[K"); err != nil {
+		return err
+	}
+	col := promptCols + 1 + s.cursor
+	return s.writeString(ctx, fmt.Sprintf("\x1b[%dG", col))
 }
 
 func (s *Service) writeString(ctx *kernel.Context, s2 string) error {
