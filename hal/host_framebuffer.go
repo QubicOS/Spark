@@ -9,36 +9,42 @@ type hostFramebuffer struct {
 	width  int
 	height int
 	stride int
-	buf    []byte
+	buf    []byte // front (presented)
+	back   []byte // back (writable)
 }
 
 func newHostFramebuffer(width, height int) *hostFramebuffer {
 	stride := width * 2
+	size := stride * height
 	return &hostFramebuffer{
 		width:  width,
 		height: height,
 		stride: stride,
-		buf:    make([]byte, stride*height),
+		buf:    make([]byte, size),
+		back:   make([]byte, size),
 	}
 }
 
-func (f *hostFramebuffer) Width() int              { return f.width }
-func (f *hostFramebuffer) Height() int             { return f.height }
-func (f *hostFramebuffer) Format() PixelFormat     { return PixelFormatRGB565 }
-func (f *hostFramebuffer) StrideBytes() int        { return f.stride }
-func (f *hostFramebuffer) Buffer() []byte          { return f.buf }
-func (f *hostFramebuffer) Present() error          { return nil }
+func (f *hostFramebuffer) Width() int          { return f.width }
+func (f *hostFramebuffer) Height() int         { return f.height }
+func (f *hostFramebuffer) Format() PixelFormat { return PixelFormatRGB565 }
+func (f *hostFramebuffer) StrideBytes() int    { return f.stride }
+func (f *hostFramebuffer) Buffer() []byte      { return f.back }
+
+func (f *hostFramebuffer) Present() error {
+	f.mu.Lock()
+	f.buf, f.back = f.back, f.buf
+	f.mu.Unlock()
+	return nil
+}
 
 func (f *hostFramebuffer) ClearRGB(r, g, b uint8) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
 	pixel := rgb565(r, g, b)
 	lo := byte(pixel)
 	hi := byte(pixel >> 8)
-	for i := 0; i < len(f.buf); i += 2 {
-		f.buf[i] = lo
-		f.buf[i+1] = hi
+	for i := 0; i < len(f.back); i += 2 {
+		f.back[i] = lo
+		f.back[i+1] = hi
 	}
 }
 
@@ -47,4 +53,3 @@ func (f *hostFramebuffer) snapshotRGB565(dst []byte) {
 	defer f.mu.Unlock()
 	copy(dst, f.buf)
 }
-
