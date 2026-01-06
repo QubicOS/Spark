@@ -8,6 +8,5 @@ import (
 )
 
 func main() {
-	app.Run(hal.New())
+	app.RunWithConfig(hal.New(), app.Config{TermDemo: true})
 }
-
