@@ -81,6 +81,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			termEP.Restrict(kernel.RightSend),
 			logEP.Restrict(kernel.RightSend),
 			vfsEP.Restrict(kernel.RightSend),
+			timeEP.Restrict(kernel.RightSend),
 			muxEP.Restrict(kernel.RightSend),
 		))
 	} else if cfg.TermDemo {

@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strconv"
 
 	"spark/internal/buildinfo"
+	timeclient "spark/sparkos/client/time"
 	"spark/sparkos/kernel"
 )
 
@@ -13,6 +15,7 @@ func registerSysCommands(r *registry) error {
 	for _, cmd := range []command{
 		{Name: "ticks", Usage: "ticks", Desc: "Show current kernel tick counter.", Run: cmdTicks},
 		{Name: "uptime", Usage: "uptime", Desc: "Show uptime (ticks).", Run: cmdUptime},
+		{Name: "sleep", Usage: "sleep <ticks>", Desc: "Sleep for dt ticks via time service.", Run: cmdSleep},
 		{Name: "version", Usage: "version", Desc: "Show build version.", Run: cmdVersion},
 		{Name: "uname", Usage: "uname [-a]", Desc: "Show system information.", Run: cmdUname},
 	} {
@@ -31,6 +34,20 @@ func cmdTicks(ctx *kernel.Context, s *Service, _ []string, _ redirection) error 
 func cmdUptime(ctx *kernel.Context, s *Service, _ []string, _ redirection) error {
 	_ = s.printString(ctx, fmt.Sprintf("up %d ticks\n", ctx.NowTick()))
 	return nil
+}
+
+func cmdSleep(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	if len(args) != 1 {
+		return errors.New("usage: sleep <ticks>")
+	}
+	dt, err := strconv.ParseUint(args[0], 10, 32)
+	if err != nil {
+		return errors.New("sleep: invalid ticks")
+	}
+	if !s.timeCap.Valid() {
+		return errors.New("sleep: no time capability")
+	}
+	return timeclient.Sleep(ctx, s.timeCap, uint32(dt))
 }
 
 func cmdVersion(ctx *kernel.Context, s *Service, _ []string, _ redirection) error {

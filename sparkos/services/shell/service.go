@@ -14,6 +14,7 @@ type Service struct {
 	termCap kernel.Capability
 	logCap  kernel.Capability
 	vfsCap  kernel.Capability
+	timeCap kernel.Capability
 	muxCap  kernel.Capability
 
 	vfs *vfsclient.Client
@@ -33,8 +34,8 @@ type Service struct {
 	cwd string
 }
 
-func New(inCap kernel.Capability, termCap kernel.Capability, logCap kernel.Capability, vfsCap kernel.Capability, muxCap kernel.Capability) *Service {
-	return &Service{inCap: inCap, termCap: termCap, logCap: logCap, vfsCap: vfsCap, muxCap: muxCap}
+func New(inCap kernel.Capability, termCap kernel.Capability, logCap kernel.Capability, vfsCap kernel.Capability, timeCap kernel.Capability, muxCap kernel.Capability) *Service {
+	return &Service{inCap: inCap, termCap: termCap, logCap: logCap, vfsCap: vfsCap, timeCap: timeCap, muxCap: muxCap}
 }
 
 const (
