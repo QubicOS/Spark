@@ -190,7 +190,7 @@ func (t *Task) renderHistory(panelY int16) {
 	}
 	y := panelY
 	for i := start; i < len(t.lines); i++ {
-		t.drawStringClipped(0, y, t.lines[i], colorFG, t.cols)
+		t.drawHighlightedLine(0, y, t.lines[i], t.cols)
 		y += t.fontHeight
 	}
 }
@@ -207,7 +207,7 @@ func (t *Task) renderTerminal(panelY int16) {
 	}
 	y := panelY
 	for i := start; i < len(t.lines); i++ {
-		t.drawStringClipped(0, y, t.lines[i], colorFG, t.cols)
+		t.drawHighlightedLine(0, y, t.lines[i], t.cols)
 		y += t.fontHeight
 	}
 
@@ -265,6 +265,17 @@ func (t *Task) renderTerminal(panelY int16) {
 }
 
 func (t *Task) drawHighlightedInput(x, y int16, rs []rune, fg color.RGBA, cols int) {
+	t.drawHighlightedRunes(x, y, rs, fg, cols, true)
+}
+
+func (t *Task) drawHighlightedLine(x, y int16, s string, cols int) {
+	if cols <= 0 {
+		return
+	}
+	t.drawHighlightedRunes(x, y, []rune(s), colorFG, cols, false)
+}
+
+func (t *Task) drawHighlightedRunes(x, y int16, rs []rune, fg color.RGBA, cols int, isInput bool) {
 	col := 0
 	i := 0
 	for i < len(rs) {
@@ -380,9 +391,9 @@ func (t *Task) renderStack(panelY int16) {
 		line := name + " = " + t.formatValue(t.e.vars[name])
 		if i == t.stackSel {
 			_ = t.d.FillRectangle(0, y, int16(t.cols)*t.fontWidth, t.fontHeight, colorHeaderBG)
-			t.drawStringClipped(0, y, line, colorFG, t.cols)
+			t.drawHighlightedLine(0, y, line, t.cols)
 		} else {
-			t.drawStringClipped(0, y, line, colorFG, t.cols)
+			t.drawHighlightedLine(0, y, line, t.cols)
 		}
 		y += t.fontHeight
 	}
