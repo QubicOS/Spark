@@ -260,7 +260,42 @@ func (s *Service) cancelLine(ctx *kernel.Context) {
 }
 
 func (s *Service) tab(ctx *kernel.Context) {
-	// TODO: implement completion; for now ignore.
+	if s.cursor != len(s.line) {
+		return
+	}
+	if s.cursor == 0 {
+		return
+	}
+	if strings.IndexByte(string(s.line[:s.cursor]), ' ') >= 0 {
+		// TODO: arg completion (later via IPC).
+		return
+	}
+
+	prefix := string(s.line[:s.cursor])
+	matches := s.commandMatches(prefix)
+	if len(matches) == 0 {
+		return
+	}
+
+	common := matches[0]
+	for _, m := range matches[1:] {
+		common = commonPrefix(common, m)
+	}
+	if len(common) > len(prefix) {
+		s.insertString(ctx, common[len(prefix):])
+		prefix = common
+	}
+
+	if len(matches) == 1 {
+		s.insertString(ctx, " ")
+		return
+	}
+
+	_ = s.writeString(ctx, "\n")
+	for _, m := range matches {
+		_ = s.writeString(ctx, m+"\n")
+	}
+	_ = s.redrawLine(ctx)
 }
 
 func (s *Service) submit(ctx *kernel.Context) {
@@ -389,6 +424,62 @@ func (s *Service) sendToTerm(ctx *kernel.Context, kind proto.Kind, payload []byt
 			return fmt.Errorf("shell term send: %s", res)
 		}
 	}
+}
+
+func (s *Service) insertString(ctx *kernel.Context, tail string) {
+	rs := []rune(tail)
+	if len(rs) == 0 {
+		return
+	}
+	if len(s.line)+len(rs) > 256 {
+		rs = rs[:maxInt(0, 256-len(s.line))]
+	}
+	if len(rs) == 0 {
+		return
+	}
+	s.line = append(s.line, rs...)
+	s.cursor = len(s.line)
+	_ = s.writeString(ctx, string(rs))
+}
+
+func (s *Service) commandMatches(prefix string) []string {
+	var out []string
+	for _, cmd := range builtinCommands {
+		if strings.HasPrefix(cmd, prefix) {
+			out = append(out, cmd)
+		}
+	}
+	return out
+}
+
+func commonPrefix(a, b string) string {
+	n := minInt(len(a), len(b))
+	i := 0
+	for i < n && a[i] == b[i] {
+		i++
+	}
+	return a[:i]
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+var builtinCommands = []string{
+	"clear",
+	"echo",
+	"help",
+	"ticks",
 }
 
 type escAction uint8
