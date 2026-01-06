@@ -802,6 +802,9 @@ func (t *Task) setDomainFromArray(xs []float64) {
 }
 
 func (t *Task) tryPlotSeries(label string, v Value) {
+	if label == "x" {
+		return
+	}
 	if !v.IsArray() {
 		return
 	}
@@ -915,6 +918,7 @@ func (t *Task) evalLine(ctx *kernel.Context, line string, recordHistory bool) {
 			if v.IsArray() {
 				if act.varName == "x" {
 					t.setDomainFromArray(v.arr)
+					break
 				}
 				t.tryPlotSeries(act.varName, v)
 			} else {
