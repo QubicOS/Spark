@@ -262,6 +262,8 @@ func (t *Task) renderTerminal(panelY int16) {
 		ghostCols := t.cols - (cursorCol + 1)
 		t.drawStringClipped(int16(cursorCol+1)*t.fontWidth, inputY, t.ghost, colorDim, ghostCols)
 	}
+
+	t.drawCompletionPopup(panelY, inputY)
 }
 
 func (t *Task) drawHighlightedInput(x, y int16, rs []rune, fg color.RGBA, cols int) {
@@ -285,6 +287,17 @@ func (t *Task) drawHighlightedRunes(x, y int16, rs []rune, fg color.RGBA, cols i
 
 		r := rs[i]
 		switch {
+		case r == '$' && i == 0:
+			tinyfont.DrawChar(t.d, t.font, x+int16(col)*t.fontWidth, y+t.fontOffset, r, colorDim)
+			col++
+			i++
+			cmdStart := i
+			for i < len(rs) && isIdentContinue(rs[i]) {
+				i++
+			}
+			t.drawRunesClipped(x+int16(col)*t.fontWidth, y, rs[cmdStart:i], colorPlot3, cols-col)
+			col += i - cmdStart
+			continue
 		case r == ':' && i == 0:
 			tinyfont.DrawChar(t.d, t.font, x+int16(col)*t.fontWidth, y+t.fontOffset, r, colorDim)
 			col++
@@ -346,6 +359,102 @@ func (t *Task) drawHighlightedRunes(x, y int16, rs []rune, fg color.RGBA, cols i
 	}
 }
 
+func (t *Task) drawCompletionPopup(panelY, inputY int16) {
+	if t.tab != tabTerminal || t.editVar != "" {
+		return
+	}
+	if len(t.cands) <= 1 {
+		return
+	}
+	if inputY <= panelY {
+		return
+	}
+
+	lead := ""
+	if len(t.input) > 0 && (t.input[0] == ':' || t.input[0] == '$') {
+		lead = string(t.input[0])
+	}
+
+	items := make([]string, 0, len(t.cands))
+	for _, s := range t.cands {
+		if s == t.best {
+			continue
+		}
+		items = append(items, lead+s)
+	}
+	if len(items) == 0 {
+		return
+	}
+
+	maxPopupRows := int((inputY - panelY) / t.fontHeight)
+	if maxPopupRows > 4 {
+		maxPopupRows = 4
+	}
+	if maxPopupRows <= 0 {
+		return
+	}
+
+	maxLen := 0
+	for _, s := range items {
+		n := len([]rune(s))
+		if n > maxLen {
+			maxLen = n
+		}
+	}
+	if maxLen > 18 {
+		maxLen = 18
+	}
+	colW := maxLen + 2
+	if colW < 8 {
+		colW = 8
+	}
+	cols := (t.cols - 2) / colW
+	if cols < 1 {
+		cols = 1
+	}
+
+	needRows := (len(items) + cols - 1) / cols
+	if needRows > maxPopupRows {
+		needRows = maxPopupRows
+	}
+	capItems := needRows * cols
+	if capItems < len(items) {
+		items = append(items[:capItems-1], "…")
+	} else {
+		items = items[:minInt(len(items), capItems)]
+	}
+
+	boxCols := cols*colW + 2
+	if boxCols > t.cols {
+		boxCols = t.cols
+	}
+	boxW := int16(boxCols) * t.fontWidth
+	boxH := int16(needRows)*t.fontHeight + 2
+
+	x := int16(0)
+	y := inputY - int16(needRows)*t.fontHeight - 2
+	if y < panelY {
+		y = panelY
+	}
+
+	_ = t.d.FillRectangle(x, y, boxW, boxH, colorHeaderBG)
+	_ = t.d.FillRectangle(x, y, boxW, 1, colorAxis)
+	_ = t.d.FillRectangle(x, y+boxH-1, boxW, 1, colorAxis)
+	_ = t.d.FillRectangle(x, y, 1, boxH, colorAxis)
+	_ = t.d.FillRectangle(x+boxW-1, y, 1, boxH, colorAxis)
+
+	for idx, s := range items {
+		row := idx / cols
+		col := idx % cols
+		if row >= needRows {
+			break
+		}
+		cx := x + int16(1+col*colW)*t.fontWidth
+		cy := y + 1 + int16(row)*t.fontHeight
+		t.drawStringClipped(cx, cy, s, colorFG, colW-1)
+	}
+}
+
 func isKeyword(s string) bool {
 	switch s {
 	case "range", "simp", "diff",
@@ -355,6 +464,13 @@ func isKeyword(s string) bool {
 	default:
 		return false
 	}
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (t *Task) renderStack(panelY int16) {
@@ -508,35 +624,66 @@ func (t *Task) drawLegend(px0, py0, pw, ph int16, plots []plot) {
 	}
 
 	plotCols := int(pw / t.fontWidth)
-	if plotCols < 8 {
+	if plotCols < 12 {
 		return
 	}
 
-	maxEntries := int((ph - 2) / t.fontHeight)
-	if maxEntries > 6 {
-		maxEntries = 6
+	maxLegendCols := plotCols / 2
+	if maxLegendCols < 12 {
+		maxLegendCols = 12
 	}
-	if maxEntries <= 0 {
+
+	maxLabel := 0
+	for _, p := range plots {
+		label := p.src
+		if label == "" {
+			label = "plot"
+		}
+		n := len([]rune(label))
+		if n > maxLabel {
+			maxLabel = n
+		}
+	}
+	if maxLabel > 18 {
+		maxLabel = 18
+	}
+
+	swatchCols := 3
+	cellCols := swatchCols + 1 + maxLabel + 1
+	if cellCols < 10 {
+		cellCols = 10
+	}
+	if cellCols > maxLegendCols {
+		cellCols = maxLegendCols
+	}
+
+	maxColumns := maxLegendCols / cellCols
+	if maxColumns < 1 {
+		maxColumns = 1
+	}
+	columnsUsed := maxColumns
+	if len(plots) < columnsUsed {
+		columnsUsed = len(plots)
+	}
+	if columnsUsed < 1 {
 		return
 	}
 
-	if len(plots) > maxEntries {
+	maxRows := int((ph - 2) / t.fontHeight)
+	if maxRows < 1 {
+		return
+	}
+	rows := (len(plots) + columnsUsed - 1) / columnsUsed
+	if rows > maxRows {
+		rows = maxRows
+	}
+	maxEntries := rows * columnsUsed
+	if maxEntries < len(plots) {
 		plots = plots[:maxEntries]
 	}
 
-	boxCols := 26
-	if plotCols-2 < boxCols {
-		boxCols = plotCols - 2
-	}
-	if boxCols < 10 {
-		boxCols = plotCols - 2
-	}
-	if boxCols < 8 {
-		return
-	}
-
-	boxW := int16(boxCols) * t.fontWidth
-	boxH := int16(len(plots))*t.fontHeight + 2
+	boxW := int16(columnsUsed*cellCols)*t.fontWidth + 2
+	boxH := int16(rows)*t.fontHeight + 2
 	if boxW > pw-2 {
 		boxW = pw - 2
 	}
@@ -554,27 +701,34 @@ func (t *Task) drawLegend(px0, py0, pw, ph int16, plots []plot) {
 	_ = t.d.FillRectangle(x+boxW-1, y, 1, boxH, colorAxis)
 
 	colors := []color.RGBA{colorPlot0, colorPlot1, colorPlot2, colorPlot3}
-	swatchW := t.fontWidth * 2
+	swatchW := int16(swatchCols) * t.fontWidth
 	if swatchW < 6 {
 		swatchW = 6
 	}
-	textX := x + 2 + swatchW + t.fontWidth
-	textCols := int((boxW - (textX - x)) / t.fontWidth)
+	textCols := cellCols - swatchCols - 2
 	if textCols < 1 {
 		return
 	}
 
 	for i, p := range plots {
-		c := colors[i%len(colors)]
-		rowY := y + 1 + int16(i)*t.fontHeight
+		row := i / columnsUsed
+		col := i % columnsUsed
+		if row >= rows {
+			break
+		}
 
-		_ = t.d.FillRectangle(x+2, rowY+t.fontHeight/2-1, swatchW, 3, c)
+		cx := x + 1 + int16(col*cellCols)*t.fontWidth
+		cy := y + 1 + int16(row)*t.fontHeight
+
+		c := colors[i%len(colors)]
+		_ = t.d.FillRectangle(cx+1, cy+t.fontHeight/2-1, swatchW, 3, c)
 
 		label := p.src
 		if label == "" {
 			label = "plot"
 		}
-		t.drawStringClipped(textX, rowY, label, colorFG, textCols)
+		textX := cx + 1 + swatchW + t.fontWidth
+		t.drawStringClipped(textX, cy, label, colorFG, textCols)
 	}
 }
 
