@@ -4,6 +4,7 @@ import (
 	"spark/hal"
 	"spark/sparkos/kernel"
 	"spark/sparkos/services/logger"
+	"spark/sparkos/services/shell"
 	"spark/sparkos/services/term"
 	"spark/sparkos/services/termkbd"
 	timesvc "spark/sparkos/services/time"
@@ -17,6 +18,7 @@ type system struct {
 
 type Config struct {
 	TermDemo bool
+	Shell    bool
 }
 
 // New initializes and starts the OS with default config.
@@ -47,11 +49,16 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	logEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	timeEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	termEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	shellEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 
 	k.AddTask(logger.New(h.Logger(), logEP.Restrict(kernel.RightRecv)))
 	k.AddTask(timesvc.New(timeEP))
 
-	if cfg.TermDemo {
+	if cfg.Shell {
+		k.AddTask(term.New(h.Display(), termEP.Restrict(kernel.RightRecv)))
+		k.AddTask(termkbd.NewInput(h.Input(), shellEP.Restrict(kernel.RightSend)))
+		k.AddTask(shell.New(shellEP.Restrict(kernel.RightRecv), termEP.Restrict(kernel.RightSend)))
+	} else if cfg.TermDemo {
 		k.AddTask(term.New(h.Display(), termEP.Restrict(kernel.RightRecv)))
 		k.AddTask(termkbd.New(h.Input(), termEP.Restrict(kernel.RightSend)))
 		k.AddTask(termdemo.New(timeEP.Restrict(kernel.RightSend), termEP.Restrict(kernel.RightSend)))
