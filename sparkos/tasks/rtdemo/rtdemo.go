@@ -243,18 +243,26 @@ func (t *Task) renderFrame() {
 			switch {
 			case dx && !dy:
 				c10 := t.small[sy*t.sW+sx1]
-				c = rgb{r: (c00.r + c10.r) / 2, g: (c00.g + c10.g) / 2, b: (c00.b + c10.b) / 2}
+				c = rgb{
+					r: uint8((int(c00.r) + int(c10.r)) / 2),
+					g: uint8((int(c00.g) + int(c10.g)) / 2),
+					b: uint8((int(c00.b) + int(c10.b)) / 2),
+				}
 			case !dx && dy:
 				c01 := t.small[sy1*t.sW+sx]
-				c = rgb{r: (c00.r + c01.r) / 2, g: (c00.g + c01.g) / 2, b: (c00.b + c01.b) / 2}
+				c = rgb{
+					r: uint8((int(c00.r) + int(c01.r)) / 2),
+					g: uint8((int(c00.g) + int(c01.g)) / 2),
+					b: uint8((int(c00.b) + int(c01.b)) / 2),
+				}
 			case dx && dy:
 				c10 := t.small[sy*t.sW+sx1]
 				c01 := t.small[sy1*t.sW+sx]
 				c11 := t.small[sy1*t.sW+sx1]
 				c = rgb{
-					r: (c00.r + c10.r + c01.r + c11.r) / 4,
-					g: (c00.g + c10.g + c01.g + c11.g) / 4,
-					b: (c00.b + c10.b + c01.b + c11.b) / 4,
+					r: uint8((int(c00.r) + int(c10.r) + int(c01.r) + int(c11.r)) / 4),
+					g: uint8((int(c00.g) + int(c10.g) + int(c01.g) + int(c11.g)) / 4),
+					b: uint8((int(c00.b) + int(c10.b) + int(c01.b) + int(c11.b)) / 4),
 				}
 			}
 
