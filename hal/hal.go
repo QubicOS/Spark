@@ -47,6 +47,10 @@ const (
 	KeyEnter
 	KeyEscape
 	KeyBackspace
+	KeyTab
+	KeyDelete
+	KeyHome
+	KeyEnd
 )
 
 // KeyEvent is a keyboard event.

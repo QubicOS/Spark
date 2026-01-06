@@ -103,6 +103,8 @@ func vt100FromKey(ev hal.KeyEvent) []byte {
 		return []byte{0x1b}
 	case hal.KeyBackspace:
 		return []byte{0x7f}
+	case hal.KeyTab:
+		return []byte{'\t'}
 	case hal.KeyUp:
 		return []byte("\x1b[A")
 	case hal.KeyDown:
@@ -111,6 +113,12 @@ func vt100FromKey(ev hal.KeyEvent) []byte {
 		return []byte("\x1b[C")
 	case hal.KeyLeft:
 		return []byte("\x1b[D")
+	case hal.KeyDelete:
+		return []byte("\x1b[3~")
+	case hal.KeyHome:
+		return []byte("\x1b[H")
+	case hal.KeyEnd:
+		return []byte("\x1b[F")
 	default:
 		return nil
 	}

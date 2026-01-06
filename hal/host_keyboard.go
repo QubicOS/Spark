@@ -24,6 +24,30 @@ func (k *hostKeyboard) poll() {
 		}
 	}
 
+	ctrl := ebiten.IsKeyPressed(ebiten.KeyControlLeft) || ebiten.IsKeyPressed(ebiten.KeyControlRight)
+	alt := ebiten.IsKeyPressed(ebiten.KeyAltLeft) || ebiten.IsKeyPressed(ebiten.KeyAltRight)
+	shift := ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
+
+	_ = alt
+	_ = shift
+
+	if ctrl {
+		emitCtrl := func(key ebiten.Key, r rune) {
+			if !inpututil.IsKeyJustPressed(key) {
+				return
+			}
+			select {
+			case k.ch <- KeyEvent{Press: true, Rune: r}:
+			default:
+			}
+		}
+		emitCtrl(ebiten.KeyA, 0x01)
+		emitCtrl(ebiten.KeyE, 0x05)
+		emitCtrl(ebiten.KeyU, 0x15)
+		emitCtrl(ebiten.KeyW, 0x17)
+		emitCtrl(ebiten.KeyC, 0x03)
+	}
+
 	for _, r := range ebiten.AppendInputChars(nil) {
 		select {
 		case k.ch <- KeyEvent{Press: true, Rune: r}:
@@ -52,5 +76,17 @@ func (k *hostKeyboard) poll() {
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyBackspace) {
 		emit(KeyBackspace)
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyTab) {
+		emit(KeyTab)
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyDelete) {
+		emit(KeyDelete)
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyHome) {
+		emit(KeyHome)
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyEnd) {
+		emit(KeyEnd)
 	}
 }
