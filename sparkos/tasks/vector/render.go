@@ -21,7 +21,10 @@ var (
 	colorPanelBG  = color.RGBA{R: 0x08, G: 0x08, B: 0x08, A: 0xff}
 	colorGrid     = color.RGBA{R: 0x22, G: 0x22, B: 0x22, A: 0xff}
 	colorAxis     = color.RGBA{R: 0x55, G: 0x55, B: 0x55, A: 0xff}
-	colorPlot     = color.RGBA{R: 0x4a, G: 0xd1, B: 0xff, A: 0xff}
+	colorPlot0    = color.RGBA{R: 0x4a, G: 0xd1, B: 0xff, A: 0xff}
+	colorPlot1    = color.RGBA{R: 0xff, G: 0xd1, B: 0x4a, A: 0xff}
+	colorPlot2    = color.RGBA{R: 0x7f, G: 0xff, B: 0x7f, A: 0xff}
+	colorPlot3    = color.RGBA{R: 0xff, G: 0x7f, B: 0xff, A: 0xff}
 )
 
 type fbDisplay struct {
@@ -210,7 +213,7 @@ func (t *Task) renderGraph(panelY int16, w int16, viewHPx int) {
 
 	t.drawGrid(px0, py0, pw, ph)
 	t.drawAxes(px0, py0, pw, ph)
-	t.drawPlot(px0, py0, pw, ph)
+	t.drawPlots(px0, py0, pw, ph)
 }
 
 func (t *Task) drawGrid(px0, py0, pw, ph int16) {
@@ -238,7 +241,7 @@ func (t *Task) drawAxes(px0, py0, pw, ph int16) {
 	}
 }
 
-func (t *Task) drawPlot(px0, py0, pw, ph int16) {
+func (t *Task) drawPlots(px0, py0, pw, ph int16) {
 	if t.xMin >= t.xMax || t.yMin >= t.yMax {
 		return
 	}
@@ -246,11 +249,24 @@ func (t *Task) drawPlot(px0, py0, pw, ph int16) {
 		return
 	}
 
+	plots := t.plots
+	if len(plots) == 0 && t.graph != nil {
+		plots = []plot{{src: t.graphExpr, expr: t.graph}}
+	}
+
+	colors := []color.RGBA{colorPlot0, colorPlot1, colorPlot2, colorPlot3}
+	for i, p := range plots {
+		c := colors[i%len(colors)]
+		t.drawPlot(px0, py0, pw, ph, p.expr, c)
+	}
+}
+
+func (t *Task) drawPlot(px0, py0, pw, ph int16, expr node, c color.RGBA) {
 	prevOK := false
 	var prevX, prevY int16
 	for ix := int16(0); ix < pw; ix++ {
 		x := t.xMin + (float64(ix)/float64(pw-1))*(t.xMax-t.xMin)
-		y, ok := t.evalGraph(x)
+		y, ok := t.evalGraphFor(expr, x)
 		if !ok || math.IsNaN(y) || math.IsInf(y, 0) {
 			prevOK = false
 			continue
@@ -262,9 +278,9 @@ func (t *Task) drawPlot(px0, py0, pw, ph int16) {
 		}
 
 		if prevOK {
-			t.drawLine(px0+prevX, py0+prevY, px0+ix, py0+iy, colorPlot)
+			t.drawLine(px0+prevX, py0+prevY, px0+ix, py0+iy, c)
 		} else {
-			t.d.SetPixel(px0+ix, py0+iy, colorPlot)
+			t.d.SetPixel(px0+ix, py0+iy, c)
 		}
 		prevOK = true
 		prevX = ix
@@ -309,6 +325,11 @@ func (t *Task) renderHelp() {
 		"  Enter: evaluate",
 		"  a=...: assign variable",
 		"  f(x)=...: define function",
+		"  simp(expr): simplify",
+		"  diff(expr, x): derivative",
+		"  :exact / :float: eval mode",
+		"  :prec N: float format",
+		"  :plotclear: clear plots",
 		"  H: toggle help",
 		"  g: toggle graph (last expr)",
 		"  q/ESC: exit",

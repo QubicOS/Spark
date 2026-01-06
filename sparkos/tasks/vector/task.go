@@ -3,6 +3,7 @@ package vector
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"spark/hal"
@@ -61,6 +62,9 @@ type Task struct {
 	graphExpr string
 	graph     node
 
+	plots       []plot
+	nextPlotIdx int
+
 	xMin float64
 	xMax float64
 	yMin float64
@@ -108,6 +112,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 
 	t.appendLine("Vector: calculator + graph.")
 	t.appendLine("Type `sin(x)` then press Enter; press `g` to plot.")
+	t.appendLine("Commands: :exact :float :prec N")
 
 	for msg := range ch {
 		switch proto.Kind(msg.Kind) {
@@ -324,51 +329,120 @@ func (t *Task) submit(ctx *kernel.Context) {
 		return
 	}
 
+	if strings.HasPrefix(line, ":") {
+		t.handleCommand(strings.TrimSpace(line[1:]))
+		return
+	}
+
 	if len(t.history) == 0 || t.history[len(t.history)-1] != line {
 		t.history = append(t.history, line)
 	}
 	t.histPos = len(t.history)
 
-	act, err := parseInput(line)
+	acts, err := parseInput(line)
 	if err != nil {
 		t.appendLine(line)
 		t.appendLine("error: " + err.Error())
 		return
 	}
 
-	switch act.kind {
-	case actionAssignVar:
-		v, err := act.expr.Eval(t.e)
-		if err != nil {
-			t.appendLine(line)
-			t.appendLine("error: " + err.Error())
+	t.appendLine(line)
+	for _, act := range acts {
+		switch act.kind {
+		case actionAssignVar:
+			v, err := act.expr.Eval(t.e)
+			if err != nil {
+				t.appendLine("error: " + err.Error())
+				return
+			}
+			t.e.vars[act.varName] = v
+			t.appendLine(fmt.Sprintf("%s = %s", act.varName, t.formatValue(v)))
+			t.setGraphFromExpr(act.varName, v.ToNode())
+
+		case actionAssignFunc:
+			t.e.funcs[act.funcName] = userFunc{param: act.funcParam, body: act.expr}
+			t.appendLine(fmt.Sprintf("%s(%s) = %s", act.funcName, act.funcParam, NodeString(act.expr)))
+
+		case actionEval:
+			v, err := act.expr.Eval(t.e)
+			if err != nil {
+				t.appendLine("error: " + err.Error())
+				return
+			}
+			t.appendLine("= " + t.formatValue(v))
+			t.setGraphFromExpr(NodeString(act.expr), v.ToNode())
+			if nodeHasIdent(act.expr, "x") {
+				t.addPlot(NodeString(act.expr), act.expr)
+			}
+		}
+	}
+}
+
+func (t *Task) handleCommand(cmd string) {
+	switch {
+	case cmd == "exact":
+		t.e.mode = modeExact
+		t.setMessage("mode: exact")
+	case cmd == "float":
+		t.e.mode = modeFloat
+		t.setMessage("mode: float")
+	case strings.HasPrefix(cmd, "prec"):
+		parts := strings.Fields(cmd)
+		if len(parts) != 2 {
+			t.setMessage("usage: :prec N")
 			return
 		}
-		t.e.vars[act.varName] = v
-		t.appendLine(fmt.Sprintf("%s = %g", act.varName, v))
-		t.setGraphFromExpr(line, act.expr)
-	case actionAssignFunc:
-		t.e.funcs[act.funcName] = userFunc{param: act.funcParam, body: act.expr}
-		t.appendLine(fmt.Sprintf("%s(%s) = ...", act.funcName, act.funcParam))
-	case actionEval:
-		v, err := act.expr.Eval(t.e)
-		if err != nil {
-			t.appendLine(line)
-			t.appendLine("error: " + err.Error())
+		n, err := strconv.Atoi(parts[1])
+		if err != nil || n < 1 || n > 32 {
+			t.setMessage("prec: 1..32")
 			return
 		}
-		t.appendLine(fmt.Sprintf("%s = %g", line, v))
-		t.setGraphFromExpr(line, act.expr)
+		t.e.prec = n
+		t.setMessage(fmt.Sprintf("prec: %d", n))
+	case cmd == "plotclear":
+		t.plots = nil
+		t.nextPlotIdx = 0
+		t.setMessage("plots cleared")
+	case cmd == "plots":
+		if len(t.plots) == 0 {
+			t.appendLine("plots: (none)")
+			return
+		}
+		for i, p := range t.plots {
+			t.appendLine(fmt.Sprintf("plot[%d]: %s", i, p.src))
+		}
 	default:
+		t.setMessage("unknown command: :" + cmd)
 	}
 }
 
 func (t *Task) setGraphFromExpr(src string, ex node) {
 	t.graphExpr = src
 	t.graph = ex
-	if strings.Contains(src, "x") {
+	if nodeHasIdent(ex, "x") {
 		t.autoscaleY()
 	}
+}
+
+type plot struct {
+	src  string
+	expr node
+}
+
+func (t *Task) addPlot(src string, ex node) {
+	if ex == nil {
+		return
+	}
+	if len(t.plots) > 0 {
+		last := t.plots[len(t.plots)-1]
+		if last.src == src {
+			return
+		}
+	}
+	if len(t.plots) >= 8 {
+		t.plots = t.plots[1:]
+	}
+	t.plots = append(t.plots, plot{src: src, expr: ex})
 }
 
 func (t *Task) toggleGraph(ctx *kernel.Context) {
@@ -387,6 +461,9 @@ func (t *Task) toggleGraph(ctx *kernel.Context) {
 	}
 	if t.yMin >= t.yMax {
 		t.yMin, t.yMax = -10, 10
+	}
+	if len(t.plots) == 0 && nodeHasIdent(t.graph, "x") {
+		t.addPlot(t.graphExpr, t.graph)
 	}
 	t.autoscaleY()
 }
@@ -443,13 +520,13 @@ func (t *Task) zoom(factor float64) {
 	t.yMax = cy + hy
 }
 
-func (t *Task) evalGraph(x float64) (float64, bool) {
-	if t.graph == nil {
+func (t *Task) evalGraphFor(expr node, x float64) (float64, bool) {
+	if expr == nil {
 		return 0, false
 	}
 	prev, hadPrev := t.e.vars["x"]
-	t.e.vars["x"] = x
-	y, err := t.graph.Eval(t.e)
+	t.e.vars["x"] = NumberValue(Float(x))
+	yv, err := expr.Eval(t.e)
 	if hadPrev {
 		t.e.vars["x"] = prev
 	} else {
@@ -458,7 +535,10 @@ func (t *Task) evalGraph(x float64) (float64, bool) {
 	if err != nil {
 		return 0, false
 	}
-	return y, true
+	if !yv.IsNumber() {
+		return 0, false
+	}
+	return yv.num.Float64(), true
 }
 
 func (t *Task) autoscaleY() {
@@ -470,7 +550,7 @@ func (t *Task) autoscaleY() {
 	const samples = 240
 	for i := 0; i < samples; i++ {
 		x := t.xMin + (float64(i)/float64(samples-1))*(t.xMax-t.xMin)
-		y, ok := t.evalGraph(x)
+		y, ok := t.evalGraphFor(t.graph, x)
 		if !ok || math.IsNaN(y) || math.IsInf(y, 0) {
 			continue
 		}
@@ -547,6 +627,13 @@ func (t *Task) statusText() string {
 		msg = t.message + " | " + msg
 	}
 	return clipRunes(msg, t.cols)
+}
+
+func (t *Task) formatValue(v Value) string {
+	if v.kind == valueExpr {
+		return NodeString(v.expr)
+	}
+	return v.num.String(t.e.prec)
 }
 
 func clipRunes(s string, max int) string {
