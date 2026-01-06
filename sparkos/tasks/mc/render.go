@@ -161,6 +161,9 @@ func (t *Task) render() {
 
 	if t.mode == modeViewer {
 		t.renderViewer(w)
+		if t.showHelp {
+			t.renderHelp()
+		}
 		_ = t.fb.Present()
 		return
 	}
@@ -184,6 +187,10 @@ func (t *Task) render() {
 	statusY := int16(t.rows-1) * t.fontHeight
 	_ = t.d.FillRectangle(0, statusY, w, t.fontHeight, colorStatusBG)
 	t.drawString(0, statusY, t.statusText(), colorFG)
+
+	if t.showHelp {
+		t.renderHelp()
+	}
 
 	_ = t.fb.Present()
 }
@@ -255,6 +262,93 @@ func (t *Task) renderViewer(w int16) {
 	statusY := int16(t.rows-1) * t.fontHeight
 	_ = t.d.FillRectangle(0, statusY, w, t.fontHeight, colorStatusBG)
 	t.drawString(0, statusY, t.viewerStatusText(), colorFG)
+}
+
+func (t *Task) renderHelp() {
+	lines := []string{
+		"Panels",
+		"TAB / LEFT RIGHT: switch panel",
+		"UP DOWN: move",
+		"HOME/END: top/bottom",
+		"ENTER: open dir / view file",
+		"BACKSPACE: parent dir",
+		"c: copy file to other panel",
+		"n: mkdir (auto name)",
+		"r or Ctrl+R: refresh",
+		"q or ESC: quit",
+		"",
+		"Viewer",
+		"UP DOWN or j/k: scroll",
+		"HOME/END: top/bottom",
+		"q or ESC: back",
+	}
+
+	boxCols := t.cols - 4
+	boxRows := t.rows - 4
+	if boxCols < 20 || boxRows < 8 {
+		return
+	}
+
+	maxLen := 0
+	for _, ln := range lines {
+		if n := len([]rune(ln)); n > maxLen {
+			maxLen = n
+		}
+	}
+	if maxLen+4 < boxCols {
+		boxCols = maxLen + 4
+	}
+	if boxCols < 20 {
+		boxCols = 20
+	}
+	if boxRows < 8 {
+		boxRows = 8
+	}
+
+	innerCols := boxCols - 2
+	contentRows := boxRows - 4
+	if innerCols <= 0 || contentRows <= 0 {
+		return
+	}
+
+	maxTop := len(lines) - contentRows
+	if maxTop < 0 {
+		maxTop = 0
+	}
+	if t.helpTop < 0 {
+		t.helpTop = 0
+	}
+	if t.helpTop > maxTop {
+		t.helpTop = maxTop
+	}
+
+	x0 := int16((t.cols - boxCols) / 2)
+	y0 := int16((t.rows - boxRows) / 2)
+	px := x0 * t.fontWidth
+	py := y0 * t.fontHeight
+	pw := int16(boxCols) * t.fontWidth
+	ph := int16(boxRows) * t.fontHeight
+
+	_ = t.d.FillRectangle(px, py, pw, ph, colorHeaderBG)
+	_ = t.d.FillRectangle(px+t.fontWidth, py+t.fontHeight, pw-2*t.fontWidth, ph-2*t.fontHeight, colorPanelBG)
+
+	title := "mc help  (H/Esc close, Up/Down scroll)"
+	t.drawStringClipped(px+t.fontWidth, py+t.fontHeight, title, colorFG, innerCols)
+
+	start := t.helpTop
+	end := start + contentRows
+	if end > len(lines) {
+		end = len(lines)
+	}
+	for i := start; i < end; i++ {
+		row := i - start
+		y := py + int16(2+row)*t.fontHeight
+		fg := colorFG
+		if lines[i] == "" {
+			fg = colorDim
+		}
+		t.drawStringClipped(px+t.fontWidth, y, lines[i], fg, innerCols)
+	}
 }
 
 func (t *Task) drawString(x, y int16, s string, fg color.RGBA) {
