@@ -457,11 +457,11 @@ func builtinCallValue(e *env, name string, args []Value) (Value, bool, error) {
 func unaryArrayBuiltin(name string) (func(float64) float64, bool) {
 	switch name {
 	case "sin":
-		return math.Sin, true
+		return sinReduced, true
 	case "cos":
-		return math.Cos, true
+		return cosReduced, true
 	case "tan":
-		return math.Tan, true
+		return tanReduced, true
 	case "asin":
 		return math.Asin, true
 	case "acos":
@@ -567,11 +567,11 @@ func builtinCall(e *env, name string, args []Value) (Number, bool, error) {
 
 	switch name {
 	case "sin":
-		return unaryFloat(e, nums, math.Sin)
+		return unaryFloat(e, nums, sinReduced)
 	case "cos":
-		return unaryFloat(e, nums, math.Cos)
+		return unaryFloat(e, nums, cosReduced)
 	case "tan":
-		return unaryFloat(e, nums, math.Tan)
+		return unaryFloat(e, nums, tanReduced)
 	case "asin":
 		return unaryFloat(e, nums, math.Asin)
 	case "acos":
@@ -624,6 +624,27 @@ func builtinCall(e *env, name string, args []Value) (Number, bool, error) {
 		return Number{}, false, nil
 	}
 }
+
+func reduceAngle(x float64) float64 {
+	if math.IsNaN(x) || math.IsInf(x, 0) {
+		return x
+	}
+
+	const twoPi = 2 * math.Pi
+	r := math.Mod(x, twoPi)
+	if r > math.Pi {
+		r -= twoPi
+	} else if r < -math.Pi {
+		r += twoPi
+	}
+	return r
+}
+
+func sinReduced(x float64) float64 { return math.Sin(reduceAngle(x)) }
+
+func cosReduced(x float64) float64 { return math.Cos(reduceAngle(x)) }
+
+func tanReduced(x float64) float64 { return math.Tan(reduceAngle(x)) }
 
 func unaryFloat(e *env, args []Number, fn func(float64) float64) (Number, bool, error) {
 	if len(args) != 1 {
