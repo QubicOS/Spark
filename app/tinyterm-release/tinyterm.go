@@ -373,10 +373,9 @@ func (t *Terminal) drawrune(r rune) {
 	}
 	x := t.next * t.fontWidth
 	y := t.scroll + t.fontOffset
-	// Clear slightly wider than a single cell: many fonts have negative XOffset and
-	// can paint a few pixels into the previous cell, which would otherwise "stick"
-	// after backspace/redraw.
-	const padX = int16(2)
+	// Clear a single cell (system font has no horizontal overhang).
+	// If we ever use fonts with negative XOffset again, pad can be reintroduced.
+	const padX = int16(0)
 	t.display.FillRectangle(x-padX, t.scroll, t.fontWidth+padX*2, t.fontHeight, t.attrs.bgcol)
 	cell := clipDisplayer{
 		base: t.display,
