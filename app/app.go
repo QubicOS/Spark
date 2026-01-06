@@ -57,7 +57,11 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	if cfg.Shell {
 		k.AddTask(term.New(h.Display(), termEP.Restrict(kernel.RightRecv)))
 		k.AddTask(termkbd.NewInput(h.Input(), shellEP.Restrict(kernel.RightSend)))
-		k.AddTask(shell.New(shellEP.Restrict(kernel.RightRecv), termEP.Restrict(kernel.RightSend)))
+		k.AddTask(shell.New(
+			shellEP.Restrict(kernel.RightRecv),
+			termEP.Restrict(kernel.RightSend),
+			logEP.Restrict(kernel.RightSend),
+		))
 	} else if cfg.TermDemo {
 		k.AddTask(term.New(h.Display(), termEP.Restrict(kernel.RightRecv)))
 		k.AddTask(termkbd.New(h.Input(), termEP.Restrict(kernel.RightSend)))

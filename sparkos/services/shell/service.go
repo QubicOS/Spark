@@ -12,6 +12,7 @@ import (
 type Service struct {
 	inCap   kernel.Capability
 	termCap kernel.Capability
+	logCap  kernel.Capability
 
 	line   []rune
 	cursor int
@@ -23,8 +24,8 @@ type Service struct {
 	scratch []rune
 }
 
-func New(inCap kernel.Capability, termCap kernel.Capability) *Service {
-	return &Service{inCap: inCap, termCap: termCap}
+func New(inCap kernel.Capability, termCap kernel.Capability, logCap kernel.Capability) *Service {
+	return &Service{inCap: inCap, termCap: termCap, logCap: logCap}
 }
 
 func (s *Service) Run(ctx *kernel.Context) {
