@@ -45,9 +45,9 @@ func (glyph Glyph) Draw(display drivers.Displayer, x int16, y int16, c color.RGB
 			case 0xC0:
 				display.SetPixel(x+int16(glyph.XOffset)+i, y+int16(glyph.YOffset)+j, c)
 			case 0x80:
-				display.SetPixel(x+int16(glyph.XOffset)+i, y+int16(glyph.YOffset)+j, scaleRGBA(c, 0.66))
+				display.SetPixel(x+int16(glyph.XOffset)+i, y+int16(glyph.YOffset)+j, c)
 			case 0x40:
-				display.SetPixel(x+int16(glyph.XOffset)+i, y+int16(glyph.YOffset)+j, scaleRGBA(c, 0.33))
+				// Drop low-intensity pixels for a crisper look on low-resolution displays.
 			default:
 			}
 
@@ -110,13 +110,4 @@ func (font *Font) GetGlyph(r rune) tinyfont.Glypher {
 	font.glyph.YOffset = int8(font.Data[offset+4])
 	font.glyph.Bitmaps = []byte(font.Data[offset+5 : offset+5+sz])
 	return &(font.glyph)
-}
-
-func scaleRGBA(c color.RGBA, f float64) color.RGBA {
-	return color.RGBA{
-		R: uint8(float64(c.R) * f),
-		G: uint8(float64(c.G) * f),
-		B: uint8(float64(c.B) * f),
-		A: c.A,
-	}
 }
