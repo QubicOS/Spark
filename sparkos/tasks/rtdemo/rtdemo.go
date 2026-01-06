@@ -15,6 +15,7 @@ type Task struct {
 	fb hal.Framebuffer
 
 	active bool
+	muxCap kernel.Capability
 
 	width  int
 	height int
@@ -70,13 +71,19 @@ func (t *Task) Run(ctx *kernel.Context) {
 		case msg := <-ch:
 			switch proto.Kind(msg.Kind) {
 			case proto.MsgAppControl:
+				if msg.Cap.Valid() {
+					t.muxCap = msg.Cap
+				}
 				active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
 				if !ok {
 					continue
 				}
 				t.setActive(active)
 			case proto.MsgTermInput:
-				// Swallow input for now; quit is handled by consolemux.
+				if !t.active {
+					continue
+				}
+				t.handleInput(ctx, msg.Data[:msg.Len])
 			}
 
 		case seq := <-tickCh:
@@ -88,6 +95,35 @@ func (t *Task) Run(ctx *kernel.Context) {
 			}
 			t.lastDrawSeq = seq
 			t.renderFrame()
+		}
+	}
+}
+
+func (t *Task) handleInput(ctx *kernel.Context, b []byte) {
+	for _, c := range b {
+		switch c {
+		case 0x1b, 'q':
+			t.requestExit(ctx)
+			return
+		}
+	}
+}
+
+func (t *Task) requestExit(ctx *kernel.Context) {
+	if !t.muxCap.Valid() {
+		t.setActive(false)
+		return
+	}
+	for {
+		res := ctx.SendToCapResult(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{})
+		switch res {
+		case kernel.SendOK:
+			return
+		case kernel.SendErrQueueFull:
+			ctx.BlockOnTick()
+		default:
+			t.setActive(false)
+			return
 		}
 	}
 }
@@ -234,9 +270,6 @@ func (t *Task) renderFrame() {
 
 	_ = t.fb.Present()
 	t.frame++
-	if t.frame >= 60 {
-		t.frame = 0
-	}
 }
 
 type rgb struct {

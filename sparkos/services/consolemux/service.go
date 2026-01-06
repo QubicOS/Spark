@@ -8,7 +8,8 @@ import (
 const interruptByte = 0x07 // Ctrl+G
 
 type Service struct {
-	inCap kernel.Capability
+	inCap  kernel.Capability
+	ctlCap kernel.Capability
 
 	shellCap kernel.Capability
 	appCap   kernel.Capability
@@ -17,9 +18,10 @@ type Service struct {
 	appActive bool
 }
 
-func New(inCap, shellCap, appCap, termCap kernel.Capability) *Service {
+func New(inCap, ctlCap, shellCap, appCap, termCap kernel.Capability) *Service {
 	return &Service{
 		inCap:    inCap,
+		ctlCap:   ctlCap,
 		shellCap: shellCap,
 		appCap:   appCap,
 		termCap:  termCap,
@@ -54,13 +56,6 @@ func (s *Service) handleInput(ctx *kernel.Context, b []byte) {
 			s.flushInput(ctx, b[start:i])
 			start = i + 1
 			s.setActive(ctx, !s.appActive)
-		case 0x1b, 'q':
-			if !s.appActive {
-				continue
-			}
-			s.flushInput(ctx, b[start:i])
-			start = i + 1
-			s.setActive(ctx, false)
 		}
 	}
 	s.flushInput(ctx, b[start:])
@@ -74,7 +69,7 @@ func (s *Service) flushInput(ctx *kernel.Context, b []byte) {
 	if s.appActive {
 		dst = s.appCap
 	}
-	_ = sendWithRetry(ctx, dst, proto.MsgTermInput, b)
+	_ = sendWithRetry(ctx, dst, proto.MsgTermInput, b, kernel.Capability{})
 }
 
 func (s *Service) setActive(ctx *kernel.Context, active bool) {
@@ -82,19 +77,24 @@ func (s *Service) setActive(ctx *kernel.Context, active bool) {
 		return
 	}
 	s.appActive = active
-	_ = sendWithRetry(ctx, s.appCap, proto.MsgAppControl, proto.AppControlPayload(active))
+
+	var xfer kernel.Capability
+	if s.appActive && s.ctlCap.Valid() {
+		xfer = s.ctlCap
+	}
+	_ = sendWithRetry(ctx, s.appCap, proto.MsgAppControl, proto.AppControlPayload(active), xfer)
 	if !s.appActive {
-		_ = sendWithRetry(ctx, s.termCap, proto.MsgTermRefresh, nil)
+		_ = sendWithRetry(ctx, s.termCap, proto.MsgTermRefresh, nil, kernel.Capability{})
 	}
 }
 
-func sendWithRetry(ctx *kernel.Context, toCap kernel.Capability, kind proto.Kind, payload []byte) error {
+func sendWithRetry(ctx *kernel.Context, toCap kernel.Capability, kind proto.Kind, payload []byte, xfer kernel.Capability) error {
 	if !toCap.Valid() {
 		return nil
 	}
 	if len(payload) == 0 {
 		for {
-			res := ctx.SendToCapResult(toCap, uint16(kind), nil, kernel.Capability{})
+			res := ctx.SendToCapResult(toCap, uint16(kind), nil, xfer)
 			switch res {
 			case kernel.SendOK:
 				return nil
@@ -113,7 +113,7 @@ func sendWithRetry(ctx *kernel.Context, toCap kernel.Capability, kind proto.Kind
 		}
 
 		for {
-			res := ctx.SendToCapResult(toCap, uint16(kind), chunk, kernel.Capability{})
+			res := ctx.SendToCapResult(toCap, uint16(kind), chunk, xfer)
 			switch res {
 			case kernel.SendOK:
 				payload = payload[len(chunk):]

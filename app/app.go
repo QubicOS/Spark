@@ -66,6 +66,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 		k.AddTask(rtdemo.New(h.Display(), rtdemoEP.Restrict(kernel.RightRecv)))
 		k.AddTask(consolemux.New(
 			muxEP.Restrict(kernel.RightRecv),
+			muxEP.Restrict(kernel.RightSend),
 			shellEP.Restrict(kernel.RightSend),
 			rtdemoEP.Restrict(kernel.RightSend),
 			termEP.Restrict(kernel.RightSend),
