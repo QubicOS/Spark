@@ -67,6 +67,13 @@ type Task struct {
 	paused   bool
 	gameOver bool
 
+	nowTick uint64
+
+	clearActive  bool
+	clearStarted uint64
+	clearRows    [4]int
+	clearCount   int
+
 	lastFall uint64
 
 	inbuf []byte
@@ -78,6 +85,8 @@ const (
 
 	fallBaseTicks = 70
 	fallMinTicks  = 10
+
+	clearFlashTicks = 18
 )
 
 func New(disp hal.Display, ep kernel.Capability) *Task {
@@ -162,6 +171,14 @@ func (t *Task) Run(ctx *kernel.Context) {
 			if !t.active || t.paused || t.gameOver {
 				continue
 			}
+			t.nowTick = now
+			if t.clearActive {
+				if now-t.clearStarted >= clearFlashTicks {
+					t.finishClear()
+				}
+				t.render()
+				continue
+			}
 			interval := uint64(t.fallIntervalTicks())
 			if interval == 0 {
 				interval = 1
@@ -171,7 +188,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 			}
 			t.lastFall = now
 			if !t.tryMove(0, 1) {
-				t.lockPiece()
+				t.lockOrClear(now)
 			}
 			t.render()
 		}
@@ -224,6 +241,7 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 }
 
 func (t *Task) handleInput(ctx *kernel.Context, b []byte) {
+	t.nowTick = ctx.NowTick()
 	t.inbuf = append(t.inbuf, b...)
 	buf := t.inbuf
 	for len(buf) > 0 {
@@ -246,21 +264,21 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 	case keyEsc:
 		t.requestExit(ctx)
 	case keyLeft:
-		if !t.paused && !t.gameOver {
+		if !t.paused && !t.gameOver && !t.clearActive {
 			_ = t.tryMove(-1, 0)
 		}
 	case keyRight:
-		if !t.paused && !t.gameOver {
+		if !t.paused && !t.gameOver && !t.clearActive {
 			_ = t.tryMove(1, 0)
 		}
 	case keyDown:
-		if !t.paused && !t.gameOver {
+		if !t.paused && !t.gameOver && !t.clearActive {
 			if t.tryMove(0, 1) {
 				t.score += 1
 			}
 		}
 	case keyUp:
-		if !t.paused && !t.gameOver {
+		if !t.paused && !t.gameOver && !t.clearActive {
 			t.rotate(1)
 		}
 	case keyRune:
@@ -275,15 +293,15 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 			t.initGame()
 			t.lastFall = ctx.NowTick()
 		case 'z':
-			if !t.paused && !t.gameOver {
+			if !t.paused && !t.gameOver && !t.clearActive {
 				t.rotate(-1)
 			}
 		case 'x':
-			if !t.paused && !t.gameOver {
+			if !t.paused && !t.gameOver && !t.clearActive {
 				t.rotate(1)
 			}
 		case 'c':
-			if !t.paused && !t.gameOver {
+			if !t.paused && !t.gameOver && !t.clearActive {
 				t.hardDrop()
 			}
 		}
@@ -315,6 +333,9 @@ func (t *Task) initGame() {
 	t.paused = false
 	t.gameOver = false
 	t.rng = 0x9e3779b9
+	t.clearActive = false
+	t.clearStarted = 0
+	t.clearCount = 0
 
 	t.nextID = t.nextPiece()
 	t.spawnPiece()
@@ -374,10 +395,10 @@ func (t *Task) hardDrop() {
 		t.curPos.y++
 		t.score += 2
 	}
-	t.lockPiece()
+	t.lockOrClear(t.nowTick)
 }
 
-func (t *Task) lockPiece() {
+func (t *Task) lockOrClear(now uint64) {
 	blocks := pieceBlocks(t.curID, t.curRot)
 	for _, b := range blocks {
 		x := t.curPos.x + b.x
@@ -388,21 +409,22 @@ func (t *Task) lockPiece() {
 		t.board[y*t.boardW+x] = uint8(t.curID) + 1
 	}
 
-	cleared := t.clearLines()
-	if cleared > 0 {
-		t.lines += cleared
-		t.score += 100 * cleared * cleared * t.level
-		t.level = 1 + t.lines/10
+	t.clearCount = t.findFullRows(t.clearRows[:])
+	if t.clearCount > 0 {
+		t.clearActive = true
+		t.clearStarted = now
+		return
 	}
 	t.spawnPiece()
 }
 
-func (t *Task) clearLines() int {
-	cleared := 0
+func (t *Task) findFullRows(dst []int) int {
+	n := 0
 	for y := t.boardH - 1; y >= 0; y-- {
 		full := true
+		rowOff := y * t.boardW
 		for x := 0; x < t.boardW; x++ {
-			if t.board[y*t.boardW+x] == 0 {
+			if t.board[rowOff+x] == 0 {
 				full = false
 				break
 			}
@@ -410,18 +432,70 @@ func (t *Task) clearLines() int {
 		if !full {
 			continue
 		}
-
-		// Move everything above down.
-		for yy := y; yy > 0; yy-- {
-			copy(t.board[yy*t.boardW:(yy+1)*t.boardW], t.board[(yy-1)*t.boardW:yy*t.boardW])
+		if n < len(dst) {
+			dst[n] = y
 		}
-		for x := 0; x < t.boardW; x++ {
-			t.board[x] = 0
-		}
-		cleared++
-		y++ // re-check same row index after pull-down
+		n++
 	}
-	return cleared
+	if n > len(dst) {
+		n = len(dst)
+	}
+	return n
+}
+
+func (t *Task) finishClear() {
+	if t.clearCount <= 0 {
+		t.clearActive = false
+		t.clearStarted = 0
+		return
+	}
+
+	skip := [boardHeight]bool{}
+	for i := 0; i < t.clearCount; i++ {
+		y := t.clearRows[i]
+		if y >= 0 && y < t.boardH {
+			skip[y] = true
+		}
+	}
+
+	writeY := t.boardH - 1
+	for y := t.boardH - 1; y >= 0; y-- {
+		if skip[y] {
+			continue
+		}
+		if writeY != y {
+			copy(t.board[writeY*t.boardW:(writeY+1)*t.boardW], t.board[y*t.boardW:(y+1)*t.boardW])
+		}
+		writeY--
+	}
+	for y := writeY; y >= 0; y-- {
+		row := t.board[y*t.boardW : (y+1)*t.boardW]
+		for x := range row {
+			row[x] = 0
+		}
+	}
+
+	cleared := t.clearCount
+	t.lines += cleared
+	t.score += 100 * cleared * cleared * t.level
+	t.level = 1 + t.lines/10
+
+	t.clearActive = false
+	t.clearStarted = 0
+	t.clearCount = 0
+	t.spawnPiece()
+}
+
+func (t *Task) isClearRow(y int) bool {
+	if !t.clearActive || t.clearCount <= 0 {
+		return false
+	}
+	for i := 0; i < t.clearCount; i++ {
+		if t.clearRows[i] == y {
+			return true
+		}
+	}
+	return false
 }
 
 func (t *Task) collides(px, py, rot int) bool {
@@ -535,8 +609,13 @@ func (t *Task) render() {
 	drawRectOutlineRGB565(buf, t.fb.StrideBytes(), left-1, top-1, playW+2, playH+2, border)
 
 	// Draw settled blocks.
+	flashClear := t.clearActive && ((t.nowTick/8)%2 == 0)
 	for y := 0; y < t.boardH; y++ {
 		for x := 0; x < t.boardW; x++ {
+			if flashClear && t.isClearRow(y) {
+				drawCellRGB565(buf, t.fb.StrideBytes(), left+x*t.cell, top+y*t.cell, t.cell, rgb565From888(0xFF, 0xFF, 0xFF))
+				continue
+			}
 			v := t.board[y*t.boardW+x]
 			if v == 0 {
 				continue
@@ -545,8 +624,27 @@ func (t *Task) render() {
 		}
 	}
 
+	// Draw ghost piece.
+	if !t.gameOver && !t.clearActive {
+		ghost := t.curPos
+		for !t.collides(ghost.x, ghost.y+1, t.curRot) {
+			ghost.y++
+		}
+		if ghost.y != t.curPos.y {
+			blocks := pieceBlocks(t.curID, t.curRot)
+			for _, b := range blocks {
+				x := ghost.x + b.x
+				y := ghost.y + b.y
+				if x < 0 || x >= t.boardW || y < 0 || y >= t.boardH {
+					continue
+				}
+				drawCellRGB565(buf, t.fb.StrideBytes(), left+x*t.cell, top+y*t.cell, t.cell, rgb565From888(0x22, 0x22, 0x22))
+			}
+		}
+	}
+
 	// Draw current piece.
-	if !t.gameOver {
+	if !t.gameOver && !t.clearActive {
 		blocks := pieceBlocks(t.curID, t.curRot)
 		for _, b := range blocks {
 			x := t.curPos.x + b.x
