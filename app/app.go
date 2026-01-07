@@ -12,10 +12,6 @@ import (
 	timesvc "spark/sparkos/services/time"
 	"spark/sparkos/services/ui"
 	"spark/sparkos/services/vfs"
-	"spark/sparkos/tasks/hexedit"
-	"spark/sparkos/tasks/imgview"
-	"spark/sparkos/tasks/rtdemo"
-	"spark/sparkos/tasks/rtvoxel"
 	"spark/sparkos/tasks/termdemo"
 )
 
@@ -68,6 +64,10 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	hexEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	vectorEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 
+	rtdemoProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	rtvoxelProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	imgviewProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	hexProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	viProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	mcProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	vectorProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
@@ -78,19 +78,27 @@ func newSystem(h hal.HAL, cfg Config) *system {
 
 	if cfg.Shell {
 		k.AddTask(term.New(h.Display(), termEP.Restrict(kernel.RightRecv)))
-		k.AddTask(rtdemo.New(h.Display(), rtdemoEP.Restrict(kernel.RightRecv)))
-		k.AddTask(rtvoxel.New(h.Display(), rtvoxelEP.Restrict(kernel.RightRecv)))
-		k.AddTask(imgview.New(h.Display(), imgviewEP.Restrict(kernel.RightRecv), vfsEP.Restrict(kernel.RightSend)))
-		k.AddTask(hexedit.New(h.Display(), hexEP.Restrict(kernel.RightRecv), vfsEP.Restrict(kernel.RightSend)))
 		k.AddTask(appmgr.New(
 			h.Display(),
 			vfsEP.Restrict(kernel.RightSend),
+			rtdemoProxyEP.Restrict(kernel.RightRecv),
+			rtvoxelProxyEP.Restrict(kernel.RightRecv),
+			imgviewProxyEP.Restrict(kernel.RightRecv),
+			hexProxyEP.Restrict(kernel.RightRecv),
 			viProxyEP.Restrict(kernel.RightRecv),
 			mcProxyEP.Restrict(kernel.RightRecv),
 			vectorProxyEP.Restrict(kernel.RightRecv),
+			rtdemoEP.Restrict(kernel.RightSend),
+			rtvoxelEP.Restrict(kernel.RightSend),
+			imgviewEP.Restrict(kernel.RightSend),
+			hexEP.Restrict(kernel.RightSend),
 			viEP.Restrict(kernel.RightSend),
 			mcEP.Restrict(kernel.RightSend),
 			vectorEP.Restrict(kernel.RightSend),
+			rtdemoEP.Restrict(kernel.RightRecv),
+			rtvoxelEP.Restrict(kernel.RightRecv),
+			imgviewEP.Restrict(kernel.RightRecv),
+			hexEP.Restrict(kernel.RightRecv),
 			viEP.Restrict(kernel.RightRecv),
 			mcEP.Restrict(kernel.RightRecv),
 			vectorEP.Restrict(kernel.RightRecv),
@@ -99,12 +107,12 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			muxEP.Restrict(kernel.RightRecv),
 			muxEP.Restrict(kernel.RightSend),
 			shellEP.Restrict(kernel.RightSend),
-			rtdemoEP.Restrict(kernel.RightSend),
-			rtvoxelEP.Restrict(kernel.RightSend),
-			imgviewEP.Restrict(kernel.RightSend),
+			rtdemoProxyEP.Restrict(kernel.RightSend),
+			rtvoxelProxyEP.Restrict(kernel.RightSend),
+			imgviewProxyEP.Restrict(kernel.RightSend),
 			viProxyEP.Restrict(kernel.RightSend),
 			mcProxyEP.Restrict(kernel.RightSend),
-			hexEP.Restrict(kernel.RightSend),
+			hexProxyEP.Restrict(kernel.RightSend),
 			vectorProxyEP.Restrict(kernel.RightSend),
 			termEP.Restrict(kernel.RightSend),
 		))
