@@ -32,6 +32,11 @@ type Service struct {
 	scrollback []string
 
 	cwd string
+
+	hint  string
+	ghost string
+	cands []string
+	best  string
 }
 
 func New(inCap kernel.Capability, termCap kernel.Capability, logCap kernel.Capability, vfsCap kernel.Capability, timeCap kernel.Capability, muxCap kernel.Capability) *Service {
