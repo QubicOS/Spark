@@ -121,6 +121,10 @@ func (t *Task) Run(ctx *kernel.Context) {
 
 	for msg := range ch {
 		switch proto.Kind(msg.Kind) {
+		case proto.MsgAppShutdown:
+			t.unloadSession()
+			return
+
 		case proto.MsgAppControl:
 			if msg.Cap.Valid() {
 				t.muxCap = msg.Cap
@@ -159,10 +163,14 @@ func (t *Task) Run(ctx *kernel.Context) {
 
 func (t *Task) setActive(ctx *kernel.Context, active bool) {
 	if active == t.active {
+		if !active {
+			t.unloadSession()
+		}
 		return
 	}
 	t.active = active
 	if !t.active {
+		t.unloadSession()
 		return
 	}
 	t.setMessage("H help | g goto | / find | v view | i edit | w save | q quit")
@@ -185,9 +193,7 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 		t.fb.ClearRGB(0, 0, 0)
 		_ = t.fb.Present()
 	}
-	t.active = false
-	t.inMode = inputNone
-	t.showHelp = false
+	t.unloadSession()
 
 	if !t.muxCap.Valid() {
 		return
@@ -203,6 +209,45 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 			return
 		}
 	}
+}
+
+func (t *Task) unloadSession() {
+	t.active = false
+	t.vfs = nil
+
+	t.path = ""
+	t.origSize = 0
+	t.size = 0
+
+	t.data = nil
+	t.mods = nil
+	t.winOff = 0
+	t.winData = nil
+
+	t.cursor = 0
+	t.topRow = 0
+
+	t.editASCII = false
+	t.viewASCII = false
+	t.nibble = 0
+	t.dirty = false
+	t.quitAsk = false
+
+	t.message = ""
+
+	t.showHelp = false
+	t.helpTop = 0
+
+	t.inbuf = nil
+
+	t.inMode = inputNone
+	t.inLabel = ""
+	t.inLine = nil
+
+	t.lastPattern = nil
+	t.lastIsHex = false
+	t.lastFound = 0
+	t.lastOK = false
 }
 
 func (t *Task) handleInput(ctx *kernel.Context, b []byte) {

@@ -52,10 +52,19 @@ func (t *Task) Run(ctx *kernel.Context) {
 		return
 	}
 
+	done := make(chan struct{})
+	defer close(done)
+
 	tickCh := make(chan uint64, 16)
 	go func() {
 		last := ctx.NowTick()
 		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+
 			last = ctx.WaitTick(last)
 			select {
 			case tickCh <- last:
@@ -68,6 +77,10 @@ func (t *Task) Run(ctx *kernel.Context) {
 		select {
 		case msg := <-ch:
 			switch proto.Kind(msg.Kind) {
+			case proto.MsgAppShutdown:
+				t.setActive(false)
+				return
+
 			case proto.MsgAppControl:
 				if msg.Cap.Valid() {
 					t.muxCap = msg.Cap
