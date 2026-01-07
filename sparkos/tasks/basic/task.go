@@ -65,6 +65,10 @@ type Task struct {
 	codeSel int
 	codeTop int
 
+	codeEdit    bool
+	codeEditBuf []rune
+	codeEditCur int
+
 	varTop int
 
 	prog program
@@ -186,6 +190,9 @@ func (t *Task) unload() {
 	t.tab = tabIO
 	t.codeSel = 0
 	t.codeTop = 0
+	t.codeEdit = false
+	t.codeEditBuf = nil
+	t.codeEditCur = 0
 	t.varTop = 0
 }
 
@@ -262,6 +269,22 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 }
 
 func (t *Task) handleIOKey(ctx *kernel.Context, k key) {
+	// IO tab is runtime-only: accept input only for INPUT prompts.
+	if !t.awaitInput {
+		switch k.kind {
+		case keyRune:
+			switch k.r {
+			case 'r', 'R':
+				t.onLine(ctx, "RUN")
+				return
+			case 's', 'S':
+				t.tab = tabVars
+				return
+			}
+		}
+		return
+	}
+
 	switch k.kind {
 	case keyEnter:
 		line := strings.TrimSpace(string(t.input))
@@ -289,6 +312,11 @@ func (t *Task) handleIOKey(ctx *kernel.Context, k key) {
 }
 
 func (t *Task) handleCodeKey(ctx *kernel.Context, k key) {
+	if t.codeEdit {
+		t.handleCodeEditKey(ctx, k)
+		return
+	}
+
 	switch k.kind {
 	case keyUp:
 		if t.codeSel > 0 {
@@ -316,10 +344,10 @@ func (t *Task) handleCodeKey(ctx *kernel.Context, k key) {
 		}
 	case keyEnter:
 		if t.codeSel >= 0 && t.codeSel < len(t.prog.lines) {
-			t.input = []rune(t.prog.lines[t.codeSel].String())
-			t.inputCur = len(t.input)
-			t.tab = tabIO
-			t.statusLine = "Edit line and press Enter. F1 code | F2 io | F3 vars."
+			t.codeEdit = true
+			t.codeEditBuf = []rune(t.prog.lines[t.codeSel].String())
+			t.codeEditCur = len(t.codeEditBuf)
+			t.statusLine = "Edit line. Enter commit | Esc cancel | Del delete line."
 		}
 	case keyDelete:
 		if t.codeSel >= 0 && t.codeSel < len(t.prog.lines) {
@@ -335,13 +363,83 @@ func (t *Task) handleCodeKey(ctx *kernel.Context, k key) {
 	case keyRune:
 		switch k.r {
 		case 'n', 'N':
-			t.clearInput()
-			t.tab = tabIO
-			t.statusLine = "Enter new line: <num> <stmt>"
+			t.codeEdit = true
+			t.codeEditBuf = nil
+			t.codeEditCur = 0
+			t.statusLine = "New line: type '<num> <stmt>' then Enter."
 		case 'r', 'R':
 			t.onLine(ctx, "RUN")
 			t.tab = tabIO
+		case 'l', 'L':
+			t.statusLine = "F1 code | Enter edit | n new | Del delete | r run | Esc exit"
 		}
+	}
+}
+
+func (t *Task) handleCodeEditKey(ctx *kernel.Context, k key) {
+	switch k.kind {
+	case keyEsc:
+		t.codeEdit = false
+		t.codeEditBuf = nil
+		t.codeEditCur = 0
+		t.statusLine = "Canceled."
+		return
+	case keyEnter:
+		line := strings.TrimSpace(string(t.codeEditBuf))
+		t.codeEdit = false
+		t.codeEditBuf = nil
+		t.codeEditCur = 0
+		if line == "" {
+			t.statusLine = "OK"
+			return
+		}
+		t.onLine(ctx, line)
+		// Keep selection stable if possible.
+		if t.codeSel >= len(t.prog.lines) && len(t.prog.lines) > 0 {
+			t.codeSel = len(t.prog.lines) - 1
+		}
+		return
+	case keyBackspace:
+		if t.codeEditCur > 0 {
+			t.codeEditBuf = append(t.codeEditBuf[:t.codeEditCur-1], t.codeEditBuf[t.codeEditCur:]...)
+			t.codeEditCur--
+		}
+		return
+	case keyDelete:
+		if t.codeEditCur < len(t.codeEditBuf) {
+			t.codeEditBuf = append(t.codeEditBuf[:t.codeEditCur], t.codeEditBuf[t.codeEditCur+1:]...)
+		}
+		return
+	case keyLeft:
+		if t.codeEditCur > 0 {
+			t.codeEditCur--
+		}
+		return
+	case keyRight:
+		if t.codeEditCur < len(t.codeEditBuf) {
+			t.codeEditCur++
+		}
+		return
+	case keyHome:
+		t.codeEditCur = 0
+		return
+	case keyEnd:
+		t.codeEditCur = len(t.codeEditBuf)
+		return
+	case keyRune:
+		if len(t.codeEditBuf) >= 512 {
+			return
+		}
+		if t.codeEditCur == len(t.codeEditBuf) {
+			t.codeEditBuf = append(t.codeEditBuf, k.r)
+			t.codeEditCur = len(t.codeEditBuf)
+			return
+		}
+		t.codeEditBuf = append(t.codeEditBuf[:t.codeEditCur], append([]rune{k.r}, t.codeEditBuf[t.codeEditCur:]...)...)
+		t.codeEditCur++
+		return
+	default:
+		return
 	}
 }
 
@@ -550,6 +648,18 @@ func (t *Task) renderIO() {
 	if t.awaitInput {
 		prompt = "?"
 	}
+	if !t.awaitInput {
+		tinyfont.WriteLine(
+			t.d,
+			t.font,
+			0,
+			int16(t.rows-2)*t.fontHeight+t.fontOffset,
+			"[not running] press r to RUN or F1 to edit",
+			color.RGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xff},
+		)
+		return
+	}
+
 	in := prompt + string(t.input)
 	tinyfont.WriteLine(
 		t.d,
@@ -588,8 +698,24 @@ func (t *Task) renderCode() {
 			c = color.RGBA{R: 0xff, G: 0xff, B: 0x4a, A: 0xff}
 			prefix = "> "
 		}
-		tinyfont.WriteLine(t.d, t.font, 0, y, prefix+t.prog.lines[i].String(), c)
+		line := prefix + t.prog.lines[i].String()
+		if t.codeEdit && i == t.codeSel {
+			line = prefix + insertCaret(string(t.codeEditBuf), t.codeEditCur)
+		}
+		tinyfont.WriteLine(t.d, t.font, 0, y, line, c)
 	}
+}
+
+func insertCaret(s string, cur int) string {
+	r := []rune(s)
+	if cur < 0 {
+		cur = 0
+	}
+	if cur > len(r) {
+		cur = len(r)
+	}
+	r = append(r[:cur], append([]rune{'|'}, r[cur:]...)...)
+	return string(r)
 }
 
 func (t *Task) renderVars() {
