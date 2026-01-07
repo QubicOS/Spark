@@ -38,6 +38,20 @@ type Service struct {
 	ghost string
 	cands []string
 	best  string
+
+	authed bool
+
+	authHaveShadow bool
+	authRec        shadowRecord
+	authSetup      bool
+	authStage      authStage
+	authUser       string
+
+	authBuf    []byte
+	authPass1  []byte
+	authFails  int
+	authBlock  uint64
+	authBanner bool
 }
 
 func New(inCap kernel.Capability, termCap kernel.Capability, logCap kernel.Capability, vfsCap kernel.Capability, timeCap kernel.Capability, muxCap kernel.Capability) *Service {
@@ -67,12 +81,17 @@ func (s *Service) Run(ctx *kernel.Context) {
 
 	_ = s.printString(ctx, "\x1b[0m")
 	_ = s.printString(ctx, s.banner())
-	_ = s.prompt(ctx)
+	s.authBanner = true
+	s.beginAuth(ctx)
 
 	for msg := range ch {
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgTermInput:
-			s.handleInput(ctx, msg.Data[:msg.Len])
+			if s.authed {
+				s.handleInput(ctx, msg.Data[:msg.Len])
+			} else {
+				s.handleAuthInput(ctx, msg.Data[:msg.Len])
+			}
 		case proto.MsgAppControl:
 			active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
 			if !ok {
@@ -118,7 +137,17 @@ func (s *Service) handleFocus(ctx *kernel.Context, active bool) {
 	s.utf8buf = s.utf8buf[:0]
 	_ = s.sendToTerm(ctx, proto.MsgTermClear, nil)
 	_ = s.writeString(ctx, "\x1b[0m")
-	_ = s.redrawLine(ctx)
+	if !s.authed {
+		if !s.authBanner {
+			_ = s.writeString(ctx, s.banner())
+			s.authBanner = true
+		} else {
+			_ = s.writeString(ctx, s.banner())
+		}
+		_ = s.redrawAuth(ctx)
+	} else {
+		_ = s.redrawLine(ctx)
+	}
 	_ = s.sendToTerm(ctx, proto.MsgTermRefresh, nil)
 }
 
