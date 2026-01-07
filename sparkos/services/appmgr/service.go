@@ -12,6 +12,7 @@ import (
 	rtdemotask "spark/sparkos/tasks/rtdemo"
 	rtvoxeltask "spark/sparkos/tasks/rtvoxel"
 	snaketask "spark/sparkos/tasks/snake"
+	tetristask "spark/sparkos/tasks/tetris"
 	vectortask "spark/sparkos/tasks/vector"
 	vitask "spark/sparkos/tasks/vi"
 )
@@ -30,6 +31,7 @@ type Service struct {
 	imgviewProxyCap kernel.Capability
 	hexProxyCap     kernel.Capability
 	snakeProxyCap   kernel.Capability
+	tetrisProxyCap  kernel.Capability
 	viProxyCap      kernel.Capability
 	mcProxyCap      kernel.Capability
 	vectorProxyCap  kernel.Capability
@@ -39,6 +41,7 @@ type Service struct {
 	imgviewCap kernel.Capability
 	hexCap     kernel.Capability
 	snakeCap   kernel.Capability
+	tetrisCap  kernel.Capability
 	viCap      kernel.Capability
 	mcCap      kernel.Capability
 	vectorCap  kernel.Capability
@@ -48,6 +51,7 @@ type Service struct {
 	imgviewEP kernel.Capability
 	hexEP     kernel.Capability
 	snakeEP   kernel.Capability
+	tetrisEP  kernel.Capability
 	viEP      kernel.Capability
 	mcEP      kernel.Capability
 	vectorEP  kernel.Capability
@@ -59,6 +63,7 @@ type Service struct {
 	imgviewRunning bool
 	hexRunning     bool
 	snakeRunning   bool
+	tetrisRunning  bool
 	viRunning      bool
 	mcRunning      bool
 	vectorRunning  bool
@@ -68,6 +73,7 @@ type Service struct {
 	imgviewActive bool
 	hexActive     bool
 	snakeActive   bool
+	tetrisActive  bool
 	viActive      bool
 	mcActive      bool
 	vectorActive  bool
@@ -77,12 +83,13 @@ type Service struct {
 	imgviewInactiveSince uint64
 	hexInactiveSince     uint64
 	snakeInactiveSince   uint64
+	tetrisInactiveSince  uint64
 	viInactiveSince      uint64
 	mcInactiveSince      uint64
 	vectorInactiveSince  uint64
 }
 
-func New(disp hal.Display, vfsCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxyCap, hexProxyCap, snakeProxyCap, viProxyCap, mcProxyCap, vectorProxyCap, rtdemoCap, rtvoxelCap, imgviewCap, hexCap, snakeCap, viCap, mcCap, vectorCap, rtdemoEP, rtvoxelEP, imgviewEP, hexEP, snakeEP, viEP, mcEP, vectorEP kernel.Capability) *Service {
+func New(disp hal.Display, vfsCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxyCap, hexProxyCap, snakeProxyCap, tetrisProxyCap, viProxyCap, mcProxyCap, vectorProxyCap, rtdemoCap, rtvoxelCap, imgviewCap, hexCap, snakeCap, tetrisCap, viCap, mcCap, vectorCap, rtdemoEP, rtvoxelEP, imgviewEP, hexEP, snakeEP, tetrisEP, viEP, mcEP, vectorEP kernel.Capability) *Service {
 	return &Service{
 		disp:            disp,
 		vfsCap:          vfsCap,
@@ -91,6 +98,7 @@ func New(disp hal.Display, vfsCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxy
 		imgviewProxyCap: imgviewProxyCap,
 		hexProxyCap:     hexProxyCap,
 		snakeProxyCap:   snakeProxyCap,
+		tetrisProxyCap:  tetrisProxyCap,
 		viProxyCap:      viProxyCap,
 		mcProxyCap:      mcProxyCap,
 		vectorProxyCap:  vectorProxyCap,
@@ -99,6 +107,7 @@ func New(disp hal.Display, vfsCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxy
 		imgviewCap:      imgviewCap,
 		hexCap:          hexCap,
 		snakeCap:        snakeCap,
+		tetrisCap:       tetrisCap,
 		viCap:           viCap,
 		mcCap:           mcCap,
 		vectorCap:       vectorCap,
@@ -107,6 +116,7 @@ func New(disp hal.Display, vfsCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxy
 		imgviewEP:       imgviewEP,
 		hexEP:           hexEP,
 		snakeEP:         snakeEP,
+		tetrisEP:        tetrisEP,
 		viEP:            viEP,
 		mcEP:            mcEP,
 		vectorEP:        vectorEP,
@@ -120,6 +130,7 @@ func (s *Service) Run(ctx *kernel.Context) {
 	go s.runProxy(ctx, s.imgviewProxyCap, proto.AppImgView)
 	go s.runProxy(ctx, s.hexProxyCap, proto.AppHex)
 	go s.runProxy(ctx, s.snakeProxyCap, proto.AppSnake)
+	go s.runProxy(ctx, s.tetrisProxyCap, proto.AppTetris)
 	go s.runProxy(ctx, s.viProxyCap, proto.AppVi)
 	go s.runProxy(ctx, s.mcProxyCap, proto.AppMC)
 	go s.runProxy(ctx, s.vectorProxyCap, proto.AppVector)
@@ -147,6 +158,7 @@ func (s *Service) shutdownIdle(ctx *kernel.Context, now uint64) {
 	stop = s.appendStopIfIdle(stop, proto.AppImgView, s.imgviewRunning, s.imgviewActive, s.imgviewInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppHex, s.hexRunning, s.hexActive, s.hexInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppSnake, s.snakeRunning, s.snakeActive, s.snakeInactiveSince, now)
+	stop = s.appendStopIfIdle(stop, proto.AppTetris, s.tetrisRunning, s.tetrisActive, s.tetrisInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppVi, s.viRunning, s.viActive, s.viInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppMC, s.mcRunning, s.mcActive, s.mcInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppVector, s.vectorRunning, s.vectorActive, s.vectorInactiveSince, now)
@@ -242,6 +254,12 @@ func (s *Service) ensureRunning(ctx *kernel.Context, appID proto.AppID) {
 		s.snakeRunning = true
 		s.mu.Unlock()
 
+	case proto.AppTetris:
+		ctx.AddTask(tetristask.New(s.disp, s.tetrisEP))
+		s.mu.Lock()
+		s.tetrisRunning = true
+		s.mu.Unlock()
+
 	case proto.AppVi:
 		ctx.AddTask(vitask.New(s.disp, s.viEP, s.vfsCap))
 		s.mu.Lock()
@@ -290,6 +308,9 @@ func (s *Service) stop(ctx *kernel.Context, appID proto.AppID) {
 	case proto.AppSnake:
 		_ = ctx.SendToCapResult(s.snakeCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
 
+	case proto.AppTetris:
+		_ = ctx.SendToCapResult(s.tetrisCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
+
 	case proto.AppVi:
 		_ = ctx.SendToCapResult(s.viCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
 
@@ -313,6 +334,8 @@ func (s *Service) appCapByID(appID proto.AppID) kernel.Capability {
 		return s.hexCap
 	case proto.AppSnake:
 		return s.snakeCap
+	case proto.AppTetris:
+		return s.tetrisCap
 	case proto.AppVi:
 		return s.viCap
 	case proto.AppMC:
@@ -342,6 +365,8 @@ func (s *Service) isRunningLocked(appID proto.AppID) bool {
 		return s.hexRunning
 	case proto.AppSnake:
 		return s.snakeRunning
+	case proto.AppTetris:
+		return s.tetrisRunning
 	case proto.AppVi:
 		return s.viRunning
 	case proto.AppMC:
@@ -365,6 +390,8 @@ func (s *Service) setRunningLocked(appID proto.AppID, running bool) {
 		s.hexRunning = running
 	case proto.AppSnake:
 		s.snakeRunning = running
+	case proto.AppTetris:
+		s.tetrisRunning = running
 	case proto.AppVi:
 		s.viRunning = running
 	case proto.AppMC:
@@ -397,6 +424,9 @@ func (s *Service) setActiveLocked(appID proto.AppID, active bool, now uint64) {
 	case proto.AppSnake:
 		s.snakeActive = active
 		s.snakeInactiveSince = inactiveSince(active, now, s.snakeInactiveSince)
+	case proto.AppTetris:
+		s.tetrisActive = active
+		s.tetrisInactiveSince = inactiveSince(active, now, s.tetrisInactiveSince)
 	case proto.AppVi:
 		s.viActive = active
 		s.viInactiveSince = inactiveSince(active, now, s.viInactiveSince)
