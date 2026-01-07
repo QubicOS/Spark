@@ -7,6 +7,7 @@ import (
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
 	archivetask "spark/sparkos/tasks/archive"
+	basictask "spark/sparkos/tasks/basic"
 	calendartask "spark/sparkos/tasks/calendar"
 	hexedittask "spark/sparkos/tasks/hexedit"
 	imgviewtask "spark/sparkos/tasks/imgview"
@@ -44,6 +45,7 @@ type Service struct {
 	mcProxyCap       kernel.Capability
 	vectorProxyCap   kernel.Capability
 	teaProxyCap      kernel.Capability
+	basicProxyCap    kernel.Capability
 
 	rtdemoCap   kernel.Capability
 	rtvoxelCap  kernel.Capability
@@ -58,6 +60,7 @@ type Service struct {
 	mcCap       kernel.Capability
 	vectorCap   kernel.Capability
 	teaCap      kernel.Capability
+	basicCap    kernel.Capability
 
 	rtdemoEP   kernel.Capability
 	rtvoxelEP  kernel.Capability
@@ -72,6 +75,7 @@ type Service struct {
 	mcEP       kernel.Capability
 	vectorEP   kernel.Capability
 	teaEP      kernel.Capability
+	basicEP    kernel.Capability
 
 	mu sync.Mutex
 
@@ -88,6 +92,7 @@ type Service struct {
 	mcRunning       bool
 	vectorRunning   bool
 	teaRunning      bool
+	basicRunning    bool
 
 	rtdemoActive   bool
 	rtvoxelActive  bool
@@ -102,6 +107,7 @@ type Service struct {
 	mcActive       bool
 	vectorActive   bool
 	teaActive      bool
+	basicActive    bool
 
 	rtdemoInactiveSince   uint64
 	rtvoxelInactiveSince  uint64
@@ -116,9 +122,10 @@ type Service struct {
 	mcInactiveSince       uint64
 	vectorInactiveSince   uint64
 	teaInactiveSince      uint64
+	basicInactiveSince    uint64
 }
 
-func New(disp hal.Display, vfsCap, audioCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxyCap, hexProxyCap, snakeProxyCap, tetrisProxyCap, calendarProxyCap, todoProxyCap, archiveProxyCap, viProxyCap, mcProxyCap, vectorProxyCap, teaProxyCap, rtdemoCap, rtvoxelCap, imgviewCap, hexCap, snakeCap, tetrisCap, calendarCap, todoCap, archiveCap, viCap, mcCap, vectorCap, teaCap, rtdemoEP, rtvoxelEP, imgviewEP, hexEP, snakeEP, tetrisEP, calendarEP, todoEP, archiveEP, viEP, mcEP, vectorEP, teaEP kernel.Capability) *Service {
+func New(disp hal.Display, vfsCap, audioCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxyCap, hexProxyCap, snakeProxyCap, tetrisProxyCap, calendarProxyCap, todoProxyCap, archiveProxyCap, viProxyCap, mcProxyCap, vectorProxyCap, teaProxyCap, basicProxyCap, rtdemoCap, rtvoxelCap, imgviewCap, hexCap, snakeCap, tetrisCap, calendarCap, todoCap, archiveCap, viCap, mcCap, vectorCap, teaCap, basicCap, rtdemoEP, rtvoxelEP, imgviewEP, hexEP, snakeEP, tetrisEP, calendarEP, todoEP, archiveEP, viEP, mcEP, vectorEP, teaEP, basicEP kernel.Capability) *Service {
 	return &Service{
 		disp:             disp,
 		vfsCap:           vfsCap,
@@ -136,6 +143,7 @@ func New(disp hal.Display, vfsCap, audioCap, rtdemoProxyCap, rtvoxelProxyCap, im
 		mcProxyCap:       mcProxyCap,
 		vectorProxyCap:   vectorProxyCap,
 		teaProxyCap:      teaProxyCap,
+		basicProxyCap:    basicProxyCap,
 		rtdemoCap:        rtdemoCap,
 		rtvoxelCap:       rtvoxelCap,
 		imgviewCap:       imgviewCap,
@@ -149,6 +157,7 @@ func New(disp hal.Display, vfsCap, audioCap, rtdemoProxyCap, rtvoxelProxyCap, im
 		mcCap:            mcCap,
 		vectorCap:        vectorCap,
 		teaCap:           teaCap,
+		basicCap:         basicCap,
 		rtdemoEP:         rtdemoEP,
 		rtvoxelEP:        rtvoxelEP,
 		imgviewEP:        imgviewEP,
@@ -162,6 +171,7 @@ func New(disp hal.Display, vfsCap, audioCap, rtdemoProxyCap, rtvoxelProxyCap, im
 		mcEP:             mcEP,
 		vectorEP:         vectorEP,
 		teaEP:            teaEP,
+		basicEP:          basicEP,
 	}
 }
 
@@ -180,6 +190,7 @@ func (s *Service) Run(ctx *kernel.Context) {
 	go s.runProxy(ctx, s.mcProxyCap, proto.AppMC)
 	go s.runProxy(ctx, s.vectorProxyCap, proto.AppVector)
 	go s.runProxy(ctx, s.teaProxyCap, proto.AppTEA)
+	go s.runProxy(ctx, s.basicProxyCap, proto.AppBasic)
 	select {}
 }
 
@@ -212,6 +223,7 @@ func (s *Service) shutdownIdle(ctx *kernel.Context, now uint64) {
 	stop = s.appendStopIfIdle(stop, proto.AppMC, s.mcRunning, s.mcActive, s.mcInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppVector, s.vectorRunning, s.vectorActive, s.vectorInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppTEA, s.teaRunning, s.teaActive, s.teaInactiveSince, now)
+	stop = s.appendStopIfIdle(stop, proto.AppBasic, s.basicRunning, s.basicActive, s.basicInactiveSince, now)
 	s.mu.Unlock()
 
 	for _, id := range stop {
@@ -351,6 +363,12 @@ func (s *Service) ensureRunning(ctx *kernel.Context, appID proto.AppID) {
 		s.mu.Lock()
 		s.teaRunning = true
 		s.mu.Unlock()
+
+	case proto.AppBasic:
+		ctx.AddTask(basictask.New(s.disp, s.basicEP, s.vfsCap))
+		s.mu.Lock()
+		s.basicRunning = true
+		s.mu.Unlock()
 	}
 }
 
@@ -405,6 +423,9 @@ func (s *Service) stop(ctx *kernel.Context, appID proto.AppID) {
 
 	case proto.AppTEA:
 		_ = ctx.SendToCapResult(s.teaCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
+
+	case proto.AppBasic:
+		_ = ctx.SendToCapResult(s.basicCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
 	}
 }
 
@@ -436,6 +457,8 @@ func (s *Service) appCapByID(appID proto.AppID) kernel.Capability {
 		return s.vectorCap
 	case proto.AppTEA:
 		return s.teaCap
+	case proto.AppBasic:
+		return s.basicCap
 	default:
 		return kernel.Capability{}
 	}
@@ -475,6 +498,8 @@ func (s *Service) isRunningLocked(appID proto.AppID) bool {
 		return s.vectorRunning
 	case proto.AppTEA:
 		return s.teaRunning
+	case proto.AppBasic:
+		return s.basicRunning
 	default:
 		return false
 	}
@@ -508,6 +533,8 @@ func (s *Service) setRunningLocked(appID proto.AppID, running bool) {
 		s.vectorRunning = running
 	case proto.AppTEA:
 		s.teaRunning = running
+	case proto.AppBasic:
+		s.basicRunning = running
 	}
 }
 
@@ -558,6 +585,9 @@ func (s *Service) setActiveLocked(appID proto.AppID, active bool, now uint64) {
 	case proto.AppTEA:
 		s.teaActive = active
 		s.teaInactiveSince = inactiveSince(active, now, s.teaInactiveSince)
+	case proto.AppBasic:
+		s.basicActive = active
+		s.basicInactiveSince = inactiveSince(active, now, s.basicInactiveSince)
 	}
 }
 
