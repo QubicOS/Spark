@@ -318,11 +318,11 @@ func (t *Task) handleCodeKey(ctx *kernel.Context, k key) {
 				return
 			}
 			t.statusLine = "OK"
+			return
 		}
-		return
-	case keyRune:
-		switch k.r {
-		case 'r', 'R':
+
+		// Ctrl+R runs.
+		if k.ctrl == 0x12 {
 			if err := t.syncEditorToProgram(); err != nil {
 				t.statusLine = "? " + err.Error()
 				return
@@ -331,6 +331,7 @@ func (t *Task) handleCodeKey(ctx *kernel.Context, k key) {
 			t.tab = tabIO
 			return
 		}
+		return
 	}
 
 	t.codeEd.handleKey(k, t.cols)
@@ -612,7 +613,7 @@ func (t *Task) renderCode() {
 		t.font,
 		0,
 		int16(t.rows-1)*t.fontHeight+t.fontOffset,
-		"code: arrows move | Enter newline | Ctrl+S sync | r run",
+		"code: arrows move | Enter newline | Ctrl+S sync | Ctrl+R run",
 		color.RGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xff},
 	)
 }
