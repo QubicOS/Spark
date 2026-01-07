@@ -17,6 +17,7 @@ const (
 	AppCalendar AppID = 10
 	AppTodo     AppID = 11
 	AppArchive  AppID = 12
+	AppTEA      AppID = 13
 )
 
 // AppSelectPayload encodes an app selection request.
