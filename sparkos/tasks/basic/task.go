@@ -254,6 +254,10 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		t.tab = tabVars
 		return
 	case keyEsc:
+		if t.tab == tabCode && t.codeEdit {
+			t.handleCodeEditKey(ctx, k)
+			return
+		}
 		t.requestExit(ctx)
 		return
 	}
@@ -348,7 +352,12 @@ func (t *Task) handleCodeKey(ctx *kernel.Context, k key) {
 			t.codeEditBuf = []rune(t.prog.lines[t.codeSel].String())
 			t.codeEditCur = len(t.codeEditBuf)
 			t.statusLine = "Edit line. Enter commit | Esc cancel | Del delete line."
+			return
 		}
+		t.codeEdit = true
+		t.codeEditBuf = nil
+		t.codeEditCur = 0
+		t.statusLine = "New line: type '<num> <stmt>' then Enter."
 	case keyDelete:
 		if t.codeSel >= 0 && t.codeSel < len(t.prog.lines) {
 			no := t.prog.lines[t.codeSel].no
@@ -372,6 +381,13 @@ func (t *Task) handleCodeKey(ctx *kernel.Context, k key) {
 			t.tab = tabIO
 		case 'l', 'L':
 			t.statusLine = "F1 code | Enter edit | n new | Del delete | r run | Esc exit"
+		default:
+			// Typing in code tab starts a new-line edit.
+			t.codeEdit = true
+			t.codeEditBuf = nil
+			t.codeEditCur = 0
+			t.statusLine = "New line: type '<num> <stmt>' then Enter."
+			t.handleCodeEditKey(ctx, k)
 		}
 	}
 }
@@ -686,6 +702,9 @@ func (t *Task) renderCode() {
 	}
 
 	visible := t.rows - 2 // header + status
+	if t.codeEdit && visible > 0 {
+		visible--
+	}
 	for row := 0; row < visible; row++ {
 		i := t.codeTop + row
 		y := int16(row+1)*t.fontHeight + t.fontOffset
@@ -698,11 +717,20 @@ func (t *Task) renderCode() {
 			c = color.RGBA{R: 0xff, G: 0xff, B: 0x4a, A: 0xff}
 			prefix = "> "
 		}
-		line := prefix + t.prog.lines[i].String()
-		if t.codeEdit && i == t.codeSel {
-			line = prefix + insertCaret(string(t.codeEditBuf), t.codeEditCur)
-		}
-		tinyfont.WriteLine(t.d, t.font, 0, y, line, c)
+		tinyfont.WriteLine(t.d, t.font, 0, y, prefix+t.prog.lines[i].String(), c)
+	}
+
+	if t.codeEdit {
+		y := int16(t.rows-2)*t.fontHeight + t.fontOffset
+		line := insertCaret(string(t.codeEditBuf), t.codeEditCur)
+		tinyfont.WriteLine(
+			t.d,
+			t.font,
+			0,
+			y,
+			"EDIT: "+line,
+			color.RGBA{R: 0xff, G: 0xff, B: 0, A: 0xff},
+		)
 	}
 }
 
