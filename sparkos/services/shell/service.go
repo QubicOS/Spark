@@ -4,6 +4,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"spark/internal/buildinfo"
 	vfsclient "spark/sparkos/client/vfs"
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
@@ -65,8 +66,7 @@ func (s *Service) Run(ctx *kernel.Context) {
 	}
 
 	_ = s.printString(ctx, "\x1b[0m")
-	_ = s.printString(ctx, "\x1b[38;5;39mSparkOS shell\x1b[0m\n")
-	_ = s.printString(ctx, "Type `help`.\n\n")
+	_ = s.printString(ctx, s.banner())
 	_ = s.prompt(ctx)
 
 	for msg := range ch {
@@ -81,6 +81,26 @@ func (s *Service) Run(ctx *kernel.Context) {
 			s.handleFocus(ctx, active)
 		}
 	}
+}
+
+func (s *Service) banner() string {
+	bolt := "\x1b[38;5;220m"
+	info := "\x1b[38;5;39m"
+	dim := "\x1b[38;5;245m"
+	reset := "\x1b[0m"
+
+	b := buildinfo.Short()
+	if buildinfo.Date != "" && buildinfo.Date != "unknown" {
+		b += " " + buildinfo.Date
+	}
+
+	// Left: a "lightning" icon, right: brief intro.
+	return "" +
+		info + "SparkOS shell" + reset + "\n" +
+		bolt + "   /\\   " + reset + dim + "SparkOS — microkernel OS (tasks + IPC capabilities)." + reset + "\n" +
+		bolt + "  /  \\  " + reset + dim + "Services provide policy; apps are lazy-started." + reset + "\n" +
+		bolt + " /_/\\ \\ " + reset + dim + "Build: " + b + reset + "\n" +
+		bolt + " \\ \\/ / " + reset + dim + "Type `help`." + reset + "\n\n"
 }
 
 func (s *Service) handleFocus(ctx *kernel.Context, active bool) {
