@@ -16,6 +16,7 @@ const (
 	AppTetris   AppID = 9
 	AppCalendar AppID = 10
 	AppTodo     AppID = 11
+	AppArchive  AppID = 12
 )
 
 // AppSelectPayload encodes an app selection request.

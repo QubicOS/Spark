@@ -10,43 +10,34 @@ func (s *Service) moveLeft(ctx *kernel.Context) {
 	if s.cursor <= 0 {
 		return
 	}
-	_ = s.writeString(ctx, "\x1b[D")
 	s.cursor--
+	_ = s.redrawLine(ctx)
 }
 
 func (s *Service) moveRight(ctx *kernel.Context) {
 	if s.cursor >= len(s.line) {
 		return
 	}
-	_ = s.writeString(ctx, "\x1b[C")
 	s.cursor++
+	_ = s.redrawLine(ctx)
 }
 
 func (s *Service) home(ctx *kernel.Context) {
-	for s.cursor > 0 {
-		s.moveLeft(ctx)
-	}
+	s.cursor = 0
+	_ = s.redrawLine(ctx)
 }
 
 func (s *Service) end(ctx *kernel.Context) {
-	for s.cursor < len(s.line) {
-		s.moveRight(ctx)
-	}
+	s.cursor = len(s.line)
+	_ = s.redrawLine(ctx)
 }
 
 func (s *Service) insertRune(ctx *kernel.Context, r rune) {
-	if s.cursor == len(s.line) {
-		s.line = append(s.line, r)
-		s.cursor++
-		_ = s.writeString(ctx, string(r))
-		return
-	}
 	s.line = append(s.line, 0)
 	copy(s.line[s.cursor+1:], s.line[s.cursor:])
 	s.line[s.cursor] = r
-	_ = s.writeString(ctx, string(r))
 	s.cursor++
-	_ = s.redrawFromCursor(ctx)
+	_ = s.redrawLine(ctx)
 }
 
 func (s *Service) deleteForward(ctx *kernel.Context) {
@@ -54,7 +45,7 @@ func (s *Service) deleteForward(ctx *kernel.Context) {
 		return
 	}
 	s.line = append(s.line[:s.cursor], s.line[s.cursor+1:]...)
-	_ = s.redrawFromCursor(ctx)
+	_ = s.redrawLine(ctx)
 }
 
 func (s *Service) redrawFromCursor(ctx *kernel.Context) error {
@@ -80,8 +71,7 @@ func (s *Service) backspace(ctx *kernel.Context) {
 	s.cursor--
 	s.line = append(s.line[:s.cursor], s.line[s.cursor+1:]...)
 
-	_ = s.writeString(ctx, "\x1b[D")
-	_ = s.redrawFromCursor(ctx)
+	_ = s.redrawLine(ctx)
 }
 
 func (s *Service) killLeft(ctx *kernel.Context) {
@@ -167,6 +157,8 @@ func (s *Service) replaceLine(ctx *kernel.Context, r []rune) {
 }
 
 func (s *Service) redrawLine(ctx *kernel.Context) error {
+	s.updateCompletion()
+
 	if err := s.writeString(ctx, "\x1b[1G\x1b[2K"); err != nil {
 		return err
 	}
@@ -178,6 +170,17 @@ func (s *Service) redrawLine(ctx *kernel.Context) error {
 	}
 	if err := s.writeString(ctx, "\x1b[K"); err != nil {
 		return err
+	}
+	if s.ghost != "" && s.cursor == len(s.line) {
+		if err := s.writeString(ctx, "\x1b[38;5;245m"); err != nil {
+			return err
+		}
+		if err := s.writeString(ctx, s.ghost); err != nil {
+			return err
+		}
+		if err := s.writeString(ctx, "\x1b[0m"); err != nil {
+			return err
+		}
 	}
 	col := promptCols + 1 + s.cursor
 	return s.writeString(ctx, fmt.Sprintf("\x1b[%dG", col))
@@ -196,5 +199,5 @@ func (s *Service) insertString(ctx *kernel.Context, tail string) {
 	}
 	s.line = append(s.line, rs...)
 	s.cursor = len(s.line)
-	_ = s.writeString(ctx, string(rs))
+	_ = s.redrawLine(ctx)
 }
