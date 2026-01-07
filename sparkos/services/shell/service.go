@@ -94,13 +94,13 @@ func (s *Service) banner() string {
 		b += " " + buildinfo.Date
 	}
 
-	// Left: a "lightning" icon, right: brief intro.
+	// Left: a small "bolt" icon, right: brief intro.
 	return "" +
 		info + "SparkOS shell" + reset + "\n" +
-		bolt + "   /\\   " + reset + dim + "SparkOS — microkernel OS (tasks + IPC capabilities)." + reset + "\n" +
-		bolt + "  /  \\  " + reset + dim + "Services provide policy; apps are lazy-started." + reset + "\n" +
-		bolt + " /_/\\ \\ " + reset + dim + "Build: " + b + reset + "\n" +
-		bolt + " \\ \\/ / " + reset + dim + "Type `help`." + reset + "\n\n"
+		bolt + "   /\\   " + reset + dim + "SparkOS — микроядерная ОС: задачи + IPC." + reset + "\n" +
+		bolt + "  /  \\  " + reset + dim + "Сервисы — политика; приложения — по запросу." + reset + "\n" +
+		bolt + "  \\  /  " + reset + dim + "Build: " + b + reset + "\n" +
+		bolt + "   \\/   " + reset + dim + "Type: help" + reset + "\n\n"
 }
 
 func (s *Service) handleFocus(ctx *kernel.Context, active bool) {
