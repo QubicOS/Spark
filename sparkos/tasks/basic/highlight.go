@@ -93,45 +93,71 @@ func tokenizeBasic(line []rune) []span {
 		j++
 	}
 	if j > i {
-		emit(i, j, colorDim)
+		emit(i, j, colorNum)
 	}
 
-	// Strings, keywords, and REM comments.
+	// Strings, keywords, variables, numbers, operators, and REM comments.
 	inString := false
-	rem := false
+	stringStart := -1
 
 	for pos := 0; pos < len(line); pos++ {
-		if rem {
-			emit(pos, len(line), colorDim)
-			break
-		}
 		r := line[pos]
+
 		if inString {
 			if r == '"' {
 				inString = false
-				emit(pos, pos+1, colorInputFG)
-				continue
+				emit(stringStart, pos+1, colorString)
+				stringStart = -1
 			}
-			emit(pos, pos+1, colorInputFG)
 			continue
 		}
 		if r == '"' {
 			inString = true
-			emit(pos, pos+1, colorInputFG)
+			stringStart = pos
 			continue
 		}
 
+		// Operators / punctuation.
+		switch r {
+		case '+', '-', '*', '/', '=', '<', '>', '(', ')', ',', ';':
+			emit(pos, pos+1, colorOp)
+			continue
+		}
+
+		// Integer literal.
+		if unicode.IsDigit(r) {
+			start := pos
+			for pos < len(line) && unicode.IsDigit(line[pos]) {
+				pos++
+			}
+			emit(start, pos, colorNum)
+			pos--
+			continue
+		}
+
+		// Words (keywords / variables).
 		if isWordRune(r) {
 			start := pos
 			for pos < len(line) && isWordRune(line[pos]) {
 				pos++
 			}
 			word := strings.ToUpper(string(line[start:pos]))
+
+			// Single-letter vars (A..Z) and string vars (A$).
+			if len(word) == 1 && word[0] >= 'A' && word[0] <= 'Z' {
+				end := pos
+				if end < len(line) && line[end] == '$' {
+					end++
+				}
+				emit(start, end, colorVar)
+				pos = end - 1
+				continue
+			}
+
 			if word == "REM" {
 				emit(start, pos, colorAccent)
-				rem = true
-				pos--
-				continue
+				emit(pos, len(line), colorComment)
+				break
 			}
 			if _, ok := keywordSet[word]; ok {
 				emit(start, pos, colorAccent)
@@ -139,6 +165,9 @@ func tokenizeBasic(line []rune) []span {
 			pos--
 			continue
 		}
+	}
+	if inString && stringStart >= 0 {
+		emit(stringStart, len(line), colorString)
 	}
 	return out
 }
