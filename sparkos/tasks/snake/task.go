@@ -62,6 +62,8 @@ type Task struct {
 	inbuf []byte
 }
 
+const stepIntervalTicks = 22
+
 func New(disp hal.Display, ep kernel.Capability) *Task {
 	return &Task{
 		disp: disp,
@@ -155,7 +157,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 			if !t.active || t.paused || !t.alive {
 				continue
 			}
-			if now-t.lastStep < 90 {
+			if now-t.lastStep < stepIntervalTicks {
 				continue
 			}
 			t.lastStep = now
@@ -327,11 +329,29 @@ func (t *Task) step() {
 		next.x++
 	}
 
-	if next.x < 0 || next.x >= t.gridW || next.y < 0 || next.y >= t.gridH {
-		t.alive = false
-		return
+	if t.gridW > 0 {
+		for next.x < 0 {
+			next.x += t.gridW
+		}
+		for next.x >= t.gridW {
+			next.x -= t.gridW
+		}
 	}
-	for _, p := range t.snake {
+	if t.gridH > 0 {
+		for next.y < 0 {
+			next.y += t.gridH
+		}
+		for next.y >= t.gridH {
+			next.y -= t.gridH
+		}
+	}
+
+	willEat := next == t.food
+	check := t.snake
+	if !willEat && len(check) > 1 {
+		check = check[:len(check)-1]
+	}
+	for _, p := range check {
 		if p == next {
 			t.alive = false
 			return
@@ -339,7 +359,7 @@ func (t *Task) step() {
 	}
 
 	t.snake = append([]point{next}, t.snake...)
-	if next == t.food {
+	if willEat {
 		t.score++
 		t.spawnFood()
 		return
