@@ -194,6 +194,23 @@ func (t *Task) clearInput() {
 
 func (t *Task) handleInput(ctx *kernel.Context, b []byte) {
 	for len(b) > 0 {
+		if b[0] == 0x1b {
+			if len(b) == 1 {
+				t.requestExit(ctx)
+				return
+			}
+			if b[1] != '[' {
+				t.requestExit(ctx)
+				return
+			}
+			n := consumeCSI(b)
+			if n == 0 {
+				return
+			}
+			b = b[n:]
+			continue
+		}
+
 		r, n := decodeUTF8Rune(b)
 		if n == 0 {
 			return
@@ -352,6 +369,39 @@ func (t *Task) render() {
 	}
 
 	_ = t.fb.Present()
+}
+
+func (t *Task) requestExit(ctx *kernel.Context) {
+	if !t.muxCap.Valid() {
+		t.active = false
+		return
+	}
+	for {
+		res := ctx.SendToCapResult(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{})
+		switch res {
+		case kernel.SendOK:
+			t.active = false
+			return
+		case kernel.SendErrQueueFull:
+			ctx.BlockOnTick()
+		default:
+			t.active = false
+			return
+		}
+	}
+}
+
+func consumeCSI(b []byte) int {
+	if len(b) < 2 || b[0] != 0x1b || b[1] != '[' {
+		return 0
+	}
+	// Consume until a final byte in the range 0x40..0x7e.
+	for i := 2; i < len(b); i++ {
+		if b[i] >= 0x40 && b[i] <= 0x7e {
+			return i + 1
+		}
+	}
+	return 0
 }
 
 func splitLeadingLineNumber(line string) (lineNo int, rest string, ok bool) {
