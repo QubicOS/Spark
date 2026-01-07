@@ -17,6 +17,7 @@ func registerAppCommands(r *registry) error {
 		{Name: "vector", Usage: "vector [expr]", Desc: "Math calculator with graphing (g graph, H help).", Run: cmdVector},
 		{Name: "snake", Usage: "snake", Desc: "Snake game (arrows move, p pause, r restart, q quit).", Run: cmdSnake},
 		{Name: "tetris", Usage: "tetris", Desc: "Tetris (arrows move, z/x rotate, c drop, p pause, r restart, q quit).", Run: cmdTetris},
+		{Name: "cal", Aliases: []string{"calendar"}, Usage: "cal [YYYY-MM[-DD]]", Desc: "Calendar (arrows move, Enter day view, a add, d delete, n/b month, q quit).", Run: cmdCalendar},
 		{Name: "rtdemo", Usage: "rtdemo [on|off]", Desc: "Start raytracing demo (exit with q/ESC).", Run: cmdRTDemo},
 		{Name: "rtvoxel", Usage: "rtvoxel [on|off]", Desc: "Start voxel world demo (exit with q/ESC).", Run: cmdRTVoxel},
 		{Name: "imgview", Usage: "imgview <file>", Desc: "View an image (BMP/PNG/JPEG; q/ESC to exit).", Run: cmdImgView},
@@ -101,6 +102,20 @@ func cmdTetris(ctx *kernel.Context, s *Service, args []string, _ redirection) er
 		return errors.New("usage: tetris")
 	}
 	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppTetris, "")); err != nil {
+		return err
+	}
+	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))
+}
+
+func cmdCalendar(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	var arg string
+	if len(args) == 1 {
+		arg = args[0]
+	} else if len(args) > 1 {
+		return errors.New("usage: cal [YYYY-MM[-DD]]")
+	}
+
+	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppCalendar, arg)); err != nil {
 		return err
 	}
 	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))
