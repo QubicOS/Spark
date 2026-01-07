@@ -436,6 +436,12 @@ func (t *Task) handleCodeEditKey(ctx *kernel.Context, k key) {
 			t.codeEditCur++
 		}
 		return
+	case keyUp:
+		t.codeEditCur = 0
+		return
+	case keyDown:
+		t.codeEditCur = len(t.codeEditBuf)
+		return
 	case keyHome:
 		t.codeEditCur = 0
 		return
