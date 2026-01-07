@@ -62,7 +62,10 @@ type Task struct {
 	inbuf []byte
 }
 
-const stepIntervalTicks = 22
+const (
+	stepIntervalBaseTicks = 22
+	stepIntervalMinTicks  = 8
+)
 
 func New(disp hal.Display, ep kernel.Capability) *Task {
 	return &Task{
@@ -157,7 +160,11 @@ func (t *Task) Run(ctx *kernel.Context) {
 			if !t.active || t.paused || !t.alive {
 				continue
 			}
-			if now-t.lastStep < stepIntervalTicks {
+			interval := uint64(t.stepIntervalTicks())
+			if interval == 0 {
+				interval = 1
+			}
+			if now-t.lastStep < interval {
 				continue
 			}
 			t.lastStep = now
@@ -219,13 +226,13 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 	case keyEsc:
 		t.requestExit(ctx)
 	case keyUp:
-		t.setDir(dirUp)
+		t.setDir(ctx, dirUp)
 	case keyDown:
-		t.setDir(dirDown)
+		t.setDir(ctx, dirDown)
 	case keyLeft:
-		t.setDir(dirLeft)
+		t.setDir(ctx, dirLeft)
 	case keyRight:
-		t.setDir(dirRight)
+		t.setDir(ctx, dirRight)
 	case keyRune:
 		switch k.r {
 		case 'q':
@@ -238,7 +245,7 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 	}
 }
 
-func (t *Task) setDir(d dir) {
+func (t *Task) setDir(ctx *kernel.Context, d dir) {
 	if !t.alive {
 		return
 	}
@@ -249,6 +256,17 @@ func (t *Task) setDir(d dir) {
 		return
 	}
 	t.nextDir = d
+
+	// Improve responsiveness: if we're close to the next step, take it immediately.
+	now := ctx.NowTick()
+	interval := uint64(t.stepIntervalTicks())
+	if interval == 0 {
+		interval = 1
+	}
+	if now-t.lastStep >= interval/2 {
+		t.lastStep = now
+		t.step()
+	}
 }
 
 func (t *Task) requestExit(ctx *kernel.Context) {
@@ -267,6 +285,14 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 			return
 		}
 	}
+}
+
+func (t *Task) stepIntervalTicks() int {
+	interval := stepIntervalBaseTicks - t.score/2
+	if interval < stepIntervalMinTicks {
+		interval = stepIntervalMinTicks
+	}
+	return interval
 }
 
 func (t *Task) initGame() {
