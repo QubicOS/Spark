@@ -249,6 +249,13 @@ func (s *Service) play(ctx *kernel.Context, path string) error {
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				if loop {
+					if !paced && s.pwm != nil {
+						_ = s.pwm.Stop()
+						if err := s.pwm.Start(sr); err != nil {
+							return fmt.Errorf("audio: pwm start: %w", err)
+						}
+						s.pwm.SetVolume(uint8(atomic.LoadUint32(&s.volume)))
+					}
 					if err := dec.SeekToBlock(0); err != nil {
 						return err
 					}
@@ -286,7 +293,9 @@ func (s *Service) play(ctx *kernel.Context, path string) error {
 				if s.pwm != nil {
 					s.pwm.WriteSample(block[i])
 				}
-				atomic.AddUint32(&s.pos, 1)
+				if paced {
+					atomic.AddUint32(&s.pos, 1)
+				}
 			case proto.AudioPaused:
 				if paced {
 					if s.pwm != nil {
@@ -332,13 +341,22 @@ func (s *Service) sendStatus(ctx *kernel.Context) {
 		return
 	}
 
-	payload := proto.AudioStatusPayload(
-		proto.AudioState(atomic.LoadUint32(&s.state)),
-		uint8(atomic.LoadUint32(&s.volume)),
-		uint16(atomic.LoadUint32(&s.sampleRate)),
-		uint32(atomic.LoadUint32(&s.pos)),
-		uint32(atomic.LoadUint32(&s.total)),
-	)
+	state := proto.AudioState(atomic.LoadUint32(&s.state))
+	vol := uint8(atomic.LoadUint32(&s.volume))
+	sr := uint16(atomic.LoadUint32(&s.sampleRate))
+	pos := uint32(atomic.LoadUint32(&s.pos))
+	total := uint32(atomic.LoadUint32(&s.total))
+
+	if !needsSamplePacing() {
+		if p, ok := s.pwm.(interface{ PositionSamples() uint32 }); ok && p != nil {
+			pos = p.PositionSamples()
+			if total != 0 && pos > total {
+				pos = total
+			}
+		}
+	}
+
+	payload := proto.AudioStatusPayload(state, vol, sr, pos, total)
 
 	res := ctx.SendToCapResult(sub, uint16(proto.MsgAudioStatus), payload, kernel.Capability{})
 	switch res {

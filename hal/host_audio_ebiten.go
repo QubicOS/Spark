@@ -144,6 +144,23 @@ func (a *hostPWMAudio) PendingSamples() int {
 	return a.n
 }
 
+func (a *hostPWMAudio) PositionSamples() uint32 {
+	a.mu.Lock()
+	p := a.player
+	sr := a.sampleRate
+	a.mu.Unlock()
+
+	if p == nil || sr == 0 {
+		return 0
+	}
+
+	sec := p.Position().Seconds()
+	if sec <= 0 {
+		return 0
+	}
+	return uint32(sec * float64(sr))
+}
+
 func (a *hostPWMAudio) Pause() {
 	a.mu.Lock()
 	p := a.player
@@ -168,19 +185,19 @@ type hostAudioReader struct {
 
 func (r *hostAudioReader) Read(p []byte) (int, error) {
 	a := r.a
-	a.mu.Lock()
-	if a.closed {
-		a.mu.Unlock()
-		return 0, io.EOF
-	}
-	a.mu.Unlock()
-
 	// Ebiten audio expects 16-bit little-endian stereo.
 	for i := 0; i+3 < len(p); i += 4 {
 		var s int16
 
 		a.mu.Lock()
-		if a.n > 0 && !a.closed {
+		for !a.closed && a.n == 0 {
+			a.cond.Wait()
+		}
+		if a.closed {
+			a.mu.Unlock()
+			return i, io.EOF
+		}
+		if a.n > 0 {
 			s = a.buf[a.r]
 			a.r++
 			if a.r >= len(a.buf) {

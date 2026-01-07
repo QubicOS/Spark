@@ -552,7 +552,7 @@ func (t *Task) render() {
 	clearRGB565(buf, rgb565From888(0x09, 0x0B, 0x10))
 
 	pad := 8
-	titleH := int(t.fontHeight) + 10
+	titleH := int(t.fontHeight)*2 + 14
 	footerH := int(t.fontHeight)*3 + 10
 
 	listW := (t.w * 5) / 9
@@ -576,7 +576,7 @@ func (t *Task) render() {
 	drawRectOutlineRGB565(buf, t.fb.StrideBytes(), xInfo, yList, wInfo, hList, rgb565From888(0x2B, 0x33, 0x44))
 
 	t.drawText(pad, pad+2, "TEA PLAYER", color.RGBA{R: 0xEE, G: 0xEE, B: 0xEE, A: 0xFF})
-	t.drawText(pad, pad+2+int(t.fontHeight)+2, truncateToWidth(t.font, "Dir: "+t.cwd, t.w-pad*2), color.RGBA{R: 0x88, G: 0xA6, B: 0xD6, A: 0xFF})
+	t.drawText(pad, pad+2+int(t.fontHeight)+4, truncateToWidth(t.font, "Dir: "+t.cwd, t.w-pad*2), color.RGBA{R: 0x88, G: 0xA6, B: 0xD6, A: 0xFF})
 
 	t.renderList(xList+1, yList+1, listW-2, hList-2)
 	t.renderInfo(xInfo+1, yList+1, wInfo-2, hList-2)
