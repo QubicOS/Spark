@@ -75,6 +75,9 @@ type Task struct {
 
 	awaitInput bool
 	awaitVar   varRef
+
+	nowTick uint64
+	blinkOn bool
 }
 
 func New(disp hal.Display, ep kernel.Capability, vfsCap kernel.Capability) *Task {
@@ -112,44 +115,83 @@ func (t *Task) Run(ctx *kernel.Context) {
 		return
 	}
 
-	for msg := range ch {
-		switch proto.Kind(msg.Kind) {
-		case proto.MsgAppShutdown:
-			t.unload()
-			return
+	done := make(chan struct{})
+	defer close(done)
 
-		case proto.MsgAppControl:
-			if msg.Cap.Valid() {
-				t.muxCap = msg.Cap
+	tickCh := make(chan uint64, 8)
+	go func() {
+		last := ctx.NowTick()
+		for {
+			select {
+			case <-done:
+				return
+			default:
 			}
-			active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
-			if !ok {
-				continue
+			last = ctx.WaitTick(last)
+			select {
+			case tickCh <- last:
+			default:
 			}
-			t.setActive(active)
-			if t.active {
-				t.render()
-			}
+		}
+	}()
 
-		case proto.MsgAppSelect:
-			appID, arg, ok := proto.DecodeAppSelectPayload(msg.Data[:msg.Len])
-			if !ok || appID != proto.AppBasic {
-				continue
-			}
-			if arg != "" {
-				t.statusLine = arg
-			}
-			if t.active {
-				t.render()
-			}
-
-		case proto.MsgTermInput:
+	for {
+		select {
+		case now := <-tickCh:
 			if !t.active {
 				continue
 			}
-			t.handleInput(ctx, msg.Data[:msg.Len])
-			if t.active {
-				t.render()
+			t.nowTick = now
+			blink := (now/350)%2 == 0
+			if blink != t.blinkOn {
+				t.blinkOn = blink
+				if t.tab == tabCode {
+					t.render()
+				}
+			}
+
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
+			switch proto.Kind(msg.Kind) {
+			case proto.MsgAppShutdown:
+				t.unload()
+				return
+
+			case proto.MsgAppControl:
+				if msg.Cap.Valid() {
+					t.muxCap = msg.Cap
+				}
+				active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
+				if !ok {
+					continue
+				}
+				t.setActive(active)
+				if t.active {
+					t.render()
+				}
+
+			case proto.MsgAppSelect:
+				appID, arg, ok := proto.DecodeAppSelectPayload(msg.Data[:msg.Len])
+				if !ok || appID != proto.AppBasic {
+					continue
+				}
+				if arg != "" {
+					t.statusLine = arg
+				}
+				if t.active {
+					t.render()
+				}
+
+			case proto.MsgTermInput:
+				if !t.active {
+					continue
+				}
+				t.handleInput(ctx, msg.Data[:msg.Len])
+				if t.active {
+					t.render()
+				}
 			}
 		}
 	}
@@ -261,11 +303,24 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		t.showHelp = false
 		return
 	case keyEsc:
+		// In the code editor, Esc is a normal key (no hotkeys except F1/F2/F3).
+		if t.tab == tabCode {
+			t.codeEd.handleKey(k, t.rows-2, t.cols)
+			t.hint = t.codeEd.hint
+			return
+		}
 		if t.showHelp {
 			t.showHelp = false
 			return
 		}
 		t.requestExit(ctx)
+		return
+	}
+
+	// No non-F hotkeys in code editor.
+	if t.tab == tabCode {
+		t.codeEd.handleKey(k, t.rows-2, t.cols)
+		t.hint = t.codeEd.hint
 		return
 	}
 
@@ -352,32 +407,9 @@ func (t *Task) handleIOKey(ctx *kernel.Context, k key) {
 }
 
 func (t *Task) handleCodeKey(ctx *kernel.Context, k key) {
-	switch k.kind {
-	case keyCtrl:
-		// Ctrl+S syncs program.
-		if k.ctrl == 0x13 {
-			if err := t.syncEditorToProgram(); err != nil {
-				t.statusLine = "? " + err.Error()
-				return
-			}
-			t.statusLine = "OK"
-			return
-		}
-
-		// Ctrl+R runs.
-		if k.ctrl == 0x12 {
-			if err := t.syncEditorToProgram(); err != nil {
-				t.statusLine = "? " + err.Error()
-				return
-			}
-			t.onLine(ctx, "RUN")
-			t.tab = tabIO
-			return
-		}
-		return
-	}
-
-	t.codeEd.handleKey(k, t.cols)
+	_ = ctx
+	t.codeEd.handleKey(k, t.rows-2, t.cols)
+	t.hint = t.codeEd.hint
 }
 
 func (t *Task) handleVarsKey(ctx *kernel.Context, k key) {
@@ -399,6 +431,10 @@ func (t *Task) handleVarsKey(ctx *kernel.Context, k key) {
 		case 's', 'S':
 			if t.vm != nil && t.vm.running {
 				t.runSteps(ctx, 1)
+				return
+			}
+			if err := t.syncEditorToProgram(); err != nil {
+				t.printf("? %v", err)
 				return
 			}
 			t.vm.reset()
@@ -661,8 +697,8 @@ func (t *Task) helpLines() []string {
 			"Arrows: move cursor",
 			"Enter: newline",
 			"Backspace/Delete: delete",
-			"Ctrl+S: sync numbered lines",
-			"Ctrl+R: sync + RUN",
+			"Tab: accept completion",
+			"Note: lines must start with a number to RUN.",
 		}
 	case tabVars:
 		return []string{
@@ -712,18 +748,47 @@ func (t *Task) renderIO() {
 
 func (t *Task) renderCode() {
 	visible := t.rows - 2 // header + status
-	lines, top := t.codeEd.visible(visible)
-	for row := 0; row < len(lines); row++ {
-		y := int16(row+1)*t.fontHeight + t.fontOffset
-		c := colorFG
-		if top+row == t.codeEd.curRow {
-			_ = t.d.FillRectangle(0, int16(row+1)*t.fontHeight, int16(t.cols)*t.fontWidth, t.fontHeight, colorHeaderBG)
-			c = colorAccent
+	t.codeEd.ensureNonEmpty()
+	t.codeEd.ensureVisible(visible, t.cols)
+
+	rows := t.codeEd.viewRowCount(visible)
+	for row := 0; row < rows; row++ {
+		idx := t.codeEd.top + row
+		y0 := int16(row+1) * t.fontHeight
+		y := y0 + t.fontOffset
+
+		if idx == t.codeEd.curRow {
+			_ = t.d.FillRectangle(0, y0, int16(t.cols)*t.fontWidth, t.fontHeight, colorHeaderBG)
 		}
-		tinyfont.WriteLine(t.d, t.font, 0, y, clipRunes(lines[row], t.cols), c)
+		drawBasicLine(t.d, t.font, t.fontWidth, 0, y, t.codeEd.lineRunes(idx), t.codeEd.left, t.cols)
 	}
 
-	t.hint = "code: arrows move | Enter newline | Ctrl+S sync | Ctrl+R run | H help"
+	// Cursor and ghost.
+	if t.blinkOn && t.codeEd.curRow >= t.codeEd.top && t.codeEd.curRow < t.codeEd.top+visible {
+		row := t.codeEd.curRow - t.codeEd.top
+		cx := t.codeEd.curCol - t.codeEd.left
+		if cx >= 0 && cx < t.cols {
+			x := int16(cx) * t.fontWidth
+			y := int16(row+1) * t.fontHeight
+			_ = t.d.FillRectangle(x, y, t.fontWidth, t.fontHeight, colorAccent)
+			r := t.codeEd.cursorRune()
+			tinyfont.WriteLine(t.d, t.font, x, y+t.fontOffset, string(r), colorBG)
+		}
+	}
+	if t.codeEd.ghost != "" && t.codeEd.curRow >= t.codeEd.top && t.codeEd.curRow < t.codeEd.top+visible {
+		row := t.codeEd.curRow - t.codeEd.top
+		cx := t.codeEd.curCol - t.codeEd.left
+		if cx >= 0 && cx < t.cols {
+			x := int16(cx) * t.fontWidth
+			y := int16(row+1)*t.fontHeight + t.fontOffset
+			tinyfont.WriteLine(t.d, t.font, x, y, clipRunes(t.codeEd.ghost, t.cols-cx), colorDim)
+		}
+	}
+
+	t.hint = t.codeEd.hint
+	if t.hint == "" {
+		t.hint = "code: arrows move | Tab complete | F2 io | F3 vars"
+	}
 }
 
 func (t *Task) renderVars() {
