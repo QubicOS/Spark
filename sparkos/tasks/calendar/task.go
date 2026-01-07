@@ -1178,12 +1178,13 @@ func (t *Task) renderSidePanel(x, y, w, h int) {
 			lineY += lineH
 		}
 		if len(evs) == 0 {
-			t.drawText(
-				x+4,
-				lineY,
-				truncateToWidth(t.font, "(no events)  press 'a' to add", maxTextW),
-				color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xFF},
-			)
+			for _, line := range wrapText(t.font, "(no events)  press 'a' to add", maxTextW) {
+				if lineY+int(t.fontHeight) >= mainBottom {
+					break
+				}
+				t.drawText(x+4, lineY, line, color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xFF})
+				lineY += lineH
+			}
 		}
 	} else {
 		t.drawText(x+4, lineY, "Events:", color.RGBA{R: 0x9A, G: 0xC6, B: 0xFF, A: 0xFF})
