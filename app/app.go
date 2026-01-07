@@ -65,6 +65,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	vectorEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	snakeEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	tetrisEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	calendarEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 
 	rtdemoProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	rtvoxelProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
@@ -72,6 +73,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	hexProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	snakeProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	tetrisProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	calendarProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	viProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	mcProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	vectorProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
@@ -91,6 +93,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			hexProxyEP.Restrict(kernel.RightRecv),
 			snakeProxyEP.Restrict(kernel.RightRecv),
 			tetrisProxyEP.Restrict(kernel.RightRecv),
+			calendarProxyEP.Restrict(kernel.RightRecv),
 			viProxyEP.Restrict(kernel.RightRecv),
 			mcProxyEP.Restrict(kernel.RightRecv),
 			vectorProxyEP.Restrict(kernel.RightRecv),
@@ -100,6 +103,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			hexEP.Restrict(kernel.RightSend),
 			snakeEP.Restrict(kernel.RightSend),
 			tetrisEP.Restrict(kernel.RightSend),
+			calendarEP.Restrict(kernel.RightSend),
 			viEP.Restrict(kernel.RightSend),
 			mcEP.Restrict(kernel.RightSend),
 			vectorEP.Restrict(kernel.RightSend),
@@ -109,6 +113,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			hexEP.Restrict(kernel.RightRecv),
 			snakeEP.Restrict(kernel.RightRecv),
 			tetrisEP.Restrict(kernel.RightRecv),
+			calendarEP.Restrict(kernel.RightRecv),
 			viEP.Restrict(kernel.RightRecv),
 			mcEP.Restrict(kernel.RightRecv),
 			vectorEP.Restrict(kernel.RightRecv),
@@ -126,6 +131,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			vectorProxyEP.Restrict(kernel.RightSend),
 			snakeProxyEP.Restrict(kernel.RightSend),
 			tetrisProxyEP.Restrict(kernel.RightSend),
+			calendarProxyEP.Restrict(kernel.RightSend),
 			termEP.Restrict(kernel.RightSend),
 		))
 		k.AddTask(termkbd.NewInput(h.Input(), muxEP.Restrict(kernel.RightSend)))

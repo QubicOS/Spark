@@ -6,6 +6,7 @@ import (
 	"spark/hal"
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
+	calendartask "spark/sparkos/tasks/calendar"
 	hexedittask "spark/sparkos/tasks/hexedit"
 	imgviewtask "spark/sparkos/tasks/imgview"
 	mctask "spark/sparkos/tasks/mc"
@@ -26,100 +27,109 @@ type Service struct {
 	disp   hal.Display
 	vfsCap kernel.Capability
 
-	rtdemoProxyCap  kernel.Capability
-	rtvoxelProxyCap kernel.Capability
-	imgviewProxyCap kernel.Capability
-	hexProxyCap     kernel.Capability
-	snakeProxyCap   kernel.Capability
-	tetrisProxyCap  kernel.Capability
-	viProxyCap      kernel.Capability
-	mcProxyCap      kernel.Capability
-	vectorProxyCap  kernel.Capability
+	rtdemoProxyCap   kernel.Capability
+	rtvoxelProxyCap  kernel.Capability
+	imgviewProxyCap  kernel.Capability
+	hexProxyCap      kernel.Capability
+	snakeProxyCap    kernel.Capability
+	tetrisProxyCap   kernel.Capability
+	calendarProxyCap kernel.Capability
+	viProxyCap       kernel.Capability
+	mcProxyCap       kernel.Capability
+	vectorProxyCap   kernel.Capability
 
-	rtdemoCap  kernel.Capability
-	rtvoxelCap kernel.Capability
-	imgviewCap kernel.Capability
-	hexCap     kernel.Capability
-	snakeCap   kernel.Capability
-	tetrisCap  kernel.Capability
-	viCap      kernel.Capability
-	mcCap      kernel.Capability
-	vectorCap  kernel.Capability
+	rtdemoCap   kernel.Capability
+	rtvoxelCap  kernel.Capability
+	imgviewCap  kernel.Capability
+	hexCap      kernel.Capability
+	snakeCap    kernel.Capability
+	tetrisCap   kernel.Capability
+	calendarCap kernel.Capability
+	viCap       kernel.Capability
+	mcCap       kernel.Capability
+	vectorCap   kernel.Capability
 
-	rtdemoEP  kernel.Capability
-	rtvoxelEP kernel.Capability
-	imgviewEP kernel.Capability
-	hexEP     kernel.Capability
-	snakeEP   kernel.Capability
-	tetrisEP  kernel.Capability
-	viEP      kernel.Capability
-	mcEP      kernel.Capability
-	vectorEP  kernel.Capability
+	rtdemoEP   kernel.Capability
+	rtvoxelEP  kernel.Capability
+	imgviewEP  kernel.Capability
+	hexEP      kernel.Capability
+	snakeEP    kernel.Capability
+	tetrisEP   kernel.Capability
+	calendarEP kernel.Capability
+	viEP       kernel.Capability
+	mcEP       kernel.Capability
+	vectorEP   kernel.Capability
 
 	mu sync.Mutex
 
-	rtdemoRunning  bool
-	rtvoxelRunning bool
-	imgviewRunning bool
-	hexRunning     bool
-	snakeRunning   bool
-	tetrisRunning  bool
-	viRunning      bool
-	mcRunning      bool
-	vectorRunning  bool
+	rtdemoRunning   bool
+	rtvoxelRunning  bool
+	imgviewRunning  bool
+	hexRunning      bool
+	snakeRunning    bool
+	tetrisRunning   bool
+	calendarRunning bool
+	viRunning       bool
+	mcRunning       bool
+	vectorRunning   bool
 
-	rtdemoActive  bool
-	rtvoxelActive bool
-	imgviewActive bool
-	hexActive     bool
-	snakeActive   bool
-	tetrisActive  bool
-	viActive      bool
-	mcActive      bool
-	vectorActive  bool
+	rtdemoActive   bool
+	rtvoxelActive  bool
+	imgviewActive  bool
+	hexActive      bool
+	snakeActive    bool
+	tetrisActive   bool
+	calendarActive bool
+	viActive       bool
+	mcActive       bool
+	vectorActive   bool
 
-	rtdemoInactiveSince  uint64
-	rtvoxelInactiveSince uint64
-	imgviewInactiveSince uint64
-	hexInactiveSince     uint64
-	snakeInactiveSince   uint64
-	tetrisInactiveSince  uint64
-	viInactiveSince      uint64
-	mcInactiveSince      uint64
-	vectorInactiveSince  uint64
+	rtdemoInactiveSince   uint64
+	rtvoxelInactiveSince  uint64
+	imgviewInactiveSince  uint64
+	hexInactiveSince      uint64
+	snakeInactiveSince    uint64
+	tetrisInactiveSince   uint64
+	calendarInactiveSince uint64
+	viInactiveSince       uint64
+	mcInactiveSince       uint64
+	vectorInactiveSince   uint64
 }
 
-func New(disp hal.Display, vfsCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxyCap, hexProxyCap, snakeProxyCap, tetrisProxyCap, viProxyCap, mcProxyCap, vectorProxyCap, rtdemoCap, rtvoxelCap, imgviewCap, hexCap, snakeCap, tetrisCap, viCap, mcCap, vectorCap, rtdemoEP, rtvoxelEP, imgviewEP, hexEP, snakeEP, tetrisEP, viEP, mcEP, vectorEP kernel.Capability) *Service {
+func New(disp hal.Display, vfsCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxyCap, hexProxyCap, snakeProxyCap, tetrisProxyCap, calendarProxyCap, viProxyCap, mcProxyCap, vectorProxyCap, rtdemoCap, rtvoxelCap, imgviewCap, hexCap, snakeCap, tetrisCap, calendarCap, viCap, mcCap, vectorCap, rtdemoEP, rtvoxelEP, imgviewEP, hexEP, snakeEP, tetrisEP, calendarEP, viEP, mcEP, vectorEP kernel.Capability) *Service {
 	return &Service{
-		disp:            disp,
-		vfsCap:          vfsCap,
-		rtdemoProxyCap:  rtdemoProxyCap,
-		rtvoxelProxyCap: rtvoxelProxyCap,
-		imgviewProxyCap: imgviewProxyCap,
-		hexProxyCap:     hexProxyCap,
-		snakeProxyCap:   snakeProxyCap,
-		tetrisProxyCap:  tetrisProxyCap,
-		viProxyCap:      viProxyCap,
-		mcProxyCap:      mcProxyCap,
-		vectorProxyCap:  vectorProxyCap,
-		rtdemoCap:       rtdemoCap,
-		rtvoxelCap:      rtvoxelCap,
-		imgviewCap:      imgviewCap,
-		hexCap:          hexCap,
-		snakeCap:        snakeCap,
-		tetrisCap:       tetrisCap,
-		viCap:           viCap,
-		mcCap:           mcCap,
-		vectorCap:       vectorCap,
-		rtdemoEP:        rtdemoEP,
-		rtvoxelEP:       rtvoxelEP,
-		imgviewEP:       imgviewEP,
-		hexEP:           hexEP,
-		snakeEP:         snakeEP,
-		tetrisEP:        tetrisEP,
-		viEP:            viEP,
-		mcEP:            mcEP,
-		vectorEP:        vectorEP,
+		disp:             disp,
+		vfsCap:           vfsCap,
+		rtdemoProxyCap:   rtdemoProxyCap,
+		rtvoxelProxyCap:  rtvoxelProxyCap,
+		imgviewProxyCap:  imgviewProxyCap,
+		hexProxyCap:      hexProxyCap,
+		snakeProxyCap:    snakeProxyCap,
+		tetrisProxyCap:   tetrisProxyCap,
+		calendarProxyCap: calendarProxyCap,
+		viProxyCap:       viProxyCap,
+		mcProxyCap:       mcProxyCap,
+		vectorProxyCap:   vectorProxyCap,
+		rtdemoCap:        rtdemoCap,
+		rtvoxelCap:       rtvoxelCap,
+		imgviewCap:       imgviewCap,
+		hexCap:           hexCap,
+		snakeCap:         snakeCap,
+		tetrisCap:        tetrisCap,
+		calendarCap:      calendarCap,
+		viCap:            viCap,
+		mcCap:            mcCap,
+		vectorCap:        vectorCap,
+		rtdemoEP:         rtdemoEP,
+		rtvoxelEP:        rtvoxelEP,
+		imgviewEP:        imgviewEP,
+		hexEP:            hexEP,
+		snakeEP:          snakeEP,
+		tetrisEP:         tetrisEP,
+		calendarEP:       calendarEP,
+		viEP:             viEP,
+		mcEP:             mcEP,
+		vectorEP:         vectorEP,
 	}
 }
 
@@ -131,6 +141,7 @@ func (s *Service) Run(ctx *kernel.Context) {
 	go s.runProxy(ctx, s.hexProxyCap, proto.AppHex)
 	go s.runProxy(ctx, s.snakeProxyCap, proto.AppSnake)
 	go s.runProxy(ctx, s.tetrisProxyCap, proto.AppTetris)
+	go s.runProxy(ctx, s.calendarProxyCap, proto.AppCalendar)
 	go s.runProxy(ctx, s.viProxyCap, proto.AppVi)
 	go s.runProxy(ctx, s.mcProxyCap, proto.AppMC)
 	go s.runProxy(ctx, s.vectorProxyCap, proto.AppVector)
@@ -159,6 +170,7 @@ func (s *Service) shutdownIdle(ctx *kernel.Context, now uint64) {
 	stop = s.appendStopIfIdle(stop, proto.AppHex, s.hexRunning, s.hexActive, s.hexInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppSnake, s.snakeRunning, s.snakeActive, s.snakeInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppTetris, s.tetrisRunning, s.tetrisActive, s.tetrisInactiveSince, now)
+	stop = s.appendStopIfIdle(stop, proto.AppCalendar, s.calendarRunning, s.calendarActive, s.calendarInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppVi, s.viRunning, s.viActive, s.viInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppMC, s.mcRunning, s.mcActive, s.mcInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppVector, s.vectorRunning, s.vectorActive, s.vectorInactiveSince, now)
@@ -260,6 +272,12 @@ func (s *Service) ensureRunning(ctx *kernel.Context, appID proto.AppID) {
 		s.tetrisRunning = true
 		s.mu.Unlock()
 
+	case proto.AppCalendar:
+		ctx.AddTask(calendartask.New(s.disp, s.calendarEP, s.vfsCap))
+		s.mu.Lock()
+		s.calendarRunning = true
+		s.mu.Unlock()
+
 	case proto.AppVi:
 		ctx.AddTask(vitask.New(s.disp, s.viEP, s.vfsCap))
 		s.mu.Lock()
@@ -311,6 +329,9 @@ func (s *Service) stop(ctx *kernel.Context, appID proto.AppID) {
 	case proto.AppTetris:
 		_ = ctx.SendToCapResult(s.tetrisCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
 
+	case proto.AppCalendar:
+		_ = ctx.SendToCapResult(s.calendarCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
+
 	case proto.AppVi:
 		_ = ctx.SendToCapResult(s.viCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
 
@@ -336,6 +357,8 @@ func (s *Service) appCapByID(appID proto.AppID) kernel.Capability {
 		return s.snakeCap
 	case proto.AppTetris:
 		return s.tetrisCap
+	case proto.AppCalendar:
+		return s.calendarCap
 	case proto.AppVi:
 		return s.viCap
 	case proto.AppMC:
@@ -367,6 +390,8 @@ func (s *Service) isRunningLocked(appID proto.AppID) bool {
 		return s.snakeRunning
 	case proto.AppTetris:
 		return s.tetrisRunning
+	case proto.AppCalendar:
+		return s.calendarRunning
 	case proto.AppVi:
 		return s.viRunning
 	case proto.AppMC:
@@ -392,6 +417,8 @@ func (s *Service) setRunningLocked(appID proto.AppID, running bool) {
 		s.snakeRunning = running
 	case proto.AppTetris:
 		s.tetrisRunning = running
+	case proto.AppCalendar:
+		s.calendarRunning = running
 	case proto.AppVi:
 		s.viRunning = running
 	case proto.AppMC:
@@ -427,6 +454,9 @@ func (s *Service) setActiveLocked(appID proto.AppID, active bool, now uint64) {
 	case proto.AppTetris:
 		s.tetrisActive = active
 		s.tetrisInactiveSince = inactiveSince(active, now, s.tetrisInactiveSince)
+	case proto.AppCalendar:
+		s.calendarActive = active
+		s.calendarInactiveSince = inactiveSince(active, now, s.calendarInactiveSince)
 	case proto.AppVi:
 		s.viActive = active
 		s.viInactiveSince = inactiveSince(active, now, s.viInactiveSince)
