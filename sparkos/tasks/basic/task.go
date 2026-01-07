@@ -208,7 +208,7 @@ func (t *Task) handleInput(ctx *kernel.Context, b []byte) {
 				t.onLine(ctx, line)
 			}
 			continue
-		case '\b':
+		case '\b', 0x7f:
 			if t.inputCur > 0 {
 				t.input = append(t.input[:t.inputCur-1], t.input[t.inputCur:]...)
 				t.inputCur--
