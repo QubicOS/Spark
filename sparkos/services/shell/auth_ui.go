@@ -256,7 +256,7 @@ func (s *Service) makeSalt(ctx *kernel.Context) [16]byte {
 		return out
 	}
 
-	seed := uint32(ctx.NowTick()) ^ uint32(s.authFails*0x9e3779b9)
+	seed := uint32(ctx.NowTick()) ^ (uint32(s.authFails) * 0x9e3779b9)
 	if seed == 0 {
 		seed = 0x12345678
 	}
