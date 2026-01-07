@@ -16,9 +16,8 @@ import (
 )
 
 const (
-	maxFileBytesCached = 256 * 1024
-	maxSearchBytes     = 2 * 1024 * 1024
-	maxVFSRead         = kernel.MaxMessageBytes - 11
+	maxSearchBytes = 2 * 1024 * 1024
+	maxVFSRead     = kernel.MaxMessageBytes - 11
 )
 
 type inputKind uint8
@@ -749,43 +748,11 @@ func (t *Task) loadFile(ctx *kernel.Context, path string) error {
 	t.lastOK = false
 
 	if size == 0 {
-		t.data = t.data[:0]
-		return nil
-	}
-	if size > maxFileBytesCached {
 		t.data = nil
 		return nil
 	}
-
-	buf, err := t.readAll(ctx, path, int(maxFileBytesCached))
-	if err != nil {
-		return err
-	}
-	t.data = buf
-	t.size = uint32(len(t.data))
-	t.origSize = t.size
+	t.data = nil
 	return nil
-}
-
-func (t *Task) readAll(ctx *kernel.Context, path string, maxBytes int) ([]byte, error) {
-	var out []byte
-	var off uint32
-	for {
-		chunk, eof, err := t.vfsClient().ReadAt(ctx, path, off, maxVFSRead)
-		if err != nil {
-			return nil, err
-		}
-		if len(chunk) > 0 {
-			out = append(out, chunk...)
-			if maxBytes > 0 && len(out) > maxBytes {
-				return nil, fmt.Errorf("file too large (>%d bytes)", maxBytes)
-			}
-			off += uint32(len(chunk))
-		}
-		if eof {
-			return out, nil
-		}
-	}
 }
 
 func (t *Task) setByte(ctx *kernel.Context, off uint32, b byte) {
