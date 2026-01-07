@@ -1043,18 +1043,35 @@ func (t *Task) render() {
 }
 
 func (t *Task) renderSidePanel(x, y, w, h int) {
+	maxTextW := w - 8
+	if maxTextW < 0 {
+		maxTextW = 0
+	}
+	lineH := int(t.fontHeight) + 2
+
 	dateStr := fmt.Sprintf("%04d-%02d-%02d", t.year, t.month, t.day)
-	t.drawText(x+4, y+2, dateStr, color.RGBA{R: 0xEE, G: 0xEE, B: 0xEE, A: 0xFF})
+	t.drawText(x+4, y+2, truncateToWidth(t.font, dateStr, maxTextW), color.RGBA{R: 0xEE, G: 0xEE, B: 0xEE, A: 0xFF})
 
 	k := dateKey(t.year, t.month, t.day)
 	evs := t.events[k]
 	lineY := y + int(t.fontHeight) + 10
 
+	footerLines := []string{
+		"Enter: day view  a:add  d:del",
+		"n/b month  N/B year  g goto",
+		"q/ESC quit  m month  t set-today",
+	}
+	footerH := len(footerLines)*lineH + 2
+	mainBottom := y + h - footerH
+	if mainBottom < lineY {
+		mainBottom = lineY
+	}
+
 	if t.mode == viewDay {
 		t.drawText(x+4, lineY, "Events:", color.RGBA{R: 0x9A, G: 0xC6, B: 0xFF, A: 0xFF})
-		lineY += int(t.fontHeight) + 2
+		lineY += lineH
 		for i := 0; i < len(evs); i++ {
-			if lineY+int(t.fontHeight) >= y+h {
+			if lineY+int(t.fontHeight) >= mainBottom {
 				break
 			}
 			prefix := "  "
@@ -1067,13 +1084,40 @@ func (t *Task) renderSidePanel(x, y, w, h int) {
 				c = color.RGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF}
 			}
 			t.drawText(x+4, lineY, truncateToWidth(t.font, s, w-8), c)
-			lineY += int(t.fontHeight) + 2
+			lineY += lineH
 		}
 		if len(evs) == 0 {
-			t.drawText(x+4, lineY, "(no events)  press 'a' to add", color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xFF})
+			t.drawText(
+				x+4,
+				lineY,
+				truncateToWidth(t.font, "(no events)  press 'a' to add", maxTextW),
+				color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xFF},
+			)
 		}
 	} else {
-		t.drawText(x+4, lineY, "Enter: day view  a:add  d:del", color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xFF})
+		t.drawText(x+4, lineY, "Events:", color.RGBA{R: 0x9A, G: 0xC6, B: 0xFF, A: 0xFF})
+		lineY += lineH
+		for i := 0; i < len(evs); i++ {
+			if lineY+int(t.fontHeight) >= mainBottom {
+				break
+			}
+			s := "  " + formatEvent(evs[i])
+			t.drawText(x+4, lineY, truncateToWidth(t.font, s, maxTextW), color.RGBA{R: 0xD6, G: 0xD6, B: 0xD6, A: 0xFF})
+			lineY += lineH
+		}
+		if len(evs) == 0 && lineY+int(t.fontHeight) < mainBottom {
+			t.drawText(x+4, lineY, "(no events)", color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xFF})
+			lineY += lineH
+		}
+	}
+
+	footerY := y + h - footerH + 2
+	for i := 0; i < len(footerLines); i++ {
+		yy := footerY + i*lineH
+		if yy+int(t.fontHeight) >= y+h {
+			break
+		}
+		t.drawText(x+4, yy, truncateToWidth(t.font, footerLines[i], maxTextW), color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xFF})
 	}
 }
 
