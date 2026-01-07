@@ -567,7 +567,6 @@ func (t *Task) render() {
 
 	pad := 8
 	titleH := int(t.fontHeight)*2 + 14
-	eqH := int(t.fontHeight)*2 + 12
 	footerH := int(t.fontHeight)*3 + 10
 
 	listW := (t.w - pad*3) / 2
@@ -582,22 +581,35 @@ func (t *Task) render() {
 	y0 := pad
 	xList := x0
 	yList := y0 + titleH
-	hList := t.h - yList - eqH - footerH - pad*2
+	contentH := t.h - yList - footerH - pad*2
+	if contentH < 0 {
+		contentH = 0
+	}
 
 	xInfo := xList + listW + pad
 	wInfo := t.w - xInfo - pad
 
-	drawRectOutlineRGB565(buf, t.fb.StrideBytes(), xList, yList, listW, hList, rgb565From888(0x2B, 0x33, 0x44))
-	drawRectOutlineRGB565(buf, t.fb.StrideBytes(), xInfo, yList, wInfo, hList, rgb565From888(0x2B, 0x33, 0x44))
-
 	t.drawText(pad, pad+2, "TEA PLAYER", color.RGBA{R: 0xEE, G: 0xEE, B: 0xEE, A: 0xFF})
 	t.drawText(pad, pad+2+int(t.fontHeight)+4, truncateToWidth(t.font, "Dir: "+t.cwd, t.w-pad*2), color.RGBA{R: 0x88, G: 0xA6, B: 0xD6, A: 0xFF})
 
-	t.renderList(xList+1, yList+1, listW-2, hList-2)
-	t.renderInfo(xInfo+1, yList+1, wInfo-2, hList-2)
+	drawRectOutlineRGB565(buf, t.fb.StrideBytes(), xList, yList, listW, contentH, rgb565From888(0x2B, 0x33, 0x44))
+	t.renderList(xList+1, yList+1, listW-2, contentH-2)
 
-	yEQ := yList + hList + pad
-	t.renderEQ(xInfo, yEQ, wInfo, eqH)
+	// Split the right panel vertically: info top, EQ bottom.
+	splitGap := pad
+	infoH := (contentH - splitGap) / 2
+	if infoH < 0 {
+		infoH = 0
+	}
+	eqH := contentH - splitGap - infoH
+	if eqH < 0 {
+		eqH = 0
+	}
+	drawRectOutlineRGB565(buf, t.fb.StrideBytes(), xInfo, yList, wInfo, infoH, rgb565From888(0x2B, 0x33, 0x44))
+	t.renderInfo(xInfo+1, yList+1, wInfo-2, infoH-2)
+	yEQ := yList + infoH + splitGap
+	drawRectOutlineRGB565(buf, t.fb.StrideBytes(), xInfo, yEQ, wInfo, eqH, rgb565From888(0x2B, 0x33, 0x44))
+	t.renderEQ(xInfo+1, yEQ+1, wInfo-2, eqH-2)
 	t.renderFooter(pad, t.h-footerH-pad, t.w-pad*2, footerH)
 
 	_ = t.fb.Present()
