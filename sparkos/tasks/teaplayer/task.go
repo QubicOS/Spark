@@ -597,7 +597,7 @@ func (t *Task) render() {
 	t.renderInfo(xInfo+1, yList+1, wInfo-2, hList-2)
 
 	yEQ := yList + hList + pad
-	t.renderEQ(pad, yEQ, t.w-pad*2, eqH)
+	t.renderEQ(xInfo, yEQ, wInfo, eqH)
 	t.renderFooter(pad, t.h-footerH-pad, t.w-pad*2, footerH)
 
 	_ = t.fb.Present()
