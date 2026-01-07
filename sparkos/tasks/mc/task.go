@@ -132,6 +132,10 @@ func (t *Task) Run(ctx *kernel.Context) {
 
 	for msg := range ch {
 		switch proto.Kind(msg.Kind) {
+		case proto.MsgAppShutdown:
+			t.unloadSession()
+			return
+
 		case proto.MsgAppControl:
 			if msg.Cap.Valid() {
 				t.muxCap = msg.Cap

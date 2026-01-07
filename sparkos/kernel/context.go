@@ -9,6 +9,14 @@ type Context struct {
 // TaskID returns the current task ID.
 func (c *Context) TaskID() TaskID { return c.taskID }
 
+// AddTask starts a new task in the kernel and returns its ID.
+func (c *Context) AddTask(t Task) TaskID {
+	if c.k == nil {
+		return 0
+	}
+	return c.k.AddTask(t)
+}
+
 // RecvChan returns the inbound message channel for an endpoint capability.
 func (c *Context) RecvChan(epCap Capability) (<-chan Message, bool) {
 	if !epCap.valid() || !epCap.canRecv() {

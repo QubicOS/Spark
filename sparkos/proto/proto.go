@@ -26,6 +26,7 @@ const (
 	MsgTermRefresh
 	MsgAppControl
 	MsgAppSelect
+	MsgAppShutdown
 	MsgVFSRemove
 	MsgVFSRemoveResp
 	MsgVFSRename
@@ -115,6 +116,8 @@ func (k Kind) String() string {
 		return "app_control"
 	case MsgAppSelect:
 		return "app_select"
+	case MsgAppShutdown:
+		return "app_shutdown"
 	case MsgVFSRemove:
 		return "vfs_remove"
 	case MsgVFSRemoveResp:
