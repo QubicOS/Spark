@@ -442,7 +442,20 @@ func (s *Service) updateMeters(samples []int16, sampleRate uint32) {
 			power = 0
 		}
 		amp := math.Sqrt(power) / float64(n)
-		level := int(amp * 700)
+
+		// Map amplitude to a pseudo-dB scale for more stable visuals.
+		// Typical useful range is about -60dB..0dB; add a little gain.
+		const eps = 1e-6
+		const minDB = -60.0
+		const gainDB = 12.0
+		db := 20*math.Log10(amp+eps) + gainDB
+		if db < minDB {
+			db = minDB
+		}
+		if db > 0 {
+			db = 0
+		}
+		level := int(((db - minDB) / (0 - minDB)) * 255)
 		if level < 0 {
 			level = 0
 		}
