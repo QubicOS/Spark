@@ -23,7 +23,7 @@ func (t *hostTime) step(n uint64) {
 	if t.last.IsZero() {
 		t.last = now
 		t.acc = 0
-		t.stepN(n)
+		t.advance(n)
 		return
 	}
 
@@ -36,12 +36,23 @@ func (t *hostTime) step(n uint64) {
 		return
 	}
 	t.acc = t.acc % tickDur
-	t.stepN(ticks)
+	t.advance(ticks)
 }
 
-func (t *hostTime) stepN(n uint64) {
-	for i := uint64(0); i < n; i++ {
-		t.seq++
+func (t *hostTime) advance(n uint64) {
+	t.seq += n
+	if n == 0 {
+		return
+	}
+	// Coalesce updates: keep only the latest tick in the channel to avoid flooding.
+	select {
+	case t.ch <- t.seq:
+		return
+	default:
+		select {
+		case <-t.ch:
+		default:
+		}
 		select {
 		case t.ch <- t.seq:
 		default:
