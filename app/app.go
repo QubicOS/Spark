@@ -63,11 +63,13 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	mcEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	hexEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	vectorEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	snakeEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 
 	rtdemoProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	rtvoxelProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	imgviewProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	hexProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	snakeProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	viProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	mcProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	vectorProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
@@ -85,6 +87,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			rtvoxelProxyEP.Restrict(kernel.RightRecv),
 			imgviewProxyEP.Restrict(kernel.RightRecv),
 			hexProxyEP.Restrict(kernel.RightRecv),
+			snakeProxyEP.Restrict(kernel.RightRecv),
 			viProxyEP.Restrict(kernel.RightRecv),
 			mcProxyEP.Restrict(kernel.RightRecv),
 			vectorProxyEP.Restrict(kernel.RightRecv),
@@ -92,6 +95,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			rtvoxelEP.Restrict(kernel.RightSend),
 			imgviewEP.Restrict(kernel.RightSend),
 			hexEP.Restrict(kernel.RightSend),
+			snakeEP.Restrict(kernel.RightSend),
 			viEP.Restrict(kernel.RightSend),
 			mcEP.Restrict(kernel.RightSend),
 			vectorEP.Restrict(kernel.RightSend),
@@ -99,6 +103,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			rtvoxelEP.Restrict(kernel.RightRecv),
 			imgviewEP.Restrict(kernel.RightRecv),
 			hexEP.Restrict(kernel.RightRecv),
+			snakeEP.Restrict(kernel.RightRecv),
 			viEP.Restrict(kernel.RightRecv),
 			mcEP.Restrict(kernel.RightRecv),
 			vectorEP.Restrict(kernel.RightRecv),
@@ -114,6 +119,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			mcProxyEP.Restrict(kernel.RightSend),
 			hexProxyEP.Restrict(kernel.RightSend),
 			vectorProxyEP.Restrict(kernel.RightSend),
+			snakeProxyEP.Restrict(kernel.RightSend),
 			termEP.Restrict(kernel.RightSend),
 		))
 		k.AddTask(termkbd.NewInput(h.Input(), muxEP.Restrict(kernel.RightSend)))

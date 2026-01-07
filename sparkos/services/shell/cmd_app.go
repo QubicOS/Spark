@@ -15,6 +15,7 @@ func registerAppCommands(r *registry) error {
 		{Name: "mc", Usage: "mc [dir]", Desc: "Midnight Commander-like file manager (q/ESC to exit).", Run: cmdMC},
 		{Name: "hex", Usage: "hex <file>", Desc: "Hex viewer/editor (q/ESC to exit, w to save).", Run: cmdHex},
 		{Name: "vector", Usage: "vector [expr]", Desc: "Math calculator with graphing (g graph, H help).", Run: cmdVector},
+		{Name: "snake", Usage: "snake", Desc: "Snake game (arrows move, p pause, r restart, q quit).", Run: cmdSnake},
 		{Name: "rtdemo", Usage: "rtdemo [on|off]", Desc: "Start raytracing demo (exit with q/ESC).", Run: cmdRTDemo},
 		{Name: "rtvoxel", Usage: "rtvoxel [on|off]", Desc: "Start voxel world demo (exit with q/ESC).", Run: cmdRTVoxel},
 		{Name: "imgview", Usage: "imgview <file>", Desc: "View an image (BMP/PNG/JPEG; q/ESC to exit).", Run: cmdImgView},
@@ -79,6 +80,16 @@ func cmdVector(ctx *kernel.Context, s *Service, args []string, _ redirection) er
 	}
 
 	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppVector, expr)); err != nil {
+		return err
+	}
+	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))
+}
+
+func cmdSnake(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	if len(args) != 0 {
+		return errors.New("usage: snake")
+	}
+	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppSnake, "")); err != nil {
 		return err
 	}
 	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))
