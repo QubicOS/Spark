@@ -24,13 +24,14 @@ type Service struct {
 	calendarCap kernel.Capability
 	todoCap     kernel.Capability
 	archiveCap  kernel.Capability
+	teaCap      kernel.Capability
 	termCap     kernel.Capability
 
 	activeApp proto.AppID
 	appActive bool
 }
 
-func New(inCap, ctlCap, shellCap, rtdemoCap, rtvoxelCap, imgviewCap, viCap, mcCap, hexCap, vectorCap, snakeCap, tetrisCap, calendarCap, todoCap, archiveCap, termCap kernel.Capability) *Service {
+func New(inCap, ctlCap, shellCap, rtdemoCap, rtvoxelCap, imgviewCap, viCap, mcCap, hexCap, vectorCap, snakeCap, tetrisCap, calendarCap, todoCap, archiveCap, teaCap, termCap kernel.Capability) *Service {
 	return &Service{
 		inCap:       inCap,
 		ctlCap:      ctlCap,
@@ -47,6 +48,7 @@ func New(inCap, ctlCap, shellCap, rtdemoCap, rtvoxelCap, imgviewCap, viCap, mcCa
 		calendarCap: calendarCap,
 		todoCap:     todoCap,
 		archiveCap:  archiveCap,
+		teaCap:      teaCap,
 		termCap:     termCap,
 		activeApp:   proto.AppRTDemo,
 	}
@@ -164,6 +166,8 @@ func (s *Service) appCapByID(id proto.AppID) kernel.Capability {
 		return s.todoCap
 	case proto.AppArchive:
 		return s.archiveCap
+	case proto.AppTEA:
+		return s.teaCap
 	default:
 		return kernel.Capability{}
 	}

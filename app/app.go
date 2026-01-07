@@ -70,6 +70,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	calendarEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	todoEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	archiveEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	teaEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 
 	rtdemoProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	rtvoxelProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
@@ -83,6 +84,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	viProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	mcProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	vectorProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	teaProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 
 	k.AddTask(logger.New(h.Logger(), logEP.Restrict(kernel.RightRecv)))
 	k.AddTask(timesvc.New(timeEP))
@@ -98,6 +100,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 		k.AddTask(appmgr.New(
 			h.Display(),
 			vfsEP.Restrict(kernel.RightSend),
+			audioEP.Restrict(kernel.RightSend),
 			rtdemoProxyEP.Restrict(kernel.RightRecv),
 			rtvoxelProxyEP.Restrict(kernel.RightRecv),
 			imgviewProxyEP.Restrict(kernel.RightRecv),
@@ -110,6 +113,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			viProxyEP.Restrict(kernel.RightRecv),
 			mcProxyEP.Restrict(kernel.RightRecv),
 			vectorProxyEP.Restrict(kernel.RightRecv),
+			teaProxyEP.Restrict(kernel.RightRecv),
 			rtdemoEP.Restrict(kernel.RightSend),
 			rtvoxelEP.Restrict(kernel.RightSend),
 			imgviewEP.Restrict(kernel.RightSend),
@@ -122,6 +126,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			viEP.Restrict(kernel.RightSend),
 			mcEP.Restrict(kernel.RightSend),
 			vectorEP.Restrict(kernel.RightSend),
+			teaEP.Restrict(kernel.RightSend),
 			rtdemoEP.Restrict(kernel.RightRecv),
 			rtvoxelEP.Restrict(kernel.RightRecv),
 			imgviewEP.Restrict(kernel.RightRecv),
@@ -134,6 +139,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			viEP.Restrict(kernel.RightRecv),
 			mcEP.Restrict(kernel.RightRecv),
 			vectorEP.Restrict(kernel.RightRecv),
+			teaEP.Restrict(kernel.RightRecv),
 		))
 		k.AddTask(consolemux.New(
 			muxEP.Restrict(kernel.RightRecv),
@@ -151,6 +157,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			calendarProxyEP.Restrict(kernel.RightSend),
 			todoProxyEP.Restrict(kernel.RightSend),
 			archiveProxyEP.Restrict(kernel.RightSend),
+			teaProxyEP.Restrict(kernel.RightSend),
 			termEP.Restrict(kernel.RightSend),
 		))
 		k.AddTask(termkbd.NewInput(h.Input(), muxEP.Restrict(kernel.RightSend)))

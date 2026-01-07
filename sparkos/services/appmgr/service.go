@@ -14,6 +14,7 @@ import (
 	rtdemotask "spark/sparkos/tasks/rtdemo"
 	rtvoxeltask "spark/sparkos/tasks/rtvoxel"
 	snaketask "spark/sparkos/tasks/snake"
+	teaplayertask "spark/sparkos/tasks/teaplayer"
 	tetristask "spark/sparkos/tasks/tetris"
 	todotask "spark/sparkos/tasks/todo"
 	vectortask "spark/sparkos/tasks/vector"
@@ -26,8 +27,9 @@ import (
 const autoUnloadAfterTicks = 30_000
 
 type Service struct {
-	disp   hal.Display
-	vfsCap kernel.Capability
+	disp     hal.Display
+	vfsCap   kernel.Capability
+	audioCap kernel.Capability
 
 	rtdemoProxyCap   kernel.Capability
 	rtvoxelProxyCap  kernel.Capability
@@ -41,6 +43,7 @@ type Service struct {
 	viProxyCap       kernel.Capability
 	mcProxyCap       kernel.Capability
 	vectorProxyCap   kernel.Capability
+	teaProxyCap      kernel.Capability
 
 	rtdemoCap   kernel.Capability
 	rtvoxelCap  kernel.Capability
@@ -54,6 +57,7 @@ type Service struct {
 	viCap       kernel.Capability
 	mcCap       kernel.Capability
 	vectorCap   kernel.Capability
+	teaCap      kernel.Capability
 
 	rtdemoEP   kernel.Capability
 	rtvoxelEP  kernel.Capability
@@ -67,6 +71,7 @@ type Service struct {
 	viEP       kernel.Capability
 	mcEP       kernel.Capability
 	vectorEP   kernel.Capability
+	teaEP      kernel.Capability
 
 	mu sync.Mutex
 
@@ -82,6 +87,7 @@ type Service struct {
 	viRunning       bool
 	mcRunning       bool
 	vectorRunning   bool
+	teaRunning      bool
 
 	rtdemoActive   bool
 	rtvoxelActive  bool
@@ -95,6 +101,7 @@ type Service struct {
 	viActive       bool
 	mcActive       bool
 	vectorActive   bool
+	teaActive      bool
 
 	rtdemoInactiveSince   uint64
 	rtvoxelInactiveSince  uint64
@@ -108,12 +115,14 @@ type Service struct {
 	viInactiveSince       uint64
 	mcInactiveSince       uint64
 	vectorInactiveSince   uint64
+	teaInactiveSince      uint64
 }
 
-func New(disp hal.Display, vfsCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxyCap, hexProxyCap, snakeProxyCap, tetrisProxyCap, calendarProxyCap, todoProxyCap, archiveProxyCap, viProxyCap, mcProxyCap, vectorProxyCap, rtdemoCap, rtvoxelCap, imgviewCap, hexCap, snakeCap, tetrisCap, calendarCap, todoCap, archiveCap, viCap, mcCap, vectorCap, rtdemoEP, rtvoxelEP, imgviewEP, hexEP, snakeEP, tetrisEP, calendarEP, todoEP, archiveEP, viEP, mcEP, vectorEP kernel.Capability) *Service {
+func New(disp hal.Display, vfsCap, audioCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxyCap, hexProxyCap, snakeProxyCap, tetrisProxyCap, calendarProxyCap, todoProxyCap, archiveProxyCap, viProxyCap, mcProxyCap, vectorProxyCap, teaProxyCap, rtdemoCap, rtvoxelCap, imgviewCap, hexCap, snakeCap, tetrisCap, calendarCap, todoCap, archiveCap, viCap, mcCap, vectorCap, teaCap, rtdemoEP, rtvoxelEP, imgviewEP, hexEP, snakeEP, tetrisEP, calendarEP, todoEP, archiveEP, viEP, mcEP, vectorEP, teaEP kernel.Capability) *Service {
 	return &Service{
 		disp:             disp,
 		vfsCap:           vfsCap,
+		audioCap:         audioCap,
 		rtdemoProxyCap:   rtdemoProxyCap,
 		rtvoxelProxyCap:  rtvoxelProxyCap,
 		imgviewProxyCap:  imgviewProxyCap,
@@ -126,6 +135,7 @@ func New(disp hal.Display, vfsCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxy
 		viProxyCap:       viProxyCap,
 		mcProxyCap:       mcProxyCap,
 		vectorProxyCap:   vectorProxyCap,
+		teaProxyCap:      teaProxyCap,
 		rtdemoCap:        rtdemoCap,
 		rtvoxelCap:       rtvoxelCap,
 		imgviewCap:       imgviewCap,
@@ -138,6 +148,7 @@ func New(disp hal.Display, vfsCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxy
 		viCap:            viCap,
 		mcCap:            mcCap,
 		vectorCap:        vectorCap,
+		teaCap:           teaCap,
 		rtdemoEP:         rtdemoEP,
 		rtvoxelEP:        rtvoxelEP,
 		imgviewEP:        imgviewEP,
@@ -150,6 +161,7 @@ func New(disp hal.Display, vfsCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxy
 		viEP:             viEP,
 		mcEP:             mcEP,
 		vectorEP:         vectorEP,
+		teaEP:            teaEP,
 	}
 }
 
@@ -167,6 +179,7 @@ func (s *Service) Run(ctx *kernel.Context) {
 	go s.runProxy(ctx, s.viProxyCap, proto.AppVi)
 	go s.runProxy(ctx, s.mcProxyCap, proto.AppMC)
 	go s.runProxy(ctx, s.vectorProxyCap, proto.AppVector)
+	go s.runProxy(ctx, s.teaProxyCap, proto.AppTEA)
 	select {}
 }
 
@@ -198,6 +211,7 @@ func (s *Service) shutdownIdle(ctx *kernel.Context, now uint64) {
 	stop = s.appendStopIfIdle(stop, proto.AppVi, s.viRunning, s.viActive, s.viInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppMC, s.mcRunning, s.mcActive, s.mcInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppVector, s.vectorRunning, s.vectorActive, s.vectorInactiveSince, now)
+	stop = s.appendStopIfIdle(stop, proto.AppTEA, s.teaRunning, s.teaActive, s.teaInactiveSince, now)
 	s.mu.Unlock()
 
 	for _, id := range stop {
@@ -331,6 +345,12 @@ func (s *Service) ensureRunning(ctx *kernel.Context, appID proto.AppID) {
 		s.mu.Lock()
 		s.vectorRunning = true
 		s.mu.Unlock()
+
+	case proto.AppTEA:
+		ctx.AddTask(teaplayertask.New(s.disp, s.teaEP, s.vfsCap, s.audioCap))
+		s.mu.Lock()
+		s.teaRunning = true
+		s.mu.Unlock()
 	}
 }
 
@@ -382,6 +402,9 @@ func (s *Service) stop(ctx *kernel.Context, appID proto.AppID) {
 
 	case proto.AppVector:
 		_ = ctx.SendToCapResult(s.vectorCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
+
+	case proto.AppTEA:
+		_ = ctx.SendToCapResult(s.teaCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
 	}
 }
 
@@ -411,6 +434,8 @@ func (s *Service) appCapByID(appID proto.AppID) kernel.Capability {
 		return s.mcCap
 	case proto.AppVector:
 		return s.vectorCap
+	case proto.AppTEA:
+		return s.teaCap
 	default:
 		return kernel.Capability{}
 	}
@@ -448,6 +473,8 @@ func (s *Service) isRunningLocked(appID proto.AppID) bool {
 		return s.mcRunning
 	case proto.AppVector:
 		return s.vectorRunning
+	case proto.AppTEA:
+		return s.teaRunning
 	default:
 		return false
 	}
@@ -479,6 +506,8 @@ func (s *Service) setRunningLocked(appID proto.AppID, running bool) {
 		s.mcRunning = running
 	case proto.AppVector:
 		s.vectorRunning = running
+	case proto.AppTEA:
+		s.teaRunning = running
 	}
 }
 
@@ -526,6 +555,9 @@ func (s *Service) setActiveLocked(appID proto.AppID, active bool, now uint64) {
 	case proto.AppVector:
 		s.vectorActive = active
 		s.vectorInactiveSince = inactiveSince(active, now, s.vectorInactiveSince)
+	case proto.AppTEA:
+		s.teaActive = active
+		s.teaInactiveSince = inactiveSince(active, now, s.teaInactiveSince)
 	}
 }
 
