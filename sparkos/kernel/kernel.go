@@ -4,7 +4,7 @@ import "sync"
 
 const (
 	maxTasks     = 32
-	maxEndpoints = 32
+	maxEndpoints = 64
 	mailboxSlots = 8
 )
 
