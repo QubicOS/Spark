@@ -4,6 +4,7 @@ import (
 	"spark/hal"
 	"spark/sparkos/kernel"
 	"spark/sparkos/services/appmgr"
+	audiosvc "spark/sparkos/services/audio"
 	"spark/sparkos/services/consolemux"
 	"spark/sparkos/services/logger"
 	"spark/sparkos/services/shell"
@@ -55,6 +56,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	termEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	shellEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	vfsEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	audioEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	muxEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	rtdemoEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	rtvoxelEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
@@ -85,6 +87,11 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	k.AddTask(logger.New(h.Logger(), logEP.Restrict(kernel.RightRecv)))
 	k.AddTask(timesvc.New(timeEP))
 	k.AddTask(vfs.New(h.Flash(), vfsEP.Restrict(kernel.RightRecv)))
+	if ha := h.Audio(); ha != nil {
+		k.AddTask(audiosvc.New(audioEP.Restrict(kernel.RightRecv), vfsEP.Restrict(kernel.RightSend), ha.PWM()))
+	} else {
+		k.AddTask(audiosvc.New(audioEP.Restrict(kernel.RightRecv), vfsEP.Restrict(kernel.RightSend), nil))
+	}
 
 	if cfg.Shell {
 		k.AddTask(term.New(h.Display(), termEP.Restrict(kernel.RightRecv)))
