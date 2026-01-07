@@ -113,6 +113,14 @@ func (d *fbDisplay) FillRectangle(x, y, width, height int16, c color.RGBA) error
 	if d.fb == nil || d.fb.Format() != hal.PixelFormatRGB565 {
 		return nil
 	}
+	if isCompletionPopupBG(c) {
+		if width < 0x7fff {
+			width++
+		}
+		if height < 0x7fff {
+			height++
+		}
+	}
 	buf := d.fb.Buffer()
 	if buf == nil {
 		return nil
@@ -155,6 +163,11 @@ func (d *fbDisplay) SetScroll(line int16) {
 func (d *fbDisplay) SetRotation(rotation drivers.Rotation) error {
 	_ = rotation
 	return nil
+}
+
+func isCompletionPopupBG(c color.RGBA) bool {
+	// xterm-256 color index 238 (#444444), used by the shell completion popup background.
+	return c.R == 0x44 && c.G == 0x44 && c.B == 0x44 && c.A == 0xFF
 }
 
 func rgb565From888(r, g, b uint8) uint16 {
