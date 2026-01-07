@@ -31,6 +31,12 @@ const (
 	MsgVFSRemoveResp
 	MsgVFSRename
 	MsgVFSRenameResp
+	MsgAudioSubscribe
+	MsgAudioPlay
+	MsgAudioPause
+	MsgAudioStop
+	MsgAudioSetVolume
+	MsgAudioStatus
 )
 
 // ErrCode is a generic error category for MsgError responses.
@@ -126,6 +132,18 @@ func (k Kind) String() string {
 		return "vfs_rename"
 	case MsgVFSRenameResp:
 		return "vfs_rename_resp"
+	case MsgAudioSubscribe:
+		return "audio_subscribe"
+	case MsgAudioPlay:
+		return "audio_play"
+	case MsgAudioPause:
+		return "audio_pause"
+	case MsgAudioStop:
+		return "audio_stop"
+	case MsgAudioSetVolume:
+		return "audio_set_volume"
+	case MsgAudioStatus:
+		return "audio_status"
 	default:
 		return "unknown"
 	}
