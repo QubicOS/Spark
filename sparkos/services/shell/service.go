@@ -84,6 +84,7 @@ func (s *Service) Run(ctx *kernel.Context) {
 }
 
 func (s *Service) banner() string {
+	bolt := "\x1b[38;5;220m"
 	info := "\x1b[38;5;39m"
 	dim := "\x1b[38;5;245m"
 	reset := "\x1b[0m"
@@ -93,15 +94,14 @@ func (s *Service) banner() string {
 		b += " " + buildinfo.Date
 	}
 
-	// Left: a simple icon, right: brief intro.
+	// Left: a small "bolt" logo, right: brief intro.
 	return "" +
 		info + "Welcome to SparkOS" + reset + "\n" +
-		dim + "   \u25a0" + reset + "\n" +
-		dim + "   \u25a0                 SparkOS is a personal operating system project" + reset + "\n" +
-		dim + "                     focused on building a small and understandable" + reset + "\n" +
-		dim + "                     system for embedded devices." + reset + "\n" +
-		dim + "                     Build: " + b + reset + "\n" +
-		dim + "                     Type: help" + reset + "\n\n"
+		bolt + "   /\\   " + reset + dim + "SparkOS is a personal operating system project" + reset + "\n" +
+		bolt + "  /  \\  " + reset + dim + "focused on building a small and understandable" + reset + "\n" +
+		bolt + " /_/\\ \\ " + reset + dim + "system for embedded devices." + reset + "\n" +
+		bolt + " \\ \\/ / " + reset + dim + "Build: " + b + reset + "\n" +
+		bolt + "  \\__/  " + reset + dim + "Type: help" + reset + "\n\n"
 }
 
 func (s *Service) handleFocus(ctx *kernel.Context, active bool) {
