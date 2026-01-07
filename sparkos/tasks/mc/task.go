@@ -43,6 +43,8 @@ const (
 	maxVFSRead     = kernel.MaxMessageBytes - 11
 )
 
+const viewerWindowBytes = 4 * 1024
+
 // Task implements a Midnight Commander-like file manager.
 type Task struct {
 	disp hal.Display
@@ -83,6 +85,10 @@ type Task struct {
 	viewerPath  string
 	viewerLines [][]rune
 	viewerTop   int
+	viewerSize  uint32
+	viewerOff   uint32
+	viewerNext  uint32
+	viewerLine  []uint32
 
 	hexPath        string
 	hexData        []byte
@@ -242,6 +248,10 @@ func (t *Task) unloadSession() {
 	t.viewerPath = ""
 	t.viewerLines = nil
 	t.viewerTop = 0
+	t.viewerSize = 0
+	t.viewerOff = 0
+	t.viewerNext = 0
+	t.viewerLine = nil
 
 	t.hexPath = ""
 	t.hexData = nil
@@ -538,16 +548,19 @@ func (t *Task) copySelected(ctx *kernel.Context) error {
 }
 
 func (t *Task) openViewer(ctx *kernel.Context, p string) error {
-	data, err := t.readAll(ctx, p, maxViewerBytes)
+	typ, size, err := t.vfsClient().Stat(ctx, p)
 	if err != nil {
 		return err
 	}
-	lines := decodeLines(data)
-	if len(lines) == 0 {
-		lines = [][]rune{{}}
+	if typ != proto.VFSEntryFile {
+		return errors.New("view: not a file")
 	}
+
 	t.viewerPath = p
-	t.viewerLines = lines
+	t.viewerSize = size
+	if err := t.loadViewerWindow(ctx, 0); err != nil {
+		return err
+	}
 	t.viewerTop = 0
 	t.mode = modeViewer
 	return nil
@@ -559,16 +572,18 @@ func (t *Task) handleViewerKey(ctx *kernel.Context, k key) {
 		t.mode = modePanels
 		return
 	case keyUp:
-		if t.viewerTop > 0 {
-			t.viewerTop--
-		}
+		t.viewerScrollUp(ctx, 1)
 	case keyDown:
-		if t.viewerTop+1 < len(t.viewerLines) {
-			t.viewerTop++
-		}
+		t.viewerScrollDown(ctx, 1)
 	case keyHome:
+		_ = t.loadViewerWindow(ctx, 0)
 		t.viewerTop = 0
 	case keyEnd:
+		if t.viewerSize > viewerWindowBytes {
+			_ = t.loadViewerWindow(ctx, t.viewerSize-viewerWindowBytes)
+		} else {
+			_ = t.loadViewerWindow(ctx, 0)
+		}
 		t.viewerTop = len(t.viewerLines) - 1
 	case keyRune:
 		switch k.r {
@@ -579,14 +594,55 @@ func (t *Task) handleViewerKey(ctx *kernel.Context, k key) {
 				t.setMessage("hex: " + err.Error())
 			}
 		case 'j':
-			if t.viewerTop+1 < len(t.viewerLines) {
-				t.viewerTop++
-			}
+			t.viewerScrollDown(ctx, 1)
 		case 'k':
-			if t.viewerTop > 0 {
-				t.viewerTop--
-			}
+			t.viewerScrollUp(ctx, 1)
 		}
+	}
+}
+
+func (t *Task) viewerScrollDown(ctx *kernel.Context, n int) {
+	for n > 0 {
+		if t.viewerTop+1 < len(t.viewerLines) {
+			t.viewerTop++
+			n--
+			continue
+		}
+		if t.viewerNext == 0 || t.viewerNext >= t.viewerSize {
+			return
+		}
+		if err := t.loadViewerWindow(ctx, t.viewerNext); err != nil {
+			t.setMessage("view: " + err.Error())
+			return
+		}
+		t.viewerTop = 0
+		n--
+	}
+}
+
+func (t *Task) viewerScrollUp(ctx *kernel.Context, n int) {
+	for n > 0 {
+		if t.viewerTop > 0 {
+			t.viewerTop--
+			n--
+			continue
+		}
+		if t.viewerOff == 0 {
+			return
+		}
+
+		off := t.viewerOff
+		if off > viewerWindowBytes {
+			off -= viewerWindowBytes
+		} else {
+			off = 0
+		}
+		if err := t.loadViewerWindow(ctx, off); err != nil {
+			t.setMessage("view: " + err.Error())
+			return
+		}
+		t.viewerTop = len(t.viewerLines) - 1
+		n--
 	}
 }
 
@@ -606,6 +662,103 @@ func (t *Task) openHex(ctx *kernel.Context, p string) error {
 	t.hexView = hexViewAuto
 	t.mode = modeHex
 	return nil
+}
+
+func (t *Task) loadViewerWindow(ctx *kernel.Context, off uint32) error {
+	if t.viewerPath == "" {
+		return errors.New("view: no file")
+	}
+
+	data, err := t.readWindow(ctx, t.viewerPath, off, int(viewerWindowBytes))
+	if err != nil {
+		return err
+	}
+	baseOff, start := alignToNextLine(off, data)
+	data = data[start:]
+
+	lines, lineOffs := decodeLinesWithOffsets(data, baseOff)
+	if len(lines) == 0 {
+		lines = [][]rune{{}}
+		lineOffs = []uint32{baseOff}
+	}
+
+	t.viewerOff = baseOff
+	t.viewerLines = lines
+	t.viewerLine = lineOffs
+	t.viewerNext = baseOff + uint32(len(data))
+	if t.viewerNext > t.viewerSize {
+		t.viewerNext = t.viewerSize
+	}
+	if t.viewerTop < 0 {
+		t.viewerTop = 0
+	}
+	if t.viewerTop >= len(t.viewerLines) {
+		t.viewerTop = len(t.viewerLines) - 1
+	}
+	return nil
+}
+
+func alignToNextLine(off uint32, data []byte) (baseOff uint32, start int) {
+	if off == 0 || len(data) == 0 {
+		return off, 0
+	}
+	for i, b := range data {
+		if b == '\n' {
+			return off + uint32(i+1), i + 1
+		}
+	}
+	return off, 0
+}
+
+func decodeLinesWithOffsets(data []byte, baseOff uint32) (lines [][]rune, offs []uint32) {
+	start := 0
+	for i := 0; i <= len(data); i++ {
+		end := i
+		atEnd := i == len(data)
+		if !atEnd && data[i] != '\n' {
+			continue
+		}
+
+		line := data[start:end]
+		if len(line) > 0 && line[len(line)-1] == '\r' {
+			line = line[:len(line)-1]
+		}
+		lines = append(lines, []rune(string(line)))
+		offs = append(offs, baseOff+uint32(start))
+
+		start = i + 1
+	}
+	return lines, offs
+}
+
+func (t *Task) readWindow(ctx *kernel.Context, path string, off uint32, maxBytes int) ([]byte, error) {
+	if maxBytes <= 0 {
+		return nil, nil
+	}
+
+	out := make([]byte, 0, maxBytes)
+	for uint32(len(out)) < uint32(maxBytes) {
+		want := uint16(maxVFSRead)
+		remain := maxBytes - len(out)
+		if remain < int(want) {
+			want = uint16(remain)
+		}
+		if want == 0 {
+			break
+		}
+
+		chunk, eof, err := t.vfsClient().ReadAt(ctx, path, off+uint32(len(out)), want)
+		if err != nil {
+			return nil, err
+		}
+		if len(chunk) > 0 {
+			out = append(out, chunk...)
+		}
+		if eof || len(chunk) == 0 {
+			break
+		}
+	}
+	return out, nil
 }
 
 func (t *Task) handleHexKey(ctx *kernel.Context, k key) {
@@ -908,11 +1061,11 @@ func (t *Task) viewerHeaderText() string {
 }
 
 func (t *Task) viewerStatusText() string {
-	msg := "q/ESC back"
-	if len(t.viewerLines) > 0 {
-		msg = fmt.Sprintf("%s | %d/%d", msg, t.viewerTop+1, len(t.viewerLines))
+	off := t.viewerOff
+	if t.viewerTop >= 0 && t.viewerTop < len(t.viewerLine) {
+		off = t.viewerLine[t.viewerTop]
 	}
-	return clipRunes(msg, t.cols)
+	return clipRunes(fmt.Sprintf("q/ESC back | off=%08X", off), t.cols)
 }
 
 func (t *Task) hexHeaderText() string {
