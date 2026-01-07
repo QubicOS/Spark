@@ -505,8 +505,9 @@ func (t *Task) render() {
 	bg := rgb565From888(0x00, 0x00, 0x00)
 	clearRGB565(buf, bg)
 
-	header := fmt.Sprintf("TETRIS score=%d lines=%d lvl=%d | arrows move/rot | z/x rot | c drop | p pause | r restart | q quit", t.score, t.lines, t.level)
-	t.drawText(0, 0, header, color.RGBA{R: 0xEE, G: 0xEE, B: 0xEE, A: 0xFF})
+	t.drawText(0, 0, "TETRIS", color.RGBA{R: 0xEE, G: 0xEE, B: 0xEE, A: 0xFF})
+	stats := fmt.Sprintf("score=%d lines=%d lvl=%d", t.score, t.lines, t.level)
+	t.drawText(0, int(t.fontHeight)+1, stats, color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xFF})
 
 	msg := ""
 	if t.gameOver {
@@ -519,8 +520,19 @@ func (t *Task) render() {
 		t.drawText(0, y, msg, color.RGBA{R: 0xFF, G: 0xD1, B: 0x4A, A: 0xFF})
 	}
 
-	top := int(t.fontHeight) + 2
+	top := int(t.fontHeight)*2 + 4
+	playW := t.boardW * t.cell
+	playH := t.boardH * t.cell
 	left := 8
+	if t.w > playW+16 {
+		left = (t.w - playW) / 2
+	}
+	if left < 4 {
+		left = 4
+	}
+
+	border := rgb565From888(0x55, 0x55, 0x55)
+	drawRectOutlineRGB565(buf, t.fb.StrideBytes(), left-1, top-1, playW+2, playH+2, border)
 
 	// Draw settled blocks.
 	for y := 0; y < t.boardH; y++ {
@@ -543,6 +555,25 @@ func (t *Task) render() {
 				continue
 			}
 			drawCellRGB565(buf, t.fb.StrideBytes(), left+x*t.cell, top+y*t.cell, t.cell, palette565(uint8(t.curID)+1))
+		}
+	}
+
+	// Side panel: next piece preview.
+	panelX := left + playW + t.cell
+	panelY := top
+	if panelX+6*t.cell < t.w {
+		t.drawText(panelX, panelY, "NEXT", color.RGBA{R: 0xEE, G: 0xEE, B: 0xEE, A: 0xFF})
+		boxY := panelY + int(t.fontHeight) + 2
+		boxW := 4*t.cell + 2
+		boxH := 4*t.cell + 2
+		drawRectOutlineRGB565(buf, t.fb.StrideBytes(), panelX-1, boxY-1, boxW, boxH, border)
+
+		blocks := pieceBlocks(t.nextID, 0)
+		for _, b := range blocks {
+			x := b.x
+			y := b.y
+			// Center a 4x4 piece box; pieceBlocks already in 4x4 coordinates.
+			drawCellRGB565(buf, t.fb.StrideBytes(), panelX+x*t.cell, boxY+y*t.cell, t.cell, palette565(uint8(t.nextID)+1))
 		}
 	}
 
@@ -595,6 +626,55 @@ func drawCellRGB565(buf []byte, stride, x0, y0, cell int, pixel uint16) {
 			buf[off] = lo
 			buf[off+1] = hi
 		}
+	}
+}
+
+func drawRectOutlineRGB565(buf []byte, stride, x0, y0, w, h int, pixel uint16) {
+	if w <= 0 || h <= 0 {
+		return
+	}
+	drawHLineRGB565(buf, stride, x0, x0+w-1, y0, pixel)
+	drawHLineRGB565(buf, stride, x0, x0+w-1, y0+h-1, pixel)
+	drawVLineRGB565(buf, stride, x0, y0, y0+h-1, pixel)
+	drawVLineRGB565(buf, stride, x0+w-1, y0, y0+h-1, pixel)
+}
+
+func drawHLineRGB565(buf []byte, stride, x0, x1, y int, pixel uint16) {
+	if y < 0 || stride <= 0 {
+		return
+	}
+	if x0 > x1 {
+		x0, x1 = x1, x0
+	}
+	lo := byte(pixel)
+	hi := byte(pixel >> 8)
+	row := y * stride
+	for x := x0; x <= x1; x++ {
+		off := row + x*2
+		if off < 0 || off+1 >= len(buf) {
+			continue
+		}
+		buf[off] = lo
+		buf[off+1] = hi
+	}
+}
+
+func drawVLineRGB565(buf []byte, stride, x, y0, y1 int, pixel uint16) {
+	if x < 0 || stride <= 0 {
+		return
+	}
+	if y0 > y1 {
+		y0, y1 = y1, y0
+	}
+	lo := byte(pixel)
+	hi := byte(pixel >> 8)
+	for y := y0; y <= y1; y++ {
+		off := y*stride + x*2
+		if off < 0 || off+1 >= len(buf) {
+			continue
+		}
+		buf[off] = lo
+		buf[off+1] = hi
 	}
 }
 
