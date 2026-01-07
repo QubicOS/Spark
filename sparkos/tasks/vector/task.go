@@ -136,10 +136,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 		return
 	}
 
-	t.appendLine("V  V  Vector: calculator + graph + 2D/3D plotter")
-	t.appendLine("V  V  Enter `sin(x)` (2D) or `sin(x)*cos(y)` (3D), then press Enter")
-	t.appendLine(" V V  Plot: press `g` or go to F2 | 3D: `$plotdim 3`, arrows rotate, +/- zoom")
-	t.appendLine("  V   Commands: :help :exact :float :prec N :autoscale :resetview")
+	t.initSession()
 
 	for msg := range ch {
 		switch proto.Kind(msg.Kind) {
@@ -179,12 +176,17 @@ func (t *Task) Run(ctx *kernel.Context) {
 
 func (t *Task) setActive(ctx *kernel.Context, active bool) {
 	if active == t.active {
+		if !active {
+			t.unloadSession()
+		}
 		return
 	}
 	t.active = active
 	if !t.active {
+		t.unloadSession()
 		return
 	}
+	t.initSession()
 	t.setMessage("F1 term | F2 plot | F3 stack | H help | q quit")
 	t.updateHint()
 	t.render()
@@ -205,6 +207,7 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 	}
 	t.active = false
 	t.showHelp = false
+	t.unloadSession()
 
 	if !t.muxCap.Valid() {
 		return
@@ -220,6 +223,64 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 			return
 		}
 	}
+}
+
+func (t *Task) initSession() {
+	if t.e == nil {
+		t.e = newEnv()
+	}
+	if len(t.lines) != 0 {
+		return
+	}
+
+	t.appendLine("V  V  Vector: calculator + graph + 2D/3D plotter")
+	t.appendLine("V  V  Enter `sin(x)` (2D) or `sin(x)*cos(y)` (3D), then press Enter")
+	t.appendLine(" V V  Plot: press `g` or go to F2 | 3D: `$plotdim 3`, arrows rotate, +/- zoom")
+	t.appendLine("  V   Commands: :help :exact :float :prec N :autoscale :resetview")
+}
+
+func (t *Task) unloadSession() {
+	t.e = newEnv()
+
+	t.tab = tabTerminal
+
+	t.lines = nil
+
+	t.input = nil
+	t.cursor = 0
+
+	t.history = nil
+	t.histPos = 0
+
+	t.inbuf = nil
+
+	t.showHelp = false
+	t.helpTop = 0
+
+	t.message = ""
+	t.hint = ""
+	t.ghost = ""
+
+	t.cands = nil
+	t.best = ""
+	t.editVar = ""
+
+	t.graphExpr = ""
+	t.graph = nil
+	t.plots = nil
+
+	t.xMin = -10
+	t.xMax = 10
+	t.yMin = -10
+	t.yMax = 10
+
+	t.plotDim = 2
+	t.plotYaw = 0.8
+	t.plotPitch = 0.55
+	t.plotZoom = 1.2
+
+	t.stackSel = 0
+	t.stackTop = 0
 }
 
 func (t *Task) handleInput(ctx *kernel.Context, b []byte) {

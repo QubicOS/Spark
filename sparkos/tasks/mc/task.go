@@ -170,10 +170,14 @@ func (t *Task) Run(ctx *kernel.Context) {
 
 func (t *Task) setActive(ctx *kernel.Context, active bool) {
 	if active == t.active {
+		if !active {
+			t.unloadSession()
+		}
 		return
 	}
 	t.active = active
 	if !t.active {
+		t.unloadSession()
 		return
 	}
 	_ = t.refreshPanels(ctx)
@@ -193,6 +197,7 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 
 	t.active = false
 	t.showHelp = false
+	t.unloadSession()
 
 	if !t.muxCap.Valid() {
 		return
@@ -209,6 +214,42 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 			return
 		}
 	}
+}
+
+func (t *Task) unloadSession() {
+	t.mode = modePanels
+	t.activePanel = panelLeft
+
+	t.left.entries = nil
+	t.left.sel = 0
+	t.left.scroll = 0
+
+	t.right.entries = nil
+	t.right.sel = 0
+	t.right.scroll = 0
+
+	t.message = ""
+
+	t.inbuf = nil
+
+	t.showHelp = false
+	t.helpTop = 0
+
+	t.viewerPath = ""
+	t.viewerLines = nil
+	t.viewerTop = 0
+
+	t.hexPath = ""
+	t.hexData = nil
+	t.hexCursor = 0
+	t.hexTop = 0
+	t.hexNibble = 0
+	t.hexDirty = false
+	t.hexQuitConfirm = false
+	t.hexEditASCII = false
+	t.hexView = hexViewAuto
+
+	t.vfs = nil
 }
 
 func (t *Task) activePanelPtr() *panel {

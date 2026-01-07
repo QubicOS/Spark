@@ -137,11 +137,20 @@ func (t *Task) Run(ctx *kernel.Context) {
 
 func (t *Task) setActive(active bool) {
 	if active == t.active {
+		if !active {
+			t.unloadSession()
+		}
 		return
 	}
 	t.active = active
 	if !t.active {
+		t.unloadSession()
 		return
+	}
+
+	if len(t.editor.lines) == 0 {
+		t.editor.reset()
+		t.editor.ensureCursorVisible(t.viewRows, t.cols)
 	}
 	if t.editor.filePath == "" {
 		t.editor.setMessage("SparkVi: :q to exit, :w to save, :e <file> to open.")
@@ -151,20 +160,30 @@ func (t *Task) setActive(active bool) {
 func (t *Task) requestExit(ctx *kernel.Context) {
 	if !t.muxCap.Valid() {
 		t.active = false
+		t.unloadSession()
 		return
 	}
 	for {
 		res := ctx.SendToCapResult(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{})
 		switch res {
 		case kernel.SendOK:
+			t.active = false
+			t.unloadSession()
 			return
 		case kernel.SendErrQueueFull:
 			ctx.BlockOnTick()
 		default:
 			t.active = false
+			t.unloadSession()
 			return
 		}
 	}
+}
+
+func (t *Task) unloadSession() {
+	t.inbuf = nil
+	t.vfs = nil
+	t.editor = editor{}
 }
 
 func (t *Task) vfsClient() *vfsclient.Client {
