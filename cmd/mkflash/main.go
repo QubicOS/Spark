@@ -18,7 +18,7 @@ import (
 
 const (
 	defaultFlashPath = "Flash.bin"
-	defaultFlashSize = 2 * 1024 * 1024
+	defaultFlashSize = 16 * 1024 * 1024
 	defaultEraseSize = 4096
 )
 

@@ -12,7 +12,7 @@ import (
 
 const (
 	hostFlashDefaultPath      = "Flash.bin"
-	hostFlashDefaultSizeBytes = 2 * 1024 * 1024
+	hostFlashDefaultSizeBytes = 16 * 1024 * 1024
 	hostFlashEraseBlockBytes  = 4096
 )
 

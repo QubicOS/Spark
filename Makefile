@@ -7,6 +7,7 @@ BIN_DIR ?= bin
 DIST_DIR ?= dist
 ROOTFS_DIR ?= rootfs
 FLASH_IMG ?= flash.bin
+FLASH_SIZE ?= 16777216
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
@@ -68,7 +69,7 @@ tidy:
 
 make-vfs:
 	@test -d "$(ROOTFS_DIR)" || (echo "error: $(ROOTFS_DIR) not found (create it with files to import)"; exit 2)
-	$(GO) run ./cmd/mkflash -src "$(ROOTFS_DIR)" -out "$(FLASH_IMG)"
+	$(GO) run ./cmd/mkflash -src "$(ROOTFS_DIR)" -out "$(FLASH_IMG)" -size "$(FLASH_SIZE)"
 	@if [ "$(FLASH_IMG)" != "Flash.bin" ]; then cp -f "$(FLASH_IMG)" Flash.bin; fi
 
 vfs: make-vfs
