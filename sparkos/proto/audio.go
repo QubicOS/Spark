@@ -77,3 +77,32 @@ func DecodeAudioStatusPayload(b []byte) (state AudioState, volume uint8, sampleR
 	totalSamples = binary.LittleEndian.Uint32(b[8:12])
 	return state, volume, sampleRate, posSamples, totalSamples, true
 }
+
+// AudioMetersPayload encodes a simple equalizer meter update.
+//
+// Layout:
+//   - u8: bands count
+//   - u8[]: band levels (0..255)
+func AudioMetersPayload(levels []uint8) []byte {
+	if len(levels) > 32 {
+		levels = levels[:32]
+	}
+	buf := make([]byte, 1+len(levels))
+	buf[0] = uint8(len(levels))
+	copy(buf[1:], levels)
+	return buf
+}
+
+func DecodeAudioMetersPayload(b []byte) (levels []uint8, ok bool) {
+	if len(b) < 1 {
+		return nil, false
+	}
+	n := int(b[0])
+	if n < 0 || n > 32 {
+		return nil, false
+	}
+	if len(b) != 1+n {
+		return nil, false
+	}
+	return b[1:], true
+}

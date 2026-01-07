@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,6 +31,12 @@ type Service struct {
 	total       uint32
 	pos         uint32
 	loopEnabled uint32
+
+	metersMu sync.Mutex
+	meters   [8]uint8
+	metersSR uint32
+	metersN  int
+	metersC  [8]float64
 
 	playMu sync.Mutex
 	cancel chan struct{}
@@ -273,6 +280,8 @@ func (s *Service) play(ctx *kernel.Context, path string) error {
 			return err
 		}
 
+		s.updateMeters(block[:n], sr)
+
 		for i := 0; i < n; i++ {
 			if paced {
 				select {
@@ -361,6 +370,7 @@ func (s *Service) sendStatus(ctx *kernel.Context) {
 	res := ctx.SendToCapResult(sub, uint16(proto.MsgAudioStatus), payload, kernel.Capability{})
 	switch res {
 	case kernel.SendOK:
+		s.sendMeters(ctx, sub)
 		return
 	case kernel.SendErrQueueFull:
 		return
@@ -373,9 +383,84 @@ func (s *Service) sendStatus(ctx *kernel.Context) {
 	}
 }
 
+func (s *Service) sendMeters(ctx *kernel.Context, sub kernel.Capability) {
+	s.metersMu.Lock()
+	m := s.meters
+	s.metersMu.Unlock()
+
+	payload := proto.AudioMetersPayload(m[:])
+	_ = ctx.SendToCapResult(sub, uint16(proto.MsgAudioMeters), payload, kernel.Capability{})
+}
+
 func boolToUint32(v bool) uint32 {
 	if v {
 		return 1
 	}
 	return 0
+}
+
+func (s *Service) updateMeters(samples []int16, sampleRate uint32) {
+	if len(samples) == 0 || sampleRate == 0 {
+		return
+	}
+
+	const win = 256
+	n := len(samples)
+	if n > win {
+		n = win
+	}
+
+	// 8-band center frequencies (Hz).
+	freqs := [8]float64{60, 170, 310, 600, 1000, 3000, 6000, 12000}
+
+	s.metersMu.Lock()
+	if s.metersSR != sampleRate || s.metersN != n {
+		s.metersSR = sampleRate
+		s.metersN = n
+		for i := range s.metersC {
+			k := 0.5 + float64(n)*freqs[i]/float64(sampleRate)
+			omega := 2 * math.Pi * k / float64(n)
+			s.metersC[i] = 2 * math.Cos(omega)
+		}
+	}
+	coeff := s.metersC
+	prev := s.meters
+	s.metersMu.Unlock()
+
+	var next [8]uint8
+	for b := 0; b < 8; b++ {
+		var q0, q1, q2 float64
+		c := coeff[b]
+		for i := 0; i < n; i++ {
+			x := float64(samples[i]) / 32768.0
+			q0 = c*q1 - q2 + x
+			q2 = q1
+			q1 = q0
+		}
+		power := q1*q1 + q2*q2 - c*q1*q2
+		if power < 0 {
+			power = 0
+		}
+		amp := math.Sqrt(power) / float64(n)
+		level := int(amp * 700)
+		if level < 0 {
+			level = 0
+		}
+		if level > 255 {
+			level = 255
+		}
+		next[b] = uint8(level)
+	}
+
+	// Simple decay smoothing.
+	for i := range next {
+		if next[i] < prev[i] {
+			d := int(prev[i]-next[i]) / 4
+			next[i] = prev[i] - uint8(d)
+		}
+	}
+
+	s.metersMu.Lock()
+	s.meters = next
+	s.metersMu.Unlock()
 }

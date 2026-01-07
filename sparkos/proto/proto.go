@@ -37,6 +37,7 @@ const (
 	MsgAudioStop
 	MsgAudioSetVolume
 	MsgAudioStatus
+	MsgAudioMeters
 )
 
 // ErrCode is a generic error category for MsgError responses.
@@ -144,6 +145,8 @@ func (k Kind) String() string {
 		return "audio_set_volume"
 	case MsgAudioStatus:
 		return "audio_status"
+	case MsgAudioMeters:
+		return "audio_meters"
 	default:
 		return "unknown"
 	}

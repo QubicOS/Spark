@@ -64,6 +64,8 @@ type Task struct {
 	nowPos        uint32
 	nowTotal      uint32
 
+	eq [8]uint8
+
 	nowPath string
 
 	status string
@@ -154,19 +156,31 @@ func (t *Task) Run(ctx *kernel.Context) {
 			if !t.active {
 				continue
 			}
-			if proto.Kind(msg.Kind) != proto.MsgAudioStatus {
-				continue
+			switch proto.Kind(msg.Kind) {
+			case proto.MsgAudioStatus:
+				state, vol, sr, pos, total, ok := proto.DecodeAudioStatusPayload(msg.Data[:msg.Len])
+				if !ok {
+					continue
+				}
+				t.nowState = state
+				t.nowVolume = vol
+				t.nowSampleRate = sr
+				t.nowPos = pos
+				t.nowTotal = total
+				t.render()
+			case proto.MsgAudioMeters:
+				levels, ok := proto.DecodeAudioMetersPayload(msg.Data[:msg.Len])
+				if !ok {
+					continue
+				}
+				for i := range t.eq {
+					t.eq[i] = 0
+				}
+				for i := 0; i < len(levels) && i < len(t.eq); i++ {
+					t.eq[i] = levels[i]
+				}
+				t.render()
 			}
-			state, vol, sr, pos, total, ok := proto.DecodeAudioStatusPayload(msg.Data[:msg.Len])
-			if !ok {
-				continue
-			}
-			t.nowState = state
-			t.nowVolume = vol
-			t.nowSampleRate = sr
-			t.nowPos = pos
-			t.nowTotal = total
-			t.render()
 
 		case now := <-tickCh:
 			if !t.active {
@@ -553,6 +567,7 @@ func (t *Task) render() {
 
 	pad := 8
 	titleH := int(t.fontHeight)*2 + 14
+	eqH := int(t.fontHeight)*2 + 12
 	footerH := int(t.fontHeight)*3 + 10
 
 	listW := (t.w * 5) / 9
@@ -567,7 +582,7 @@ func (t *Task) render() {
 	y0 := pad
 	xList := x0
 	yList := y0 + titleH
-	hList := t.h - yList - footerH - pad
+	hList := t.h - yList - eqH - footerH - pad*2
 
 	xInfo := xList + listW + pad
 	wInfo := t.w - xInfo - pad
@@ -581,9 +596,57 @@ func (t *Task) render() {
 	t.renderList(xList+1, yList+1, listW-2, hList-2)
 	t.renderInfo(xInfo+1, yList+1, wInfo-2, hList-2)
 
+	yEQ := yList + hList + pad
+	t.renderEQ(pad, yEQ, t.w-pad*2, eqH)
 	t.renderFooter(pad, t.h-footerH-pad, t.w-pad*2, footerH)
 
 	_ = t.fb.Present()
+}
+
+func (t *Task) renderEQ(x, y, w, h int) {
+	if w <= 0 || h <= 0 {
+		return
+	}
+	buf := t.fb.Buffer()
+	if buf == nil {
+		return
+	}
+
+	fillRectRGB565(buf, t.fb.StrideBytes(), x, y, w, h, rgb565From888(0x10, 0x14, 0x1E))
+	drawRectOutlineRGB565(buf, t.fb.StrideBytes(), x, y, w, h, rgb565From888(0x2B, 0x33, 0x44))
+	t.drawText(x+6, y+3, "EQ", color.RGBA{R: 0x88, G: 0xA6, B: 0xD6, A: 0xFF})
+
+	bars := len(t.eq)
+	if bars == 0 {
+		return
+	}
+	innerX := x + 30
+	innerY := y + 3
+	innerW := w - 36
+	innerH := h - 8
+	if innerW <= 0 || innerH <= 0 {
+		return
+	}
+
+	gap := 2
+	barW := (innerW - (bars-1)*gap) / bars
+	if barW < 1 {
+		barW = 1
+	}
+
+	for i := 0; i < bars; i++ {
+		lvl := int(t.eq[i])
+		barH := (innerH * lvl) / 255
+		if barH < 0 {
+			barH = 0
+		}
+		if barH > innerH {
+			barH = innerH
+		}
+		bx := innerX + i*(barW+gap)
+		by := innerY + (innerH - barH)
+		fillRectRGB565(buf, t.fb.StrideBytes(), bx, by, barW, barH, rgb565From888(0x3A, 0x8B, 0xFF))
+	}
 }
 
 func (t *Task) renderList(x, y, w, h int) {
