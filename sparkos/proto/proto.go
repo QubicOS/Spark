@@ -31,6 +31,8 @@ const (
 	MsgVFSRemoveResp
 	MsgVFSRename
 	MsgVFSRenameResp
+	MsgVFSCopy
+	MsgVFSCopyResp
 	MsgAudioSubscribe
 	MsgAudioPlay
 	MsgAudioPause
@@ -133,6 +135,10 @@ func (k Kind) String() string {
 		return "vfs_rename"
 	case MsgVFSRenameResp:
 		return "vfs_rename_resp"
+	case MsgVFSCopy:
+		return "vfs_copy"
+	case MsgVFSCopyResp:
+		return "vfs_copy_resp"
 	case MsgAudioSubscribe:
 		return "audio_subscribe"
 	case MsgAudioPlay:

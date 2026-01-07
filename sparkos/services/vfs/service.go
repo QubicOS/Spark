@@ -60,6 +60,8 @@ func (s *Service) Run(ctx *kernel.Context) {
 			s.handleRemove(ctx, msg)
 		case proto.MsgVFSRename:
 			s.handleRename(ctx, msg)
+		case proto.MsgVFSCopy:
+			s.handleCopy(ctx, msg)
 		case proto.MsgVFSStat:
 			s.handleStat(ctx, msg)
 		case proto.MsgVFSRead:
@@ -167,6 +169,100 @@ func (s *Service) handleRename(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 	_ = s.send(ctx, reply, proto.MsgVFSRenameResp, proto.VFSRenameRespPayload(requestID))
+}
+
+func (s *Service) handleCopy(ctx *kernel.Context, msg kernel.Message) {
+	reply := msg.Cap
+	requestID, srcPath, dstPath, ok := proto.DecodeVFSCopyPayload(msg.Data[:msg.Len])
+	if !ok {
+		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSCopy, 0, "decode copy")
+		return
+	}
+	if !reply.Valid() {
+		return
+	}
+
+	fs := s.fs
+	if fs == nil {
+		_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSCopy, requestID, "vfs not ready")
+		return
+	}
+
+	info, err := fs.Stat(srcPath)
+	if err != nil {
+		_ = s.sendErr(ctx, reply, mapVFSError(err), proto.MsgVFSCopy, requestID, err.Error())
+		return
+	}
+	if info.Type != littlefs.TypeFile {
+		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSCopy, requestID, "source is not a file")
+		return
+	}
+
+	w, err := fs.OpenWriter(dstPath, littlefs.WriteTruncate)
+	if err != nil {
+		_ = s.sendErr(ctx, reply, mapVFSError(err), proto.MsgVFSCopy, requestID, err.Error())
+		return
+	}
+	defer func() { _ = w.Close() }()
+
+	const bufSize = 4096
+	buf := make([]byte, bufSize)
+
+	var copied uint32
+	total := info.Size
+	lastPct := -1
+
+	sendProgress := func(done bool) {
+		pct := 100
+		if total > 0 {
+			pct = int((uint64(copied) * 100) / uint64(total))
+			if pct < 0 {
+				pct = 0
+			}
+			if pct > 100 {
+				pct = 100
+			}
+		}
+		if !done && pct == lastPct {
+			return
+		}
+		lastPct = pct
+		_ = s.send(ctx, reply, proto.MsgVFSCopyResp, proto.VFSCopyRespPayload(requestID, done, copied, total))
+	}
+
+	sendProgress(false)
+
+	var off uint32
+	for {
+		n, eof, err := fs.ReadAt(srcPath, buf, off)
+		if err != nil {
+			_ = s.sendErr(ctx, reply, mapVFSError(err), proto.MsgVFSCopy, requestID, err.Error())
+			return
+		}
+		if n > 0 {
+			written, err := w.Write(buf[:n])
+			if err != nil {
+				_ = s.sendErr(ctx, reply, mapVFSError(err), proto.MsgVFSCopy, requestID, err.Error())
+				return
+			}
+			if written != n {
+				_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSCopy, requestID, "short write")
+				return
+			}
+			off += uint32(n)
+			copied += uint32(n)
+			sendProgress(false)
+		}
+		if eof {
+			break
+		}
+	}
+
+	if err := w.Close(); err != nil {
+		_ = s.sendErr(ctx, reply, mapVFSError(err), proto.MsgVFSCopy, requestID, err.Error())
+		return
+	}
+	sendProgress(true)
 }
 
 func (s *Service) handleStat(ctx *kernel.Context, msg kernel.Message) {

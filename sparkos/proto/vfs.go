@@ -231,6 +231,76 @@ func DecodeVFSRenameRespPayload(b []byte) (requestID uint32, ok bool) {
 	return binary.LittleEndian.Uint32(b[0:4]), true
 }
 
+// VFSCopyPayload encodes a MsgVFSCopy request.
+//
+// Layout (little-endian):
+//   - u32: request id
+//   - u16: src path length
+//   - bytes: src path (UTF-8)
+//   - u16: dst path length
+//   - bytes: dst path (UTF-8)
+func VFSCopyPayload(requestID uint32, srcPath, dstPath string) []byte {
+	src := []byte(srcPath)
+	dst := []byte(dstPath)
+	buf := make([]byte, 8+len(src)+len(dst))
+	binary.LittleEndian.PutUint32(buf[0:4], requestID)
+	binary.LittleEndian.PutUint16(buf[4:6], uint16(len(src)))
+	copy(buf[6:], src)
+	off := 6 + len(src)
+	binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(dst)))
+	copy(buf[off+2:], dst)
+	return buf
+}
+
+func DecodeVFSCopyPayload(b []byte) (requestID uint32, srcPath, dstPath string, ok bool) {
+	if len(b) < 8 {
+		return 0, "", "", false
+	}
+	requestID = binary.LittleEndian.Uint32(b[0:4])
+	srcLen := int(binary.LittleEndian.Uint16(b[4:6]))
+	if 6+srcLen+2 > len(b) {
+		return 0, "", "", false
+	}
+	srcPath = string(b[6 : 6+srcLen])
+	off := 6 + srcLen
+	dstLen := int(binary.LittleEndian.Uint16(b[off : off+2]))
+	off += 2
+	if off+dstLen != len(b) {
+		return 0, "", "", false
+	}
+	dstPath = string(b[off:])
+	return requestID, srcPath, dstPath, true
+}
+
+// VFSCopyRespPayload encodes a MsgVFSCopyResp response.
+//
+// Layout (little-endian):
+//   - u32: request id
+//   - u8 : done flag (0/1)
+//   - u32: bytes copied
+//   - u32: total bytes
+func VFSCopyRespPayload(requestID uint32, done bool, copied, total uint32) []byte {
+	buf := make([]byte, 13)
+	binary.LittleEndian.PutUint32(buf[0:4], requestID)
+	if done {
+		buf[4] = 1
+	}
+	binary.LittleEndian.PutUint32(buf[5:9], copied)
+	binary.LittleEndian.PutUint32(buf[9:13], total)
+	return buf
+}
+
+func DecodeVFSCopyRespPayload(b []byte) (requestID uint32, done bool, copied, total uint32, ok bool) {
+	if len(b) != 13 {
+		return 0, false, 0, 0, false
+	}
+	requestID = binary.LittleEndian.Uint32(b[0:4])
+	done = b[4] != 0
+	copied = binary.LittleEndian.Uint32(b[5:9])
+	total = binary.LittleEndian.Uint32(b[9:13])
+	return requestID, done, copied, total, true
+}
+
 // VFSStatPayload encodes a MsgVFSStat request.
 func VFSStatPayload(requestID uint32, path string) []byte {
 	p := []byte(path)
