@@ -297,6 +297,23 @@ func VFSReadPayload(requestID uint32, path string, off uint32, maxBytes uint16) 
 	return buf
 }
 
+// VFSReadPayloadInto encodes a MsgVFSRead request into dst and returns the used slice.
+//
+// It performs no heap allocations and returns ok=false if dst is too small.
+func VFSReadPayloadInto(dst []byte, requestID uint32, path string, off uint32, maxBytes uint16) (payload []byte, ok bool) {
+	if len(dst) < 12+len(path) {
+		return nil, false
+	}
+
+	binary.LittleEndian.PutUint32(dst[0:4], requestID)
+	binary.LittleEndian.PutUint16(dst[4:6], uint16(len(path)))
+	copy(dst[6:], path)
+	base := 6 + len(path)
+	binary.LittleEndian.PutUint32(dst[base:base+4], off)
+	binary.LittleEndian.PutUint16(dst[base+4:base+6], maxBytes)
+	return dst[:base+6], true
+}
+
 func DecodeVFSReadPayload(
 	b []byte,
 ) (requestID uint32, path string, off uint32, maxBytes uint16, ok bool) {
