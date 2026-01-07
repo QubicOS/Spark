@@ -23,6 +23,13 @@ const (
 	tabStack
 )
 
+const (
+	maxOutputLines    = 200
+	maxHistoryEntries = 200
+	maxPlots          = 8
+	maxPlotPoints     = 1024
+)
+
 // Task implements a framebuffer-based math calculator with graphing.
 type Task struct {
 	disp hal.Display
@@ -831,7 +838,7 @@ func (t *Task) addPlotFunc(src string, ex node) {
 			return
 		}
 	}
-	if len(t.plots) >= 8 {
+	if len(t.plots) >= maxPlots {
 		t.plots = t.plots[1:]
 	}
 	t.plots = append(t.plots, plot{src: src, expr: ex})
@@ -841,10 +848,39 @@ func (t *Task) addPlotSeries(src string, xs, ys []float64) {
 	if len(xs) == 0 || len(xs) != len(ys) {
 		return
 	}
-	if len(t.plots) >= 8 {
+	if len(xs) > maxPlotPoints {
+		xs, ys = downsampleSeries(xs, ys, maxPlotPoints)
+	}
+	if len(t.plots) >= maxPlots {
 		t.plots = t.plots[1:]
 	}
 	t.plots = append(t.plots, plot{src: src, xs: xs, ys: ys})
+}
+
+func downsampleSeries(xs, ys []float64, maxPoints int) ([]float64, []float64) {
+	if maxPoints <= 1 || len(xs) <= maxPoints || len(xs) != len(ys) {
+		return xs, ys
+	}
+
+	step := len(xs) / maxPoints
+	if step < 1 {
+		step = 1
+	}
+
+	outX := make([]float64, 0, maxPoints)
+	outY := make([]float64, 0, maxPoints)
+	for i := 0; i < len(xs) && len(outX) < maxPoints; i += step {
+		outX = append(outX, xs[i])
+		outY = append(outY, ys[i])
+	}
+	if len(outX) == 0 {
+		return xs, ys
+	}
+
+	last := len(xs) - 1
+	outX[len(outX)-1] = xs[last]
+	outY[len(outY)-1] = ys[last]
+	return outX, outY
 }
 
 func (t *Task) handlePlotKey(ctx *kernel.Context, k key) {
@@ -1088,10 +1124,12 @@ func (t *Task) appendLine(s string) {
 	if s == "" {
 		return
 	}
-	t.lines = append(t.lines, s)
-	if len(t.lines) > 200 {
-		t.lines = t.lines[len(t.lines)-200:]
+	if len(t.lines) >= maxOutputLines {
+		copy(t.lines, t.lines[1:])
+		t.lines[len(t.lines)-1] = s
+		return
 	}
+	t.lines = append(t.lines, s)
 }
 
 func (t *Task) histUp() {
@@ -1353,9 +1391,7 @@ func (t *Task) evalLine(ctx *kernel.Context, line string, recordHistory bool) {
 	}
 
 	if recordHistory {
-		if len(t.history) == 0 || t.history[len(t.history)-1] != line {
-			t.history = append(t.history, line)
-		}
+		t.pushHistory(line)
 		t.histPos = len(t.history)
 	}
 
@@ -1422,6 +1458,21 @@ func (t *Task) evalLine(ctx *kernel.Context, line string, recordHistory bool) {
 			}
 		}
 	}
+}
+
+func (t *Task) pushHistory(line string) {
+	if line == "" {
+		return
+	}
+	if len(t.history) > 0 && t.history[len(t.history)-1] == line {
+		return
+	}
+	if len(t.history) >= maxHistoryEntries {
+		copy(t.history, t.history[1:])
+		t.history[len(t.history)-1] = line
+		return
+	}
+	t.history = append(t.history, line)
 }
 
 func (t *Task) handleStackKey(ctx *kernel.Context, k key) {
