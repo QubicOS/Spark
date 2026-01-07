@@ -12,6 +12,7 @@ const (
 	AppMC      AppID = 5
 	AppHex     AppID = 6
 	AppVector  AppID = 7
+	AppSnake   AppID = 8
 )
 
 // AppSelectPayload encodes an app selection request.
