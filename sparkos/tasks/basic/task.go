@@ -3,7 +3,6 @@ package basic
 import (
 	"errors"
 	"fmt"
-	"image/color"
 	"strconv"
 	"strings"
 
@@ -61,9 +60,13 @@ type Task struct {
 	input      []rune
 	inputCur   int
 	statusLine string
+	hint       string
 	inbuf      []byte
 
 	codeEd codeEditor
+
+	showHelp bool
+	helpTop  int
 
 	varTop int
 
@@ -80,7 +83,7 @@ func New(disp hal.Display, ep kernel.Capability, vfsCap kernel.Capability) *Task
 		ep:         ep,
 		vfsCap:     vfsCap,
 		tab:        tabIO,
-		statusLine: "TinyBASIC: RUN/LIST/NEW, Ctrl+G to exit.",
+		statusLine: "TinyBASIC: F1 code | F2 io | F3 vars | Esc exit | H help.",
 	}
 }
 
@@ -186,6 +189,10 @@ func (t *Task) unload() {
 	t.tab = tabIO
 	t.codeEd = codeEditor{}
 	t.varTop = 0
+	t.showHelp = false
+	t.helpTop = 0
+	t.hint = ""
+	t.statusLine = ""
 }
 
 func (t *Task) vfsClient() *vfsclient.Client {
@@ -241,17 +248,36 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		if len(t.codeEd.lines) == 0 {
 			t.codeEd.loadFromProgram(&t.prog)
 		}
+		t.showHelp = false
 		return
 	case keyF2:
 		_ = t.syncEditorToProgram()
 		t.tab = tabIO
+		t.showHelp = false
 		return
 	case keyF3:
 		_ = t.syncEditorToProgram()
 		t.tab = tabVars
+		t.showHelp = false
 		return
 	case keyEsc:
+		if t.showHelp {
+			t.showHelp = false
+			return
+		}
 		t.requestExit(ctx)
+		return
+	}
+
+	if k.kind == keyRune && (k.r == 'H' || k.r == 'h') {
+		t.showHelp = !t.showHelp
+		if t.showHelp {
+			t.helpTop = 0
+		}
+		return
+	}
+	if t.showHelp {
+		t.handleHelpKey(k)
 		return
 	}
 
@@ -262,6 +288,23 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		t.handleVarsKey(ctx, k)
 	default:
 		t.handleIOKey(ctx, k)
+	}
+}
+
+func (t *Task) handleHelpKey(k key) {
+	switch k.kind {
+	case keyEsc, keyEnter:
+		t.showHelp = false
+	case keyUp:
+		if t.helpTop > 0 {
+			t.helpTop--
+		}
+	case keyDown:
+		t.helpTop++
+	case keyHome:
+		t.helpTop = 0
+	case keyEnd:
+		t.helpTop = 1 << 30
 	}
 }
 
@@ -507,7 +550,7 @@ func (t *Task) render() {
 	if t.fb == nil {
 		return
 	}
-	t.fb.ClearRGB(0, 0, 0)
+	t.fb.ClearRGB(colorBG.R, colorBG.G, colorBG.B)
 
 	t.renderHeader()
 
@@ -520,21 +563,18 @@ func (t *Task) render() {
 		t.renderIO()
 	}
 
-	if t.statusLine != "" {
-		tinyfont.WriteLine(
-			t.d,
-			t.font,
-			0,
-			int16(t.rows-1)*t.fontHeight+t.fontOffset,
-			t.statusLine,
-			color.RGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xff},
-		)
+	t.renderStatus()
+	if t.showHelp {
+		t.renderHelp()
 	}
 
 	_ = t.fb.Present()
 }
 
 func (t *Task) renderHeader() {
+	w := int16(t.cols) * t.fontWidth
+	_ = t.d.FillRectangle(0, 0, w, t.fontHeight, colorHeaderBG)
+
 	head := "BASIC | F1 code  F2 io  F3 vars"
 	switch t.tab {
 	case tabCode:
@@ -544,7 +584,100 @@ func (t *Task) renderHeader() {
 	case tabVars:
 		head = "BASIC | F1 code  F2 io  F3 vars*"
 	}
-	tinyfont.WriteLine(t.d, t.font, 0, t.fontOffset, head, color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff})
+	tinyfont.WriteLine(t.d, t.font, 0, t.fontOffset, clipRunes(head, t.cols), colorDim)
+}
+
+func (t *Task) renderStatus() {
+	w := int16(t.cols) * t.fontWidth
+	y := int16(t.rows-1) * t.fontHeight
+	_ = t.d.FillRectangle(0, y, w, t.fontHeight, colorStatusBG)
+
+	s := t.statusLine
+	if t.hint != "" && s != "" {
+		s = t.hint + " | " + s
+	} else if t.hint != "" {
+		s = t.hint
+	}
+	tinyfont.WriteLine(t.d, t.font, 0, y+t.fontOffset, clipRunes(s, t.cols), colorDim)
+}
+
+func (t *Task) renderHelp() {
+	lines := t.helpLines()
+	if len(lines) == 0 {
+		return
+	}
+	boxW := int16(t.cols-4) * t.fontWidth
+	if boxW < 0 {
+		return
+	}
+	boxH := int16(t.rows-4) * t.fontHeight
+	if boxH < 0 {
+		return
+	}
+	x := int16(2) * t.fontWidth
+	y := int16(2) * t.fontHeight
+	_ = t.d.FillRectangle(x, y, boxW, boxH, colorHeaderBG)
+
+	innerCols := t.cols - 4
+	innerRows := t.rows - 4
+	if innerCols <= 0 || innerRows <= 0 {
+		return
+	}
+
+	maxTop := 0
+	if len(lines) > innerRows {
+		maxTop = len(lines) - innerRows
+	}
+	if t.helpTop < 0 {
+		t.helpTop = 0
+	}
+	if t.helpTop > maxTop {
+		t.helpTop = maxTop
+	}
+
+	start := t.helpTop
+	for row := 0; row < innerRows; row++ {
+		i := start + row
+		if i >= len(lines) {
+			break
+		}
+		tinyfont.WriteLine(
+			t.d,
+			t.font,
+			x,
+			y+int16(row+1)*t.fontHeight+t.fontOffset,
+			clipRunes(lines[i], innerCols),
+			colorFG,
+		)
+	}
+	tinyfont.WriteLine(t.d, t.font, x, y+t.fontOffset, clipRunes("HELP (Esc to close)", innerCols), colorAccent)
+}
+
+func (t *Task) helpLines() []string {
+	switch t.tab {
+	case tabCode:
+		return []string{
+			"F1/F2/F3: tabs",
+			"Arrows: move cursor",
+			"Enter: newline",
+			"Backspace/Delete: delete",
+			"Ctrl+S: sync numbered lines",
+			"Ctrl+R: sync + RUN",
+		}
+	case tabVars:
+		return []string{
+			"Up/Down/PgUp/PgDn: scroll",
+			"r: run",
+			"s: step",
+			"x: stop",
+		}
+	default:
+		return []string{
+			"INPUT mode: type value + Enter",
+			"r: RUN",
+			"Esc: exit app",
+		}
+	}
 }
 
 func (t *Task) renderIO() {
@@ -558,14 +691,7 @@ func (t *Task) renderIO() {
 		start = len(t.output) - visible
 	}
 	for i := start; i < len(t.output) && row < visible; i++ {
-		tinyfont.WriteLine(
-			t.d,
-			t.font,
-			0,
-			int16(row+1)*t.fontHeight+t.fontOffset,
-			t.output[i],
-			color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff},
-		)
+		tinyfont.WriteLine(t.d, t.font, 0, int16(row+1)*t.fontHeight+t.fontOffset, clipRunes(t.output[i], t.cols), colorFG)
 		row++
 	}
 
@@ -574,26 +700,14 @@ func (t *Task) renderIO() {
 		prompt = "?"
 	}
 	if !t.awaitInput {
-		tinyfont.WriteLine(
-			t.d,
-			t.font,
-			0,
-			int16(t.rows-2)*t.fontHeight+t.fontOffset,
-			"[not running] press r to RUN or F1 to edit",
-			color.RGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xff},
-		)
+		tinyfont.WriteLine(t.d, t.font, 0, int16(t.rows-2)*t.fontHeight+t.fontOffset, clipRunes("[not running] press r to RUN or F1 to edit", t.cols), colorDim)
+		t.hint = "io: r run | H help"
 		return
 	}
 
 	in := prompt + string(t.input)
-	tinyfont.WriteLine(
-		t.d,
-		t.font,
-		0,
-		int16(t.rows-2)*t.fontHeight+t.fontOffset,
-		in,
-		color.RGBA{R: 0xff, G: 0xff, B: 0, A: 0xff},
-	)
+	tinyfont.WriteLine(t.d, t.font, 0, int16(t.rows-2)*t.fontHeight+t.fontOffset, clipRunes(in, t.cols), colorInputFG)
+	t.hint = "io: enter submit | H help"
 }
 
 func (t *Task) renderCode() {
@@ -601,21 +715,15 @@ func (t *Task) renderCode() {
 	lines, top := t.codeEd.visible(visible)
 	for row := 0; row < len(lines); row++ {
 		y := int16(row+1)*t.fontHeight + t.fontOffset
-		c := color.RGBA{R: 0xee, G: 0xee, B: 0xee, A: 0xff}
+		c := colorFG
 		if top+row == t.codeEd.curRow {
-			c = color.RGBA{R: 0xff, G: 0xff, B: 0x4a, A: 0xff}
+			_ = t.d.FillRectangle(0, int16(row+1)*t.fontHeight, int16(t.cols)*t.fontWidth, t.fontHeight, colorHeaderBG)
+			c = colorAccent
 		}
-		tinyfont.WriteLine(t.d, t.font, 0, y, lines[row], c)
+		tinyfont.WriteLine(t.d, t.font, 0, y, clipRunes(lines[row], t.cols), c)
 	}
 
-	tinyfont.WriteLine(
-		t.d,
-		t.font,
-		0,
-		int16(t.rows-1)*t.fontHeight+t.fontOffset,
-		"code: arrows move | Enter newline | Ctrl+S sync | Ctrl+R run",
-		color.RGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xff},
-	)
+	t.hint = "code: arrows move | Enter newline | Ctrl+S sync | Ctrl+R run | H help"
 }
 
 func (t *Task) renderVars() {
@@ -683,8 +791,9 @@ func (t *Task) renderVars() {
 		if i < 0 || i >= len(lines) {
 			continue
 		}
-		tinyfont.WriteLine(t.d, t.font, 0, int16(row+1)*t.fontHeight+t.fontOffset, lines[i], color.RGBA{R: 0xee, G: 0xee, B: 0xee, A: 0xff})
+		tinyfont.WriteLine(t.d, t.font, 0, int16(row+1)*t.fontHeight+t.fontOffset, clipRunes(lines[i], t.cols), colorFG)
 	}
+	t.hint = "vars: Up/Down scroll | r run | s step | x stop | H help"
 }
 
 func (t *Task) requestExit(ctx *kernel.Context) {
