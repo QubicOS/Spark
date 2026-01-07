@@ -130,8 +130,10 @@ func (s *Service) flush(ctx *kernel.Context) {
 }
 
 const (
-	repeatDelayTicks = 12
-	repeatRateTicks  = 2
+	// Ticks are 1ms on host and TinyGo.
+	// These values aim to match typical desktop key-repeat feel without spamming.
+	repeatDelayTicks = 350
+	repeatRateTicks  = 60
 )
 
 func repeatableKey(ev hal.KeyEvent, data []byte) bool {
