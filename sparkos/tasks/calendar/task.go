@@ -898,6 +898,27 @@ func monthName(mm int) string {
 	}
 }
 
+func weekdayShort(wd int) string {
+	switch wd {
+	case 0:
+		return "Mo"
+	case 1:
+		return "Tu"
+	case 2:
+		return "We"
+	case 3:
+		return "Th"
+	case 4:
+		return "Fr"
+	case 5:
+		return "Sa"
+	case 6:
+		return "Su"
+	default:
+		return "??"
+	}
+}
+
 func (t *Task) render() {
 	if !t.active || t.fb == nil || t.fb.Format() != hal.PixelFormatRGB565 {
 		return
@@ -914,12 +935,20 @@ func (t *Task) render() {
 	t.drawText(6, 0, "CALENDAR", color.RGBA{R: 0xEE, G: 0xEE, B: 0xEE, A: 0xFF})
 	t.drawText(6, int(t.fontHeight)+1, title, color.RGBA{R: 0x9A, G: 0xC6, B: 0xFF, A: 0xFF})
 
+	statusH := int(t.fontHeight) + 4
+	inputBarH := 0
+	if t.mode == viewAddEvent {
+		inputBarH = int(t.fontHeight) + 6
+	}
 	if t.status != "" {
-		y := t.h - int(t.fontHeight) - 1
-		t.drawText(6, y, t.status, color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xFF})
+		y := t.h - inputBarH - int(t.fontHeight) - 1
+		if y >= int(t.fontHeight)*2+2 {
+			t.drawText(6, y, truncateToWidth(t.font, t.status, t.w-12), color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xFF})
+		}
 	}
 
-	top := int(t.fontHeight)*2 + 10
+	weekY := int(t.fontHeight)*2 + 8
+	top := weekY + int(t.fontHeight) + 8
 	margin := 6
 	sideMin := 120
 	if t.w < 7*14+sideMin+3*margin {
@@ -927,7 +956,7 @@ func (t *Task) render() {
 	}
 
 	cellWMax := (t.w - sideMin - 3*margin) / 7
-	cellHMax := (t.h - top - margin - 18) / 6
+	cellHMax := (t.h - top - margin - statusH - inputBarH) / 6
 	cell := cellWMax
 	if cellHMax < cell {
 		cell = cellHMax
@@ -935,8 +964,8 @@ func (t *Task) render() {
 	if cell < 14 {
 		cell = 14
 	}
-	if cell > 28 {
-		cell = 28
+	if cell > 34 {
+		cell = 34
 	}
 
 	gridW := cell * 7
@@ -949,14 +978,12 @@ func (t *Task) render() {
 		}
 	}
 
-	headerY := top - int(t.fontHeight) - 2
-	week := []string{"Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"}
 	for i := 0; i < 7; i++ {
 		c := color.RGBA{R: 0xAA, G: 0xAA, B: 0xAA, A: 0xFF}
 		if i >= 5 {
 			c = color.RGBA{R: 0xFF, G: 0xB3, B: 0xA1, A: 0xFF}
 		}
-		t.drawText(left+i*cell+2, headerY, week[i], c)
+		t.drawText(left+i*cell+2, weekY, weekdayShort(i), c)
 	}
 
 	border := rgb565From888(0x2B, 0x33, 0x44)
@@ -1035,11 +1062,65 @@ func (t *Task) render() {
 		}
 	}
 
+	bottomY := top + gridH + margin
+	bottomH := t.h - bottomY - statusH - inputBarH - margin
+	if bottomH > int(t.fontHeight)*2 {
+		t.renderAgendaPanel(margin, bottomY, t.w-2*margin, bottomH)
+	}
+
 	if t.mode == viewAddEvent {
 		t.renderInputBar()
 	}
 
 	_ = t.fb.Present()
+}
+
+func (t *Task) renderAgendaPanel(x, y, w, h int) {
+	if w <= 0 || h <= 0 {
+		return
+	}
+	buf := t.fb.Buffer()
+	if buf == nil {
+		return
+	}
+
+	border := rgb565From888(0x2B, 0x33, 0x44)
+	drawRectOutlineRGB565(buf, t.fb.StrideBytes(), x, y, w, h, border)
+
+	maxTextW := w - 10
+	if maxTextW < 0 {
+		maxTextW = 0
+	}
+	lineH := int(t.fontHeight) + 2
+
+	header := fmt.Sprintf("Agenda (selected %04d-%02d-%02d)", t.year, t.month, t.day)
+	t.drawText(x+4, y+2, truncateToWidth(t.font, header, maxTextW), color.RGBA{R: 0x9A, G: 0xC6, B: 0xFF, A: 0xFF})
+
+	yy, mm, dd := t.year, t.month, t.day
+	lineY := y + 2 + lineH
+	maxLines := (h - (lineY - y) - 2) / lineH
+	if maxLines < 1 {
+		return
+	}
+	if maxLines > 7 {
+		maxLines = 7
+	}
+
+	for i := 0; i < maxLines; i++ {
+		k := dateKey(yy, mm, dd)
+		evs := t.events[k]
+		prefix := fmt.Sprintf("%s %02d", weekdayShort(weekday(yy, mm, dd)), dd)
+		text := prefix + "  (no events)"
+		if len(evs) == 1 {
+			text = prefix + "  " + formatEvent(evs[0])
+		} else if len(evs) > 1 {
+			text = fmt.Sprintf("%s  %s  +%d", prefix, formatEvent(evs[0]), len(evs)-1)
+		}
+		t.drawText(x+4, lineY, truncateToWidth(t.font, text, maxTextW), color.RGBA{R: 0xD6, G: 0xD6, B: 0xD6, A: 0xFF})
+		lineY += lineH
+
+		yy, mm, dd = addOneDay(yy, mm, dd)
+	}
 }
 
 func (t *Task) renderSidePanel(x, y, w, h int) {
@@ -1056,10 +1137,20 @@ func (t *Task) renderSidePanel(x, y, w, h int) {
 	evs := t.events[k]
 	lineY := y + int(t.fontHeight) + 10
 
-	footerLines := []string{
+	var footerLines []string
+	for _, s := range []string{
 		"Enter: day view  a:add  d:del",
 		"n/b month  N/B year  g goto",
 		"q/ESC quit  m month  t set-today",
+	} {
+		footerLines = append(footerLines, wrapText(t.font, s, maxTextW)...)
+	}
+	maxFooterLines := (h - 6) / lineH
+	if maxFooterLines < 1 {
+		maxFooterLines = 1
+	}
+	if len(footerLines) > maxFooterLines {
+		footerLines = footerLines[len(footerLines)-maxFooterLines:]
 	}
 	footerH := len(footerLines)*lineH + 2
 	mainBottom := y + h - footerH
@@ -1083,7 +1174,7 @@ func (t *Task) renderSidePanel(x, y, w, h int) {
 			if i == t.selectedEvent {
 				c = color.RGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF}
 			}
-			t.drawText(x+4, lineY, truncateToWidth(t.font, s, w-8), c)
+			t.drawText(x+4, lineY, truncateToWidth(t.font, s, maxTextW), c)
 			lineY += lineH
 		}
 		if len(evs) == 0 {
@@ -1164,6 +1255,60 @@ func truncateToWidth(f tinyfont.Fonter, s string, maxW int) string {
 		}
 	}
 	return ""
+}
+
+func wrapText(f tinyfont.Fonter, s string, maxW int) []string {
+	s = strings.TrimSpace(s)
+	if s == "" || maxW <= 0 {
+		return nil
+	}
+	if int(textWidth(f, s)) <= maxW {
+		return []string{s}
+	}
+
+	words := strings.Fields(s)
+	var out []string
+
+	cur := ""
+	for _, word := range words {
+		next := word
+		if cur != "" {
+			next = cur + " " + word
+		}
+		if int(textWidth(f, next)) <= maxW {
+			cur = next
+			continue
+		}
+
+		if cur != "" {
+			out = append(out, cur)
+			cur = ""
+		}
+
+		if int(textWidth(f, word)) <= maxW {
+			cur = word
+			continue
+		}
+
+		// Hard-wrap long words.
+		r := []rune(word)
+		for len(r) > 0 {
+			n := len(r)
+			for n > 1 && int(textWidthRunes(f, r[:n])) > maxW {
+				n--
+			}
+			if n <= 0 {
+				break
+			}
+			out = append(out, string(r[:n]))
+			r = r[n:]
+		}
+	}
+
+	if cur != "" {
+		out = append(out, cur)
+	}
+	return out
 }
 
 func textWidth(f tinyfont.Fonter, s string) int {
