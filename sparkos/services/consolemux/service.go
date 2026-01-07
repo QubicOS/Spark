@@ -11,34 +11,42 @@ type Service struct {
 	inCap  kernel.Capability
 	ctlCap kernel.Capability
 
-	shellCap   kernel.Capability
-	rtdemoCap  kernel.Capability
-	rtvoxelCap kernel.Capability
-	imgviewCap kernel.Capability
-	viCap      kernel.Capability
-	mcCap      kernel.Capability
-	hexCap     kernel.Capability
-	vectorCap  kernel.Capability
-	termCap    kernel.Capability
+	shellCap    kernel.Capability
+	rtdemoCap   kernel.Capability
+	rtvoxelCap  kernel.Capability
+	imgviewCap  kernel.Capability
+	viCap       kernel.Capability
+	mcCap       kernel.Capability
+	hexCap      kernel.Capability
+	vectorCap   kernel.Capability
+	snakeCap    kernel.Capability
+	tetrisCap   kernel.Capability
+	calendarCap kernel.Capability
+	todoCap     kernel.Capability
+	termCap     kernel.Capability
 
 	activeApp proto.AppID
 	appActive bool
 }
 
-func New(inCap, ctlCap, shellCap, rtdemoCap, rtvoxelCap, imgviewCap, viCap, mcCap, hexCap, vectorCap, termCap kernel.Capability) *Service {
+func New(inCap, ctlCap, shellCap, rtdemoCap, rtvoxelCap, imgviewCap, viCap, mcCap, hexCap, vectorCap, snakeCap, tetrisCap, calendarCap, todoCap, termCap kernel.Capability) *Service {
 	return &Service{
-		inCap:      inCap,
-		ctlCap:     ctlCap,
-		shellCap:   shellCap,
-		rtdemoCap:  rtdemoCap,
-		rtvoxelCap: rtvoxelCap,
-		imgviewCap: imgviewCap,
-		viCap:      viCap,
-		mcCap:      mcCap,
-		hexCap:     hexCap,
-		vectorCap:  vectorCap,
-		termCap:    termCap,
-		activeApp:  proto.AppRTDemo,
+		inCap:       inCap,
+		ctlCap:      ctlCap,
+		shellCap:    shellCap,
+		rtdemoCap:   rtdemoCap,
+		rtvoxelCap:  rtvoxelCap,
+		imgviewCap:  imgviewCap,
+		viCap:       viCap,
+		mcCap:       mcCap,
+		hexCap:      hexCap,
+		vectorCap:   vectorCap,
+		snakeCap:    snakeCap,
+		tetrisCap:   tetrisCap,
+		calendarCap: calendarCap,
+		todoCap:     todoCap,
+		termCap:     termCap,
+		activeApp:   proto.AppRTDemo,
 	}
 }
 
@@ -144,6 +152,14 @@ func (s *Service) appCapByID(id proto.AppID) kernel.Capability {
 		return s.hexCap
 	case proto.AppVector:
 		return s.vectorCap
+	case proto.AppSnake:
+		return s.snakeCap
+	case proto.AppTetris:
+		return s.tetrisCap
+	case proto.AppCalendar:
+		return s.calendarCap
+	case proto.AppTodo:
+		return s.todoCap
 	default:
 		return kernel.Capability{}
 	}

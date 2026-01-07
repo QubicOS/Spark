@@ -3,6 +3,7 @@ package app
 import (
 	"spark/hal"
 	"spark/sparkos/kernel"
+	"spark/sparkos/services/appmgr"
 	"spark/sparkos/services/consolemux"
 	"spark/sparkos/services/logger"
 	"spark/sparkos/services/shell"
@@ -11,14 +12,7 @@ import (
 	timesvc "spark/sparkos/services/time"
 	"spark/sparkos/services/ui"
 	"spark/sparkos/services/vfs"
-	"spark/sparkos/tasks/hexedit"
-	"spark/sparkos/tasks/imgview"
-	"spark/sparkos/tasks/mc"
-	"spark/sparkos/tasks/rtdemo"
-	"spark/sparkos/tasks/rtvoxel"
 	"spark/sparkos/tasks/termdemo"
-	"spark/sparkos/tasks/vector"
-	"spark/sparkos/tasks/vi"
 )
 
 type system struct {
@@ -69,6 +63,22 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	mcEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	hexEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	vectorEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	snakeEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	tetrisEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	calendarEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	todoEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+
+	rtdemoProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	rtvoxelProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	imgviewProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	hexProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	snakeProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	tetrisProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	calendarProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	todoProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	viProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	mcProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	vectorProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 
 	k.AddTask(logger.New(h.Logger(), logEP.Restrict(kernel.RightRecv)))
 	k.AddTask(timesvc.New(timeEP))
@@ -76,24 +86,58 @@ func newSystem(h hal.HAL, cfg Config) *system {
 
 	if cfg.Shell {
 		k.AddTask(term.New(h.Display(), termEP.Restrict(kernel.RightRecv)))
-		k.AddTask(rtdemo.New(h.Display(), rtdemoEP.Restrict(kernel.RightRecv)))
-		k.AddTask(rtvoxel.New(h.Display(), rtvoxelEP.Restrict(kernel.RightRecv)))
-		k.AddTask(imgview.New(h.Display(), imgviewEP.Restrict(kernel.RightRecv), vfsEP.Restrict(kernel.RightSend)))
-		k.AddTask(vi.New(h.Display(), viEP.Restrict(kernel.RightRecv), vfsEP.Restrict(kernel.RightSend)))
-		k.AddTask(mc.New(h.Display(), mcEP.Restrict(kernel.RightRecv), vfsEP.Restrict(kernel.RightSend)))
-		k.AddTask(hexedit.New(h.Display(), hexEP.Restrict(kernel.RightRecv), vfsEP.Restrict(kernel.RightSend)))
-		k.AddTask(vector.New(h.Display(), vectorEP.Restrict(kernel.RightRecv)))
+		k.AddTask(appmgr.New(
+			h.Display(),
+			vfsEP.Restrict(kernel.RightSend),
+			rtdemoProxyEP.Restrict(kernel.RightRecv),
+			rtvoxelProxyEP.Restrict(kernel.RightRecv),
+			imgviewProxyEP.Restrict(kernel.RightRecv),
+			hexProxyEP.Restrict(kernel.RightRecv),
+			snakeProxyEP.Restrict(kernel.RightRecv),
+			tetrisProxyEP.Restrict(kernel.RightRecv),
+			calendarProxyEP.Restrict(kernel.RightRecv),
+			todoProxyEP.Restrict(kernel.RightRecv),
+			viProxyEP.Restrict(kernel.RightRecv),
+			mcProxyEP.Restrict(kernel.RightRecv),
+			vectorProxyEP.Restrict(kernel.RightRecv),
+			rtdemoEP.Restrict(kernel.RightSend),
+			rtvoxelEP.Restrict(kernel.RightSend),
+			imgviewEP.Restrict(kernel.RightSend),
+			hexEP.Restrict(kernel.RightSend),
+			snakeEP.Restrict(kernel.RightSend),
+			tetrisEP.Restrict(kernel.RightSend),
+			calendarEP.Restrict(kernel.RightSend),
+			todoEP.Restrict(kernel.RightSend),
+			viEP.Restrict(kernel.RightSend),
+			mcEP.Restrict(kernel.RightSend),
+			vectorEP.Restrict(kernel.RightSend),
+			rtdemoEP.Restrict(kernel.RightRecv),
+			rtvoxelEP.Restrict(kernel.RightRecv),
+			imgviewEP.Restrict(kernel.RightRecv),
+			hexEP.Restrict(kernel.RightRecv),
+			snakeEP.Restrict(kernel.RightRecv),
+			tetrisEP.Restrict(kernel.RightRecv),
+			calendarEP.Restrict(kernel.RightRecv),
+			todoEP.Restrict(kernel.RightRecv),
+			viEP.Restrict(kernel.RightRecv),
+			mcEP.Restrict(kernel.RightRecv),
+			vectorEP.Restrict(kernel.RightRecv),
+		))
 		k.AddTask(consolemux.New(
 			muxEP.Restrict(kernel.RightRecv),
 			muxEP.Restrict(kernel.RightSend),
 			shellEP.Restrict(kernel.RightSend),
-			rtdemoEP.Restrict(kernel.RightSend),
-			rtvoxelEP.Restrict(kernel.RightSend),
-			imgviewEP.Restrict(kernel.RightSend),
-			viEP.Restrict(kernel.RightSend),
-			mcEP.Restrict(kernel.RightSend),
-			hexEP.Restrict(kernel.RightSend),
-			vectorEP.Restrict(kernel.RightSend),
+			rtdemoProxyEP.Restrict(kernel.RightSend),
+			rtvoxelProxyEP.Restrict(kernel.RightSend),
+			imgviewProxyEP.Restrict(kernel.RightSend),
+			viProxyEP.Restrict(kernel.RightSend),
+			mcProxyEP.Restrict(kernel.RightSend),
+			hexProxyEP.Restrict(kernel.RightSend),
+			vectorProxyEP.Restrict(kernel.RightSend),
+			snakeProxyEP.Restrict(kernel.RightSend),
+			tetrisProxyEP.Restrict(kernel.RightSend),
+			calendarProxyEP.Restrict(kernel.RightSend),
+			todoProxyEP.Restrict(kernel.RightSend),
 			termEP.Restrict(kernel.RightSend),
 		))
 		k.AddTask(termkbd.NewInput(h.Input(), muxEP.Restrict(kernel.RightSend)))

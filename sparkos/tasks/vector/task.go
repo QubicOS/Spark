@@ -23,6 +23,13 @@ const (
 	tabStack
 )
 
+const (
+	maxOutputLines    = 200
+	maxHistoryEntries = 200
+	maxPlots          = 8
+	maxPlotPoints     = 1024
+)
+
 // Task implements a framebuffer-based math calculator with graphing.
 type Task struct {
 	disp hal.Display
@@ -136,13 +143,14 @@ func (t *Task) Run(ctx *kernel.Context) {
 		return
 	}
 
-	t.appendLine("V  V  Vector: calculator + graph + 2D/3D plotter")
-	t.appendLine("V  V  Enter `sin(x)` (2D) or `sin(x)*cos(y)` (3D), then press Enter")
-	t.appendLine(" V V  Plot: press `g` or go to F2 | 3D: `$plotdim 3`, arrows rotate, +/- zoom")
-	t.appendLine("  V   Commands: :help :exact :float :prec N :autoscale :resetview")
+	t.initSession()
 
 	for msg := range ch {
 		switch proto.Kind(msg.Kind) {
+		case proto.MsgAppShutdown:
+			t.unloadSession()
+			return
+
 		case proto.MsgAppControl:
 			if msg.Cap.Valid() {
 				t.muxCap = msg.Cap
@@ -179,12 +187,17 @@ func (t *Task) Run(ctx *kernel.Context) {
 
 func (t *Task) setActive(ctx *kernel.Context, active bool) {
 	if active == t.active {
+		if !active {
+			t.unloadSession()
+		}
 		return
 	}
 	t.active = active
 	if !t.active {
+		t.unloadSession()
 		return
 	}
+	t.initSession()
 	t.setMessage("F1 term | F2 plot | F3 stack | H help | q quit")
 	t.updateHint()
 	t.render()
@@ -205,6 +218,7 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 	}
 	t.active = false
 	t.showHelp = false
+	t.unloadSession()
 
 	if !t.muxCap.Valid() {
 		return
@@ -220,6 +234,64 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 			return
 		}
 	}
+}
+
+func (t *Task) initSession() {
+	if t.e == nil {
+		t.e = newEnv()
+	}
+	if len(t.lines) != 0 {
+		return
+	}
+
+	t.appendLine("V   V Vector: calculator + graph + 2D/3D plotter")
+	t.appendLine("V   V Enter `sin(x)` (2D) or `sin(x)*cos(y)` (3D), then press Enter")
+	t.appendLine(" V V  Plot: press `g` or go to F2 | 3D: `$plotdim 3`, arrows rotate, +/- zoom")
+	t.appendLine("  V   Commands: :help :exact :float :prec N :autoscale :resetview")
+}
+
+func (t *Task) unloadSession() {
+	t.e = newEnv()
+
+	t.tab = tabTerminal
+
+	t.lines = nil
+
+	t.input = nil
+	t.cursor = 0
+
+	t.history = nil
+	t.histPos = 0
+
+	t.inbuf = nil
+
+	t.showHelp = false
+	t.helpTop = 0
+
+	t.message = ""
+	t.hint = ""
+	t.ghost = ""
+
+	t.cands = nil
+	t.best = ""
+	t.editVar = ""
+
+	t.graphExpr = ""
+	t.graph = nil
+	t.plots = nil
+
+	t.xMin = -10
+	t.xMax = 10
+	t.yMin = -10
+	t.yMax = 10
+
+	t.plotDim = 2
+	t.plotYaw = 0.8
+	t.plotPitch = 0.55
+	t.plotZoom = 1.2
+
+	t.stackSel = 0
+	t.stackTop = 0
 }
 
 func (t *Task) handleInput(ctx *kernel.Context, b []byte) {
@@ -766,7 +838,7 @@ func (t *Task) addPlotFunc(src string, ex node) {
 			return
 		}
 	}
-	if len(t.plots) >= 8 {
+	if len(t.plots) >= maxPlots {
 		t.plots = t.plots[1:]
 	}
 	t.plots = append(t.plots, plot{src: src, expr: ex})
@@ -776,10 +848,39 @@ func (t *Task) addPlotSeries(src string, xs, ys []float64) {
 	if len(xs) == 0 || len(xs) != len(ys) {
 		return
 	}
-	if len(t.plots) >= 8 {
+	if len(xs) > maxPlotPoints {
+		xs, ys = downsampleSeries(xs, ys, maxPlotPoints)
+	}
+	if len(t.plots) >= maxPlots {
 		t.plots = t.plots[1:]
 	}
 	t.plots = append(t.plots, plot{src: src, xs: xs, ys: ys})
+}
+
+func downsampleSeries(xs, ys []float64, maxPoints int) ([]float64, []float64) {
+	if maxPoints <= 1 || len(xs) <= maxPoints || len(xs) != len(ys) {
+		return xs, ys
+	}
+
+	step := len(xs) / maxPoints
+	if step < 1 {
+		step = 1
+	}
+
+	outX := make([]float64, 0, maxPoints)
+	outY := make([]float64, 0, maxPoints)
+	for i := 0; i < len(xs) && len(outX) < maxPoints; i += step {
+		outX = append(outX, xs[i])
+		outY = append(outY, ys[i])
+	}
+	if len(outX) == 0 {
+		return xs, ys
+	}
+
+	last := len(xs) - 1
+	outX[len(outX)-1] = xs[last]
+	outY[len(outY)-1] = ys[last]
+	return outX, outY
 }
 
 func (t *Task) handlePlotKey(ctx *kernel.Context, k key) {
@@ -1023,10 +1124,12 @@ func (t *Task) appendLine(s string) {
 	if s == "" {
 		return
 	}
-	t.lines = append(t.lines, s)
-	if len(t.lines) > 200 {
-		t.lines = t.lines[len(t.lines)-200:]
+	if len(t.lines) >= maxOutputLines {
+		copy(t.lines, t.lines[1:])
+		t.lines[len(t.lines)-1] = s
+		return
 	}
+	t.lines = append(t.lines, s)
 }
 
 func (t *Task) histUp() {
@@ -1288,9 +1391,7 @@ func (t *Task) evalLine(ctx *kernel.Context, line string, recordHistory bool) {
 	}
 
 	if recordHistory {
-		if len(t.history) == 0 || t.history[len(t.history)-1] != line {
-			t.history = append(t.history, line)
-		}
+		t.pushHistory(line)
 		t.histPos = len(t.history)
 	}
 
@@ -1357,6 +1458,21 @@ func (t *Task) evalLine(ctx *kernel.Context, line string, recordHistory bool) {
 			}
 		}
 	}
+}
+
+func (t *Task) pushHistory(line string) {
+	if line == "" {
+		return
+	}
+	if len(t.history) > 0 && t.history[len(t.history)-1] == line {
+		return
+	}
+	if len(t.history) >= maxHistoryEntries {
+		copy(t.history, t.history[1:])
+		t.history[len(t.history)-1] = line
+		return
+	}
+	t.history = append(t.history, line)
 }
 
 func (t *Task) handleStackKey(ctx *kernel.Context, k key) {

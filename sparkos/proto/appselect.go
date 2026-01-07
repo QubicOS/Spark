@@ -4,14 +4,18 @@ package proto
 type AppID uint8
 
 const (
-	AppNone    AppID = 0
-	AppRTDemo  AppID = 1
-	AppVi      AppID = 2
-	AppRTVoxel AppID = 3
-	AppImgView AppID = 4
-	AppMC      AppID = 5
-	AppHex     AppID = 6
-	AppVector  AppID = 7
+	AppNone     AppID = 0
+	AppRTDemo   AppID = 1
+	AppVi       AppID = 2
+	AppRTVoxel  AppID = 3
+	AppImgView  AppID = 4
+	AppMC       AppID = 5
+	AppHex      AppID = 6
+	AppVector   AppID = 7
+	AppSnake    AppID = 8
+	AppTetris   AppID = 9
+	AppCalendar AppID = 10
+	AppTodo     AppID = 11
 )
 
 // AppSelectPayload encodes an app selection request.

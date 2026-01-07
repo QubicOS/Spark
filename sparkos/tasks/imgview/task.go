@@ -49,6 +49,10 @@ func (t *Task) Run(ctx *kernel.Context) {
 
 	for msg := range ch {
 		switch proto.Kind(msg.Kind) {
+		case proto.MsgAppShutdown:
+			t.unloadSession()
+			return
+
 		case proto.MsgAppControl:
 			if msg.Cap.Valid() {
 				t.muxCap = msg.Cap
@@ -82,10 +86,14 @@ func (t *Task) Run(ctx *kernel.Context) {
 
 func (t *Task) setActive(ctx *kernel.Context, active bool) {
 	if active == t.active {
+		if !active {
+			t.unloadSession()
+		}
 		return
 	}
 	t.active = active
 	if !t.active {
+		t.unloadSession()
 		return
 	}
 	t.render(ctx)
@@ -105,20 +113,30 @@ func (t *Task) handleInput(ctx *kernel.Context, b []byte) (exit bool) {
 func (t *Task) requestExit(ctx *kernel.Context) {
 	if !t.muxCap.Valid() {
 		t.active = false
+		t.unloadSession()
 		return
 	}
 	for {
 		res := ctx.SendToCapResult(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{})
 		switch res {
 		case kernel.SendOK:
+			t.active = false
+			t.unloadSession()
 			return
 		case kernel.SendErrQueueFull:
 			ctx.BlockOnTick()
 		default:
 			t.active = false
+			t.unloadSession()
 			return
 		}
 	}
+}
+
+func (t *Task) unloadSession() {
+	t.active = false
+	t.path = ""
+	t.vfs = nil
 }
 
 func (t *Task) vfsClient() *vfsclient.Client {

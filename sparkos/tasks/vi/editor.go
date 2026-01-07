@@ -44,6 +44,7 @@ type snapshot struct {
 	cursorCol  int
 
 	modified bool
+	bytes    int
 }
 
 type editor struct {
@@ -76,8 +77,16 @@ type editor struct {
 	undo []snapshot
 	redo []snapshot
 
+	undoBytes int
+	redoBytes int
+
 	insertUndoPushed bool
 }
+
+const (
+	maxUndoSnapshots = 64
+	maxHistoryBytes  = 256 * 1024
+)
 
 func (e *editor) reset() {
 	e.filePath = ""
@@ -98,6 +107,8 @@ func (e *editor) reset() {
 	e.modified = false
 	e.undo = nil
 	e.redo = nil
+	e.undoBytes = 0
+	e.redoBytes = 0
 	e.insertUndoPushed = false
 }
 
@@ -174,18 +185,32 @@ func (e *editor) currentLine() []rune {
 }
 
 func (e *editor) pushUndo() {
+	b := snapshotBytes(e.lines)
+	if b > maxHistoryBytes {
+		e.undo = nil
+		e.redo = nil
+		e.undoBytes = 0
+		e.redoBytes = 0
+		return
+	}
+
 	cur := snapshot{
 		lines:      cloneLines(e.lines),
 		cursorLine: e.cursorLine,
 		cursorCol:  e.cursorCol,
 		modified:   e.modified,
+		bytes:      b,
 	}
 	e.undo = append(e.undo, cur)
-	if len(e.undo) > 64 {
-		copy(e.undo, e.undo[len(e.undo)-64:])
-		e.undo = e.undo[:64]
+	e.undoBytes += cur.bytes
+	for len(e.undo) > maxUndoSnapshots {
+		e.undoBytes -= e.undo[0].bytes
+		copy(e.undo, e.undo[1:])
+		e.undo = e.undo[:len(e.undo)-1]
 	}
 	e.redo = nil
+	e.redoBytes = 0
+	e.trimHistory()
 }
 
 func (e *editor) undoOnce() {
@@ -194,17 +219,24 @@ func (e *editor) undoOnce() {
 		return
 	}
 
+	b := snapshotBytes(e.lines)
 	cur := snapshot{
 		lines:      cloneLines(e.lines),
 		cursorLine: e.cursorLine,
 		cursorCol:  e.cursorCol,
 		modified:   e.modified,
+		bytes:      b,
 	}
-	e.redo = append(e.redo, cur)
+	if cur.bytes <= maxHistoryBytes {
+		e.redo = append(e.redo, cur)
+		e.redoBytes += cur.bytes
+	}
 
 	last := e.undo[len(e.undo)-1]
 	e.undo = e.undo[:len(e.undo)-1]
+	e.undoBytes -= last.bytes
 	e.restore(last)
+	e.trimHistory()
 }
 
 func (e *editor) redoOnce() {
@@ -213,17 +245,29 @@ func (e *editor) redoOnce() {
 		return
 	}
 
+	b := snapshotBytes(e.lines)
 	cur := snapshot{
 		lines:      cloneLines(e.lines),
 		cursorLine: e.cursorLine,
 		cursorCol:  e.cursorCol,
 		modified:   e.modified,
+		bytes:      b,
 	}
-	e.undo = append(e.undo, cur)
+	if cur.bytes <= maxHistoryBytes {
+		e.undo = append(e.undo, cur)
+		e.undoBytes += cur.bytes
+		for len(e.undo) > maxUndoSnapshots {
+			e.undoBytes -= e.undo[0].bytes
+			copy(e.undo, e.undo[1:])
+			e.undo = e.undo[:len(e.undo)-1]
+		}
+	}
 
 	last := e.redo[len(e.redo)-1]
 	e.redo = e.redo[:len(e.redo)-1]
+	e.redoBytes -= last.bytes
 	e.restore(last)
+	e.trimHistory()
 }
 
 func (e *editor) restore(s snapshot) {
@@ -232,6 +276,24 @@ func (e *editor) restore(s snapshot) {
 	e.cursorCol = s.cursorCol
 	e.modified = s.modified
 	e.clampCursor()
+}
+
+func (e *editor) trimHistory() {
+	for e.undoBytes+e.redoBytes > maxHistoryBytes {
+		if len(e.redo) > 0 {
+			e.redoBytes -= e.redo[0].bytes
+			copy(e.redo, e.redo[1:])
+			e.redo = e.redo[:len(e.redo)-1]
+			continue
+		}
+		if len(e.undo) > 0 {
+			e.undoBytes -= e.undo[0].bytes
+			copy(e.undo, e.undo[1:])
+			e.undo = e.undo[:len(e.undo)-1]
+			continue
+		}
+		break
+	}
 }
 
 func cloneLines(lines [][]rune) [][]rune {
@@ -243,6 +305,14 @@ func cloneLines(lines [][]rune) [][]rune {
 		out[i] = append([]rune(nil), lines[i]...)
 	}
 	return out
+}
+
+func snapshotBytes(lines [][]rune) int {
+	var runes int
+	for _, line := range lines {
+		runes += len(line)
+	}
+	return runes * 4
 }
 
 func (e *editor) clearCmdline() {

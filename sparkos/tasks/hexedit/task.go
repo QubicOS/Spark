@@ -16,9 +16,8 @@ import (
 )
 
 const (
-	maxFileBytesCached = 256 * 1024
-	maxSearchBytes     = 2 * 1024 * 1024
-	maxVFSRead         = kernel.MaxMessageBytes - 11
+	maxSearchBytes = 2 * 1024 * 1024
+	maxVFSRead     = kernel.MaxMessageBytes - 11
 )
 
 type inputKind uint8
@@ -121,6 +120,10 @@ func (t *Task) Run(ctx *kernel.Context) {
 
 	for msg := range ch {
 		switch proto.Kind(msg.Kind) {
+		case proto.MsgAppShutdown:
+			t.unloadSession()
+			return
+
 		case proto.MsgAppControl:
 			if msg.Cap.Valid() {
 				t.muxCap = msg.Cap
@@ -159,10 +162,14 @@ func (t *Task) Run(ctx *kernel.Context) {
 
 func (t *Task) setActive(ctx *kernel.Context, active bool) {
 	if active == t.active {
+		if !active {
+			t.unloadSession()
+		}
 		return
 	}
 	t.active = active
 	if !t.active {
+		t.unloadSession()
 		return
 	}
 	t.setMessage("H help | g goto | / find | v view | i edit | w save | q quit")
@@ -185,9 +192,7 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 		t.fb.ClearRGB(0, 0, 0)
 		_ = t.fb.Present()
 	}
-	t.active = false
-	t.inMode = inputNone
-	t.showHelp = false
+	t.unloadSession()
 
 	if !t.muxCap.Valid() {
 		return
@@ -203,6 +208,45 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 			return
 		}
 	}
+}
+
+func (t *Task) unloadSession() {
+	t.active = false
+	t.vfs = nil
+
+	t.path = ""
+	t.origSize = 0
+	t.size = 0
+
+	t.data = nil
+	t.mods = nil
+	t.winOff = 0
+	t.winData = nil
+
+	t.cursor = 0
+	t.topRow = 0
+
+	t.editASCII = false
+	t.viewASCII = false
+	t.nibble = 0
+	t.dirty = false
+	t.quitAsk = false
+
+	t.message = ""
+
+	t.showHelp = false
+	t.helpTop = 0
+
+	t.inbuf = nil
+
+	t.inMode = inputNone
+	t.inLabel = ""
+	t.inLine = nil
+
+	t.lastPattern = nil
+	t.lastIsHex = false
+	t.lastFound = 0
+	t.lastOK = false
 }
 
 func (t *Task) handleInput(ctx *kernel.Context, b []byte) {
@@ -704,43 +748,11 @@ func (t *Task) loadFile(ctx *kernel.Context, path string) error {
 	t.lastOK = false
 
 	if size == 0 {
-		t.data = t.data[:0]
-		return nil
-	}
-	if size > maxFileBytesCached {
 		t.data = nil
 		return nil
 	}
-
-	buf, err := t.readAll(ctx, path, int(maxFileBytesCached))
-	if err != nil {
-		return err
-	}
-	t.data = buf
-	t.size = uint32(len(t.data))
-	t.origSize = t.size
+	t.data = nil
 	return nil
-}
-
-func (t *Task) readAll(ctx *kernel.Context, path string, maxBytes int) ([]byte, error) {
-	var out []byte
-	var off uint32
-	for {
-		chunk, eof, err := t.vfsClient().ReadAt(ctx, path, off, maxVFSRead)
-		if err != nil {
-			return nil, err
-		}
-		if len(chunk) > 0 {
-			out = append(out, chunk...)
-			if maxBytes > 0 && len(out) > maxBytes {
-				return nil, fmt.Errorf("file too large (>%d bytes)", maxBytes)
-			}
-			off += uint32(len(chunk))
-		}
-		if eof {
-			return out, nil
-		}
-	}
 }
 
 func (t *Task) setByte(ctx *kernel.Context, off uint32, b byte) {
