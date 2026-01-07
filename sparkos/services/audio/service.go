@@ -123,11 +123,17 @@ func (s *Service) handlePause(ctx *kernel.Context) {
 		switch proto.AudioState(old) {
 		case proto.AudioPlaying:
 			if atomic.CompareAndSwapUint32(&s.state, old, uint32(proto.AudioPaused)) {
+				if p, ok := s.pwm.(interface{ Pause() }); ok {
+					p.Pause()
+				}
 				s.sendStatus(ctx)
 				return
 			}
 		case proto.AudioPaused:
 			if atomic.CompareAndSwapUint32(&s.state, old, uint32(proto.AudioPlaying)) {
+				if p, ok := s.pwm.(interface{ Resume() }); ok {
+					p.Resume()
+				}
 				s.sendStatus(ctx)
 				return
 			}
@@ -148,6 +154,9 @@ func (s *Service) handleStop(ctx *kernel.Context) {
 }
 
 func (s *Service) stopLocked() {
+	if s.pwm != nil {
+		_ = s.pwm.Stop()
+	}
 	cancel := s.cancel
 	done := s.done
 	s.cancel = nil
@@ -176,9 +185,6 @@ func (s *Service) handleSetVolume(ctx *kernel.Context, msg kernel.Message) {
 
 func (s *Service) play(ctx *kernel.Context, path string) error {
 	defer func() {
-		if s.pwm != nil {
-			_ = s.pwm.Stop()
-		}
 		atomic.StoreUint32(&s.state, uint32(proto.AudioStopped))
 		s.sendStatus(ctx)
 	}()
@@ -224,9 +230,13 @@ func (s *Service) play(ctx *kernel.Context, path string) error {
 	loopFromFile := (dec.Header.Flags & tea.FlagLoopEnabled) != 0
 	loop := loopFromFile || atomic.LoadUint32(&s.loopEnabled) != 0
 
-	period := time.Second / time.Duration(sr)
-	t := time.NewTicker(period)
-	defer t.Stop()
+	paced := needsSamplePacing()
+	var t *time.Ticker
+	if paced {
+		period := time.Second / time.Duration(sr)
+		t = time.NewTicker(period)
+		defer t.Stop()
+	}
 
 	for {
 		select {
@@ -245,16 +255,30 @@ func (s *Service) play(ctx *kernel.Context, path string) error {
 					atomic.StoreUint32(&s.pos, 0)
 					continue
 				}
+				if !paced {
+					s.waitDrain(cancel)
+				}
+				if s.pwm != nil {
+					_ = s.pwm.Stop()
+				}
 				return nil
 			}
 			return err
 		}
 
 		for i := 0; i < n; i++ {
-			select {
-			case <-cancel:
-				return nil
-			case <-t.C:
+			if paced {
+				select {
+				case <-cancel:
+					return nil
+				case <-t.C:
+				}
+			} else {
+				select {
+				case <-cancel:
+					return nil
+				default:
+				}
 			}
 
 			switch proto.AudioState(atomic.LoadUint32(&s.state)) {
@@ -264,13 +288,39 @@ func (s *Service) play(ctx *kernel.Context, path string) error {
 				}
 				atomic.AddUint32(&s.pos, 1)
 			case proto.AudioPaused:
-				if s.pwm != nil {
-					s.pwm.WriteSample(0)
+				if paced {
+					if s.pwm != nil {
+						s.pwm.WriteSample(0)
+					}
+					continue
 				}
+				time.Sleep(10 * time.Millisecond)
 			default:
+				if s.pwm != nil {
+					_ = s.pwm.Stop()
+				}
 				return nil
 			}
 		}
+	}
+}
+
+func (s *Service) waitDrain(cancel <-chan struct{}) {
+	p, ok := s.pwm.(interface{ PendingSamples() int })
+	if !ok || p == nil {
+		return
+	}
+
+	for {
+		select {
+		case <-cancel:
+			return
+		default:
+		}
+		if p.PendingSamples() == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
