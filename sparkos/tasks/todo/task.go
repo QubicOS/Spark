@@ -342,6 +342,10 @@ func (t *Task) handleRune(ctx *kernel.Context, r rune) {
 		t.moveSel(1)
 	case 'k':
 		t.moveSel(-1)
+	case 'J':
+		t.moveItem(1)
+	case 'K':
+		t.moveItem(-1)
 	}
 }
 
@@ -591,6 +595,27 @@ func (t *Task) deleteSelected() {
 	t.items = append(t.items[:idx], t.items[idx+1:]...)
 	t.dirty = true
 	t.rebuildVisible()
+	t.ensureSelectionInRange()
+	t.ensureSelectionVisible()
+}
+
+func (t *Task) moveItem(delta int) {
+	if len(t.visible) == 0 {
+		return
+	}
+	target := t.sel + delta
+	if target < 0 || target >= len(t.visible) {
+		return
+	}
+	idxA := t.visible[t.sel]
+	idxB := t.visible[target]
+	if idxA < 0 || idxA >= len(t.items) || idxB < 0 || idxB >= len(t.items) {
+		return
+	}
+	t.items[idxA], t.items[idxB] = t.items[idxB], t.items[idxA]
+	t.dirty = true
+	t.rebuildVisible()
+	t.sel = target
 	t.ensureSelectionInRange()
 	t.ensureSelectionVisible()
 }
@@ -1014,6 +1039,7 @@ func (t *Task) renderPanel(x, y, w, h int) {
 		"a add  e edit",
 		"d delete  p prio",
 		"/ search  f filter",
+		"J/K reorder",
 		"s save  q quit",
 	} {
 		if yy+int(t.fontHeight) >= y+h-2 {
