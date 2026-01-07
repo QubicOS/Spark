@@ -570,12 +570,12 @@ func (t *Task) render() {
 	eqH := int(t.fontHeight)*2 + 12
 	footerH := int(t.fontHeight)*3 + 10
 
-	listW := (t.w * 5) / 9
+	listW := (t.w - pad*3) / 2
 	if listW < 140 {
 		listW = 140
 	}
-	if listW > t.w-pad*3-120 {
-		listW = t.w - pad*3 - 120
+	if listW > t.w-pad*3-140 {
+		listW = t.w - pad*3 - 140
 	}
 
 	x0 := pad
