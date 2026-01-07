@@ -14,6 +14,7 @@ import (
 	rtvoxeltask "spark/sparkos/tasks/rtvoxel"
 	snaketask "spark/sparkos/tasks/snake"
 	tetristask "spark/sparkos/tasks/tetris"
+	todotask "spark/sparkos/tasks/todo"
 	vectortask "spark/sparkos/tasks/vector"
 	vitask "spark/sparkos/tasks/vi"
 )
@@ -34,6 +35,7 @@ type Service struct {
 	snakeProxyCap    kernel.Capability
 	tetrisProxyCap   kernel.Capability
 	calendarProxyCap kernel.Capability
+	todoProxyCap     kernel.Capability
 	viProxyCap       kernel.Capability
 	mcProxyCap       kernel.Capability
 	vectorProxyCap   kernel.Capability
@@ -45,6 +47,7 @@ type Service struct {
 	snakeCap    kernel.Capability
 	tetrisCap   kernel.Capability
 	calendarCap kernel.Capability
+	todoCap     kernel.Capability
 	viCap       kernel.Capability
 	mcCap       kernel.Capability
 	vectorCap   kernel.Capability
@@ -56,6 +59,7 @@ type Service struct {
 	snakeEP    kernel.Capability
 	tetrisEP   kernel.Capability
 	calendarEP kernel.Capability
+	todoEP     kernel.Capability
 	viEP       kernel.Capability
 	mcEP       kernel.Capability
 	vectorEP   kernel.Capability
@@ -69,6 +73,7 @@ type Service struct {
 	snakeRunning    bool
 	tetrisRunning   bool
 	calendarRunning bool
+	todoRunning     bool
 	viRunning       bool
 	mcRunning       bool
 	vectorRunning   bool
@@ -80,6 +85,7 @@ type Service struct {
 	snakeActive    bool
 	tetrisActive   bool
 	calendarActive bool
+	todoActive     bool
 	viActive       bool
 	mcActive       bool
 	vectorActive   bool
@@ -91,12 +97,13 @@ type Service struct {
 	snakeInactiveSince    uint64
 	tetrisInactiveSince   uint64
 	calendarInactiveSince uint64
+	todoInactiveSince     uint64
 	viInactiveSince       uint64
 	mcInactiveSince       uint64
 	vectorInactiveSince   uint64
 }
 
-func New(disp hal.Display, vfsCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxyCap, hexProxyCap, snakeProxyCap, tetrisProxyCap, calendarProxyCap, viProxyCap, mcProxyCap, vectorProxyCap, rtdemoCap, rtvoxelCap, imgviewCap, hexCap, snakeCap, tetrisCap, calendarCap, viCap, mcCap, vectorCap, rtdemoEP, rtvoxelEP, imgviewEP, hexEP, snakeEP, tetrisEP, calendarEP, viEP, mcEP, vectorEP kernel.Capability) *Service {
+func New(disp hal.Display, vfsCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxyCap, hexProxyCap, snakeProxyCap, tetrisProxyCap, calendarProxyCap, todoProxyCap, viProxyCap, mcProxyCap, vectorProxyCap, rtdemoCap, rtvoxelCap, imgviewCap, hexCap, snakeCap, tetrisCap, calendarCap, todoCap, viCap, mcCap, vectorCap, rtdemoEP, rtvoxelEP, imgviewEP, hexEP, snakeEP, tetrisEP, calendarEP, todoEP, viEP, mcEP, vectorEP kernel.Capability) *Service {
 	return &Service{
 		disp:             disp,
 		vfsCap:           vfsCap,
@@ -107,6 +114,7 @@ func New(disp hal.Display, vfsCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxy
 		snakeProxyCap:    snakeProxyCap,
 		tetrisProxyCap:   tetrisProxyCap,
 		calendarProxyCap: calendarProxyCap,
+		todoProxyCap:     todoProxyCap,
 		viProxyCap:       viProxyCap,
 		mcProxyCap:       mcProxyCap,
 		vectorProxyCap:   vectorProxyCap,
@@ -117,6 +125,7 @@ func New(disp hal.Display, vfsCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxy
 		snakeCap:         snakeCap,
 		tetrisCap:        tetrisCap,
 		calendarCap:      calendarCap,
+		todoCap:          todoCap,
 		viCap:            viCap,
 		mcCap:            mcCap,
 		vectorCap:        vectorCap,
@@ -127,6 +136,7 @@ func New(disp hal.Display, vfsCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxy
 		snakeEP:          snakeEP,
 		tetrisEP:         tetrisEP,
 		calendarEP:       calendarEP,
+		todoEP:           todoEP,
 		viEP:             viEP,
 		mcEP:             mcEP,
 		vectorEP:         vectorEP,
@@ -142,6 +152,7 @@ func (s *Service) Run(ctx *kernel.Context) {
 	go s.runProxy(ctx, s.snakeProxyCap, proto.AppSnake)
 	go s.runProxy(ctx, s.tetrisProxyCap, proto.AppTetris)
 	go s.runProxy(ctx, s.calendarProxyCap, proto.AppCalendar)
+	go s.runProxy(ctx, s.todoProxyCap, proto.AppTodo)
 	go s.runProxy(ctx, s.viProxyCap, proto.AppVi)
 	go s.runProxy(ctx, s.mcProxyCap, proto.AppMC)
 	go s.runProxy(ctx, s.vectorProxyCap, proto.AppVector)
@@ -171,6 +182,7 @@ func (s *Service) shutdownIdle(ctx *kernel.Context, now uint64) {
 	stop = s.appendStopIfIdle(stop, proto.AppSnake, s.snakeRunning, s.snakeActive, s.snakeInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppTetris, s.tetrisRunning, s.tetrisActive, s.tetrisInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppCalendar, s.calendarRunning, s.calendarActive, s.calendarInactiveSince, now)
+	stop = s.appendStopIfIdle(stop, proto.AppTodo, s.todoRunning, s.todoActive, s.todoInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppVi, s.viRunning, s.viActive, s.viInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppMC, s.mcRunning, s.mcActive, s.mcInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppVector, s.vectorRunning, s.vectorActive, s.vectorInactiveSince, now)
@@ -278,6 +290,12 @@ func (s *Service) ensureRunning(ctx *kernel.Context, appID proto.AppID) {
 		s.calendarRunning = true
 		s.mu.Unlock()
 
+	case proto.AppTodo:
+		ctx.AddTask(todotask.New(s.disp, s.todoEP, s.vfsCap))
+		s.mu.Lock()
+		s.todoRunning = true
+		s.mu.Unlock()
+
 	case proto.AppVi:
 		ctx.AddTask(vitask.New(s.disp, s.viEP, s.vfsCap))
 		s.mu.Lock()
@@ -332,6 +350,9 @@ func (s *Service) stop(ctx *kernel.Context, appID proto.AppID) {
 	case proto.AppCalendar:
 		_ = ctx.SendToCapResult(s.calendarCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
 
+	case proto.AppTodo:
+		_ = ctx.SendToCapResult(s.todoCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
+
 	case proto.AppVi:
 		_ = ctx.SendToCapResult(s.viCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
 
@@ -359,6 +380,8 @@ func (s *Service) appCapByID(appID proto.AppID) kernel.Capability {
 		return s.tetrisCap
 	case proto.AppCalendar:
 		return s.calendarCap
+	case proto.AppTodo:
+		return s.todoCap
 	case proto.AppVi:
 		return s.viCap
 	case proto.AppMC:
@@ -392,6 +415,8 @@ func (s *Service) isRunningLocked(appID proto.AppID) bool {
 		return s.tetrisRunning
 	case proto.AppCalendar:
 		return s.calendarRunning
+	case proto.AppTodo:
+		return s.todoRunning
 	case proto.AppVi:
 		return s.viRunning
 	case proto.AppMC:
@@ -419,6 +444,8 @@ func (s *Service) setRunningLocked(appID proto.AppID, running bool) {
 		s.tetrisRunning = running
 	case proto.AppCalendar:
 		s.calendarRunning = running
+	case proto.AppTodo:
+		s.todoRunning = running
 	case proto.AppVi:
 		s.viRunning = running
 	case proto.AppMC:
@@ -457,6 +484,9 @@ func (s *Service) setActiveLocked(appID proto.AppID, active bool, now uint64) {
 	case proto.AppCalendar:
 		s.calendarActive = active
 		s.calendarInactiveSince = inactiveSince(active, now, s.calendarInactiveSince)
+	case proto.AppTodo:
+		s.todoActive = active
+		s.todoInactiveSince = inactiveSince(active, now, s.todoInactiveSince)
 	case proto.AppVi:
 		s.viActive = active
 		s.viInactiveSince = inactiveSince(active, now, s.viInactiveSince)
