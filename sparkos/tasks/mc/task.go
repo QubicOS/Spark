@@ -39,7 +39,6 @@ const (
 const (
 	maxViewerBytes = 64 * 1024
 	maxHexBytes    = 128 * 1024
-	maxCopyBytes   = 1024 * 1024
 	maxVFSRead     = kernel.MaxMessageBytes - 11
 )
 
@@ -535,16 +534,124 @@ func (t *Task) copySelected(ctx *kernel.Context) error {
 	}
 
 	dst := joinPath(dstPanel.path, e.Name)
-	data, err := t.readAll(ctx, e.FullPath, maxCopyBytes)
+
+	typ, size, err := t.vfsClient().Stat(ctx, e.FullPath)
 	if err != nil {
 		return err
 	}
-	if _, err := t.vfsClient().Write(ctx, dst, proto.VFSWriteTruncate, data); err != nil {
+	if typ != proto.VFSEntryFile {
+		return errors.New("copy: not a file")
+	}
+
+	w, err := t.vfsClient().OpenWriter(ctx, dst, proto.VFSWriteTruncate)
+	if err != nil {
 		return err
 	}
+	defer func() {
+		if w != nil {
+			_, _ = w.Close()
+		}
+	}()
+
+	var copied uint32
+	lastPct := -1
+	updateProgress := func() {
+		pct := 100
+		if size > 0 {
+			pct = int((uint64(copied) * 100) / uint64(size))
+			if pct < 0 {
+				pct = 0
+			}
+			if pct > 100 {
+				pct = 100
+			}
+		}
+		if pct == lastPct {
+			return
+		}
+		lastPct = pct
+		t.setMessage(copyProgressLine(dst, copied, size, pct))
+		t.render()
+	}
+
+	updateProgress()
+
+	for off := uint32(0); off < size; {
+		want := uint16(maxVFSRead)
+		remain := size - off
+		if remain < uint32(want) {
+			want = uint16(remain)
+		}
+		chunk, _, err := t.vfsClient().ReadAt(ctx, e.FullPath, off, want)
+		if err != nil {
+			return err
+		}
+		if len(chunk) == 0 {
+			break
+		}
+
+		n, err := w.Write(chunk)
+		if err != nil {
+			return err
+		}
+		if n != len(chunk) {
+			return errors.New("copy: short write")
+		}
+
+		off += uint32(len(chunk))
+		copied += uint32(len(chunk))
+
+		updateProgress()
+		ctx.BlockOnTick()
+	}
+
+	if _, err := w.Close(); err != nil {
+		return err
+	}
+	w = nil
+
 	_ = t.loadDir(ctx, dstPanel)
 	t.setMessage("copied to " + dst)
 	return nil
+}
+
+func copyProgressLine(dst string, copied, total uint32, pct int) string {
+	bar := progressBar(pct, 16)
+	return fmt.Sprintf("copy %3d%% %s %s/%s -> %s", pct, bar, formatBytes(copied), formatBytes(total), dst)
+}
+
+func progressBar(pct int, width int) string {
+	if width <= 0 {
+		return "[]"
+	}
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	filled := (pct * width) / 100
+	if filled < 0 {
+		filled = 0
+	}
+	if filled > width {
+		filled = width
+	}
+	return "[" + strings.Repeat("=", filled) + strings.Repeat(" ", width-filled) + "]"
+}
+
+func formatBytes(n uint32) string {
+	const (
+		kb = 1024
+		mb = 1024 * 1024
+	)
+	if n >= mb {
+		return fmt.Sprintf("%d.%dMB", n/mb, (n%mb)*10/mb)
+	}
+	if n >= kb {
+		return fmt.Sprintf("%d.%dKB", n/kb, (n%kb)*10/kb)
+	}
+	return fmt.Sprintf("%dB", n)
 }
 
 func (t *Task) openViewer(ctx *kernel.Context, p string) error {
