@@ -40,6 +40,7 @@ func (h *hostHAL) Input() Input     { return hostInput{kbd: h.kbd} }
 func (h *hostHAL) Flash() Flash     { return h.flash }
 func (h *hostHAL) Time() Time       { return h.t }
 func (h *hostHAL) Network() Network { return h.net }
+func (h *hostHAL) Audio() Audio     { return nullAudio{} }
 
 type hostDisplay struct {
 	fb *hostFramebuffer

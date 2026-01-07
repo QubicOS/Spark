@@ -15,6 +15,7 @@ type tinyGoHAL struct {
 	t      *tinyGoTime
 	flash  Flash
 	net    Network
+	audio  Audio
 }
 
 // New returns a Pico 2 (RP2350) HAL implementation.
@@ -39,16 +40,18 @@ func New() HAL {
 		t:      newTinyGoTime(),
 		flash:  stubFlash{},
 		net:    nullNetwork{},
+		audio:  newTinyGoAudio(),
 	}
 }
 
-func (h *tinyGoHAL) Logger() Logger { return h.logger }
-func (h *tinyGoHAL) LED() LED       { return h.led }
+func (h *tinyGoHAL) Logger() Logger   { return h.logger }
+func (h *tinyGoHAL) LED() LED         { return h.led }
 func (h *tinyGoHAL) Display() Display { return tinyGoDisplay{fb: h.fb} }
 func (h *tinyGoHAL) Input() Input     { return tinyGoInput{kbd: h.kbd} }
 func (h *tinyGoHAL) Flash() Flash     { return h.flash }
 func (h *tinyGoHAL) Time() Time       { return h.t }
 func (h *tinyGoHAL) Network() Network { return h.net }
+func (h *tinyGoHAL) Audio() Audio     { return h.audio }
 
 type tinyGoDisplay struct {
 	fb Framebuffer

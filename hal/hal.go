@@ -102,6 +102,22 @@ type Network interface {
 	Recv(pkt []byte) (int, error)
 }
 
+// Audio provides optional sound output.
+type Audio interface {
+	// PWM returns a PWM-based audio output, or nil if unsupported.
+	PWM() PWMAudio
+}
+
+// PWMAudio is a minimal audio output interface.
+//
+// The caller is responsible for timing (calling WriteSample at the desired sample rate).
+type PWMAudio interface {
+	Start(sampleRate uint32) error
+	Stop() error
+	SetVolume(vol uint8)
+	WriteSample(sample int16)
+}
+
 // HAL provides the only contact point between the OS and the outside world.
 type HAL interface {
 	Logger() Logger
@@ -111,4 +127,5 @@ type HAL interface {
 	Flash() Flash
 	Time() Time
 	Network() Network
+	Audio() Audio
 }

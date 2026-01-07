@@ -41,6 +41,7 @@ func (h *tinyGoHostHAL) Input() Input     { return tinyGoHostInput{kbd: h.kbd} }
 func (h *tinyGoHostHAL) Flash() Flash     { return h.flash }
 func (h *tinyGoHostHAL) Time() Time       { return h.t }
 func (h *tinyGoHostHAL) Network() Network { return h.net }
+func (h *tinyGoHostHAL) Audio() Audio     { return nullAudio{} }
 
 type tinyGoHostDisplay struct {
 	fb Framebuffer
