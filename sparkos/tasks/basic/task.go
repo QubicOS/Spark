@@ -1,6 +1,7 @@
 package basic
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
 	"strconv"
@@ -62,12 +63,7 @@ type Task struct {
 	statusLine string
 	inbuf      []byte
 
-	codeSel int
-	codeTop int
-
-	codeEdit    bool
-	codeEditBuf []rune
-	codeEditCur int
+	codeEd codeEditor
 
 	varTop int
 
@@ -188,11 +184,7 @@ func (t *Task) unload() {
 	t.awaitInput = false
 	t.awaitVar = varRef{}
 	t.tab = tabIO
-	t.codeSel = 0
-	t.codeTop = 0
-	t.codeEdit = false
-	t.codeEditBuf = nil
-	t.codeEditCur = 0
+	t.codeEd = codeEditor{}
 	t.varTop = 0
 }
 
@@ -246,18 +238,19 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 	switch k.kind {
 	case keyF1:
 		t.tab = tabCode
+		if len(t.codeEd.lines) == 0 {
+			t.codeEd.loadFromProgram(&t.prog)
+		}
 		return
 	case keyF2:
+		_ = t.syncEditorToProgram()
 		t.tab = tabIO
 		return
 	case keyF3:
+		_ = t.syncEditorToProgram()
 		t.tab = tabVars
 		return
 	case keyEsc:
-		if t.tab == tabCode && t.codeEdit {
-			t.handleCodeEditKey(ctx, k)
-			return
-		}
 		t.requestExit(ctx)
 		return
 	}
@@ -316,153 +309,31 @@ func (t *Task) handleIOKey(ctx *kernel.Context, k key) {
 }
 
 func (t *Task) handleCodeKey(ctx *kernel.Context, k key) {
-	if t.codeEdit {
-		t.handleCodeEditKey(ctx, k)
-		return
-	}
-
 	switch k.kind {
-	case keyUp:
-		if t.codeSel > 0 {
-			t.codeSel--
-		}
-		if t.codeSel < t.codeTop {
-			t.codeTop = t.codeSel
-		}
-	case keyDown:
-		if t.codeSel < len(t.prog.lines)-1 {
-			t.codeSel++
-		}
-		if t.codeSel >= t.codeTop+(t.rows-2) {
-			t.codeTop = t.codeSel - (t.rows - 2) + 1
-		}
-	case keyHome:
-		t.codeSel = 0
-		t.codeTop = 0
-	case keyEnd:
-		if len(t.prog.lines) > 0 {
-			t.codeSel = len(t.prog.lines) - 1
-			if t.codeSel >= t.rows-2 {
-				t.codeTop = t.codeSel - (t.rows - 2) + 1
+	case keyCtrl:
+		// Ctrl+S syncs program.
+		if k.ctrl == 0x13 {
+			if err := t.syncEditorToProgram(); err != nil {
+				t.statusLine = "? " + err.Error()
+				return
 			}
+			t.statusLine = "OK"
 		}
-	case keyEnter:
-		if t.codeSel >= 0 && t.codeSel < len(t.prog.lines) {
-			t.codeEdit = true
-			t.codeEditBuf = []rune(t.prog.lines[t.codeSel].String())
-			t.codeEditCur = len(t.codeEditBuf)
-			t.statusLine = "Edit line. Enter commit | Esc cancel | Del delete line."
-			return
-		}
-		t.codeEdit = true
-		t.codeEditBuf = nil
-		t.codeEditCur = 0
-		t.statusLine = "New line: type '<num> <stmt>' then Enter."
-	case keyDelete:
-		if t.codeSel >= 0 && t.codeSel < len(t.prog.lines) {
-			no := t.prog.lines[t.codeSel].no
-			t.prog.deleteLine(no)
-			if t.codeSel >= len(t.prog.lines) && t.codeSel > 0 {
-				t.codeSel--
-			}
-			if t.codeTop > t.codeSel {
-				t.codeTop = t.codeSel
-			}
-		}
+		return
 	case keyRune:
 		switch k.r {
-		case 'n', 'N':
-			t.codeEdit = true
-			t.codeEditBuf = nil
-			t.codeEditCur = 0
-			t.statusLine = "New line: type '<num> <stmt>' then Enter."
 		case 'r', 'R':
+			if err := t.syncEditorToProgram(); err != nil {
+				t.statusLine = "? " + err.Error()
+				return
+			}
 			t.onLine(ctx, "RUN")
 			t.tab = tabIO
-		case 'l', 'L':
-			t.statusLine = "F1 code | Enter edit | n new | Del delete | r run | Esc exit"
-		default:
-			// Typing in code tab starts a new-line edit.
-			t.codeEdit = true
-			t.codeEditBuf = nil
-			t.codeEditCur = 0
-			t.statusLine = "New line: type '<num> <stmt>' then Enter."
-			t.handleCodeEditKey(ctx, k)
+			return
 		}
 	}
-}
 
-func (t *Task) handleCodeEditKey(ctx *kernel.Context, k key) {
-	switch k.kind {
-	case keyEsc:
-		t.codeEdit = false
-		t.codeEditBuf = nil
-		t.codeEditCur = 0
-		t.statusLine = "Canceled."
-		return
-	case keyEnter:
-		line := strings.TrimSpace(string(t.codeEditBuf))
-		t.codeEdit = false
-		t.codeEditBuf = nil
-		t.codeEditCur = 0
-		if line == "" {
-			t.statusLine = "OK"
-			return
-		}
-		t.onLine(ctx, line)
-		// Keep selection stable if possible.
-		if t.codeSel >= len(t.prog.lines) && len(t.prog.lines) > 0 {
-			t.codeSel = len(t.prog.lines) - 1
-		}
-		return
-	case keyBackspace:
-		if t.codeEditCur > 0 {
-			t.codeEditBuf = append(t.codeEditBuf[:t.codeEditCur-1], t.codeEditBuf[t.codeEditCur:]...)
-			t.codeEditCur--
-		}
-		return
-	case keyDelete:
-		if t.codeEditCur < len(t.codeEditBuf) {
-			t.codeEditBuf = append(t.codeEditBuf[:t.codeEditCur], t.codeEditBuf[t.codeEditCur+1:]...)
-		}
-		return
-	case keyLeft:
-		if t.codeEditCur > 0 {
-			t.codeEditCur--
-		}
-		return
-	case keyRight:
-		if t.codeEditCur < len(t.codeEditBuf) {
-			t.codeEditCur++
-		}
-		return
-	case keyUp:
-		t.codeEditCur = 0
-		return
-	case keyDown:
-		t.codeEditCur = len(t.codeEditBuf)
-		return
-	case keyHome:
-		t.codeEditCur = 0
-		return
-	case keyEnd:
-		t.codeEditCur = len(t.codeEditBuf)
-		return
-	case keyRune:
-		if len(t.codeEditBuf) >= 512 {
-			return
-		}
-		if t.codeEditCur == len(t.codeEditBuf) {
-			t.codeEditBuf = append(t.codeEditBuf, k.r)
-			t.codeEditCur = len(t.codeEditBuf)
-			return
-		}
-		t.codeEditBuf = append(t.codeEditBuf[:t.codeEditCur], append([]rune{k.r}, t.codeEditBuf[t.codeEditCur:]...)...)
-		t.codeEditCur++
-		return
-	default:
-		return
-	}
+	t.codeEd.handleKey(k, t.cols)
 }
 
 func (t *Task) handleVarsKey(ctx *kernel.Context, k key) {
@@ -532,6 +403,10 @@ func (t *Task) onLine(ctx *kernel.Context, line string) {
 	cmd := strings.ToUpper(firstWord(line))
 	switch cmd {
 	case "RUN":
+		if err := t.syncEditorToProgram(); err != nil {
+			t.printf("? %v", err)
+			return
+		}
 		t.vm.reset()
 		t.vm.prog = &t.prog
 		t.vm.vfs = t.vfsClient()
@@ -551,6 +426,7 @@ func (t *Task) onLine(ctx *kernel.Context, line string) {
 		return
 	case "NEW":
 		t.prog = program{}
+		t.codeEd = codeEditor{}
 		t.vm.reset()
 		t.statusLine = "OK"
 		return
@@ -570,6 +446,32 @@ func (t *Task) onLine(ctx *kernel.Context, line string) {
 		}
 		return
 	}
+}
+
+func (t *Task) syncEditorToProgram() error {
+	if len(t.codeEd.lines) == 0 {
+		t.codeEd.loadFromProgram(&t.prog)
+		return nil
+	}
+
+	var p program
+	lines := t.codeEd.toLines()
+	for _, raw := range lines {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		no, rest, ok := splitLeadingLineNumber(raw)
+		if !ok {
+			return errors.New("all lines must start with a line number")
+		}
+		if strings.TrimSpace(rest) == "" {
+			continue
+		}
+		p.upsertLine(no, rest)
+	}
+	t.prog = p
+	return nil
 }
 
 func (t *Task) runSteps(ctx *kernel.Context, limit int) {
@@ -694,62 +596,25 @@ func (t *Task) renderIO() {
 }
 
 func (t *Task) renderCode() {
-	if t.codeSel >= len(t.prog.lines) {
-		t.codeSel = len(t.prog.lines) - 1
-	}
-	if t.codeSel < 0 {
-		t.codeSel = 0
-	}
-	if t.codeTop < 0 {
-		t.codeTop = 0
-	}
-	if t.codeTop > t.codeSel {
-		t.codeTop = t.codeSel
-	}
-
 	visible := t.rows - 2 // header + status
-	if t.codeEdit && visible > 0 {
-		visible--
-	}
-	for row := 0; row < visible; row++ {
-		i := t.codeTop + row
+	lines, top := t.codeEd.visible(visible)
+	for row := 0; row < len(lines); row++ {
 		y := int16(row+1)*t.fontHeight + t.fontOffset
-		if i < 0 || i >= len(t.prog.lines) {
-			continue
-		}
 		c := color.RGBA{R: 0xee, G: 0xee, B: 0xee, A: 0xff}
-		prefix := "  "
-		if i == t.codeSel {
+		if top+row == t.codeEd.curRow {
 			c = color.RGBA{R: 0xff, G: 0xff, B: 0x4a, A: 0xff}
-			prefix = "> "
 		}
-		tinyfont.WriteLine(t.d, t.font, 0, y, prefix+t.prog.lines[i].String(), c)
+		tinyfont.WriteLine(t.d, t.font, 0, y, lines[row], c)
 	}
 
-	if t.codeEdit {
-		y := int16(t.rows-2)*t.fontHeight + t.fontOffset
-		line := insertCaret(string(t.codeEditBuf), t.codeEditCur)
-		tinyfont.WriteLine(
-			t.d,
-			t.font,
-			0,
-			y,
-			"EDIT: "+line,
-			color.RGBA{R: 0xff, G: 0xff, B: 0, A: 0xff},
-		)
-	}
-}
-
-func insertCaret(s string, cur int) string {
-	r := []rune(s)
-	if cur < 0 {
-		cur = 0
-	}
-	if cur > len(r) {
-		cur = len(r)
-	}
-	r = append(r[:cur], append([]rune{'|'}, r[cur:]...)...)
-	return string(r)
+	tinyfont.WriteLine(
+		t.d,
+		t.font,
+		0,
+		int16(t.rows-1)*t.fontHeight+t.fontOffset,
+		"code: arrows move | Enter newline | Ctrl+S sync | r run",
+		color.RGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xff},
+	)
 }
 
 func (t *Task) renderVars() {
