@@ -22,6 +22,14 @@ const (
 	defaultMaxFiles = 8
 )
 
+type tab uint8
+
+const (
+	tabCode tab = iota
+	tabIO
+	tabVars
+)
+
 // Task provides a minimal Tiny BASIC-like interpreter.
 type Task struct {
 	disp   hal.Display
@@ -45,11 +53,19 @@ type Task struct {
 
 	vfs *vfsclient.Client
 
+	tab tab
+
 	output []string
 
 	input      []rune
 	inputCur   int
 	statusLine string
+	inbuf      []byte
+
+	codeSel int
+	codeTop int
+
+	varTop int
 
 	prog program
 	vm   *vm
@@ -63,6 +79,7 @@ func New(disp hal.Display, ep kernel.Capability, vfsCap kernel.Capability) *Task
 		disp:       disp,
 		ep:         ep,
 		vfsCap:     vfsCap,
+		tab:        tabIO,
 		statusLine: "TinyBASIC: RUN/LIST/NEW, Ctrl+G to exit.",
 	}
 }
@@ -160,11 +177,16 @@ func (t *Task) setActive(active bool) {
 func (t *Task) unload() {
 	t.output = nil
 	t.input = nil
+	t.inbuf = nil
 	t.vm = nil
 	t.vfs = nil
 	t.prog = program{}
 	t.awaitInput = false
 	t.awaitVar = varRef{}
+	t.tab = tabIO
+	t.codeSel = 0
+	t.codeTop = 0
+	t.varTop = 0
 }
 
 func (t *Task) vfsClient() *vfsclient.Client {
@@ -193,56 +215,173 @@ func (t *Task) clearInput() {
 }
 
 func (t *Task) handleInput(ctx *kernel.Context, b []byte) {
-	for len(b) > 0 {
-		if b[0] == 0x1b {
-			if len(b) == 1 {
-				t.requestExit(ctx)
-				return
-			}
-			if b[1] != '[' {
-				t.requestExit(ctx)
-				return
-			}
-			n := consumeCSI(b)
-			if n == 0 {
-				return
-			}
-			b = b[n:]
-			continue
-		}
+	t.inbuf = append(t.inbuf, b...)
+	buf := t.inbuf
 
-		r, n := decodeUTF8Rune(b)
-		if n == 0 {
+	for len(buf) > 0 {
+		n, k, ok := nextKey(buf)
+		if !ok {
+			break
+		}
+		buf = buf[n:]
+
+		t.handleKey(ctx, k)
+		if !t.active {
+			t.inbuf = t.inbuf[:0]
 			return
 		}
-		b = b[n:]
+	}
 
-		switch r {
-		case '\r', '\n':
-			line := strings.TrimSpace(string(t.input))
-			t.clearInput()
-			if line != "" {
-				t.onLine(ctx, line)
-			}
-			continue
-		case '\b', 0x7f:
-			if t.inputCur > 0 {
-				t.input = append(t.input[:t.inputCur-1], t.input[t.inputCur:]...)
-				t.inputCur--
-			}
-			continue
+	t.inbuf = append(t.inbuf[:0], buf...)
+}
+
+func (t *Task) handleKey(ctx *kernel.Context, k key) {
+	switch k.kind {
+	case keyF1:
+		t.tab = tabCode
+		return
+	case keyF2:
+		t.tab = tabIO
+		return
+	case keyF3:
+		t.tab = tabVars
+		return
+	case keyEsc:
+		t.requestExit(ctx)
+		return
+	}
+
+	switch t.tab {
+	case tabCode:
+		t.handleCodeKey(ctx, k)
+	case tabVars:
+		t.handleVarsKey(ctx, k)
+	default:
+		t.handleIOKey(ctx, k)
+	}
+}
+
+func (t *Task) handleIOKey(ctx *kernel.Context, k key) {
+	switch k.kind {
+	case keyEnter:
+		line := strings.TrimSpace(string(t.input))
+		t.clearInput()
+		if line != "" {
+			t.onLine(ctx, line)
 		}
-
+	case keyBackspace:
+		if t.inputCur > 0 {
+			t.input = append(t.input[:t.inputCur-1], t.input[t.inputCur:]...)
+			t.inputCur--
+		}
+	case keyRune:
 		if len(t.input) >= maxInputRunes {
-			continue
+			return
 		}
 		if t.inputCur == len(t.input) {
-			t.input = append(t.input, r)
+			t.input = append(t.input, k.r)
 			t.inputCur = len(t.input)
-			continue
+			return
 		}
-		t.input = append(t.input[:t.inputCur], append([]rune{r}, t.input[t.inputCur:]...)...)
+		t.input = append(t.input[:t.inputCur], append([]rune{k.r}, t.input[t.inputCur:]...)...)
 		t.inputCur++
+	}
+}
+
+func (t *Task) handleCodeKey(ctx *kernel.Context, k key) {
+	switch k.kind {
+	case keyUp:
+		if t.codeSel > 0 {
+			t.codeSel--
+		}
+		if t.codeSel < t.codeTop {
+			t.codeTop = t.codeSel
+		}
+	case keyDown:
+		if t.codeSel < len(t.prog.lines)-1 {
+			t.codeSel++
+		}
+		if t.codeSel >= t.codeTop+(t.rows-2) {
+			t.codeTop = t.codeSel - (t.rows - 2) + 1
+		}
+	case keyHome:
+		t.codeSel = 0
+		t.codeTop = 0
+	case keyEnd:
+		if len(t.prog.lines) > 0 {
+			t.codeSel = len(t.prog.lines) - 1
+			if t.codeSel >= t.rows-2 {
+				t.codeTop = t.codeSel - (t.rows - 2) + 1
+			}
+		}
+	case keyEnter:
+		if t.codeSel >= 0 && t.codeSel < len(t.prog.lines) {
+			t.input = []rune(t.prog.lines[t.codeSel].String())
+			t.inputCur = len(t.input)
+			t.tab = tabIO
+			t.statusLine = "Edit line and press Enter. F1 code | F2 io | F3 vars."
+		}
+	case keyDelete:
+		if t.codeSel >= 0 && t.codeSel < len(t.prog.lines) {
+			no := t.prog.lines[t.codeSel].no
+			t.prog.deleteLine(no)
+			if t.codeSel >= len(t.prog.lines) && t.codeSel > 0 {
+				t.codeSel--
+			}
+			if t.codeTop > t.codeSel {
+				t.codeTop = t.codeSel
+			}
+		}
+	case keyRune:
+		switch k.r {
+		case 'n', 'N':
+			t.clearInput()
+			t.tab = tabIO
+			t.statusLine = "Enter new line: <num> <stmt>"
+		case 'r', 'R':
+			t.onLine(ctx, "RUN")
+			t.tab = tabIO
+		}
+	}
+}
+
+func (t *Task) handleVarsKey(ctx *kernel.Context, k key) {
+	switch k.kind {
+	case keyUp:
+		if t.varTop > 0 {
+			t.varTop--
+		}
+	case keyDown:
+		t.varTop++
+	case keyPageUp:
+		t.varTop -= 8
+	case keyPageDown:
+		t.varTop += 8
+	case keyRune:
+		switch k.r {
+		case 'r', 'R':
+			t.onLine(ctx, "RUN")
+		case 's', 'S':
+			if t.vm != nil && t.vm.running {
+				t.runSteps(ctx, 1)
+				return
+			}
+			t.vm.reset()
+			t.vm.prog = &t.prog
+			t.vm.vfs = t.vfsClient()
+			t.vm.ctx = ctx
+			t.vm.fb = t.fb
+			if err := t.vm.start(); err != nil {
+				t.printf("? %v", err)
+				t.vm.running = false
+				return
+			}
+			t.runSteps(ctx, 1)
+		case 'x', 'X':
+			if t.vm != nil {
+				t.vm.running = false
+			}
+		}
 	}
 }
 
@@ -347,13 +486,63 @@ func (t *Task) render() {
 	}
 	t.fb.ClearRGB(0, 0, 0)
 
+	t.renderHeader()
+
+	switch t.tab {
+	case tabCode:
+		t.renderCode()
+	case tabVars:
+		t.renderVars()
+	default:
+		t.renderIO()
+	}
+
+	if t.statusLine != "" {
+		tinyfont.WriteLine(
+			t.d,
+			t.font,
+			0,
+			int16(t.rows-1)*t.fontHeight+t.fontOffset,
+			t.statusLine,
+			color.RGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xff},
+		)
+	}
+
+	_ = t.fb.Present()
+}
+
+func (t *Task) renderHeader() {
+	head := "BASIC | F1 code  F2 io  F3 vars"
+	switch t.tab {
+	case tabCode:
+		head = "BASIC | F1 code* F2 io  F3 vars"
+	case tabIO:
+		head = "BASIC | F1 code  F2 io* F3 vars"
+	case tabVars:
+		head = "BASIC | F1 code  F2 io  F3 vars*"
+	}
+	tinyfont.WriteLine(t.d, t.font, 0, t.fontOffset, head, color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff})
+}
+
+func (t *Task) renderIO() {
+	visible := t.rows - 3 // header + input + status
+	if visible < 0 {
+		visible = 0
+	}
 	row := 0
 	start := 0
-	if len(t.output) > t.viewRows {
-		start = len(t.output) - t.viewRows
+	if len(t.output) > visible {
+		start = len(t.output) - visible
 	}
-	for i := start; i < len(t.output) && row < t.viewRows; i++ {
-		tinyfont.WriteLine(t.d, t.font, 0, int16(row)*t.fontHeight+t.fontOffset, t.output[i], color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
+	for i := start; i < len(t.output) && row < visible; i++ {
+		tinyfont.WriteLine(
+			t.d,
+			t.font,
+			0,
+			int16(row+1)*t.fontHeight+t.fontOffset,
+			t.output[i],
+			color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff},
+		)
 		row++
 	}
 
@@ -362,13 +551,114 @@ func (t *Task) render() {
 		prompt = "?"
 	}
 	in := prompt + string(t.input)
-	tinyfont.WriteLine(t.d, t.font, 0, int16(t.viewRows)*t.fontHeight+t.fontOffset, in, color.RGBA{R: 0xff, G: 0xff, B: 0, A: 0xff})
+	tinyfont.WriteLine(
+		t.d,
+		t.font,
+		0,
+		int16(t.rows-2)*t.fontHeight+t.fontOffset,
+		in,
+		color.RGBA{R: 0xff, G: 0xff, B: 0, A: 0xff},
+	)
+}
 
-	if t.statusLine != "" {
-		tinyfont.WriteLine(t.d, t.font, 0, int16(t.viewRows+1)*t.fontHeight+t.fontOffset, t.statusLine, color.RGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xff})
+func (t *Task) renderCode() {
+	if t.codeSel >= len(t.prog.lines) {
+		t.codeSel = len(t.prog.lines) - 1
+	}
+	if t.codeSel < 0 {
+		t.codeSel = 0
+	}
+	if t.codeTop < 0 {
+		t.codeTop = 0
+	}
+	if t.codeTop > t.codeSel {
+		t.codeTop = t.codeSel
 	}
 
-	_ = t.fb.Present()
+	visible := t.rows - 2 // header + status
+	for row := 0; row < visible; row++ {
+		i := t.codeTop + row
+		y := int16(row+1)*t.fontHeight + t.fontOffset
+		if i < 0 || i >= len(t.prog.lines) {
+			continue
+		}
+		c := color.RGBA{R: 0xee, G: 0xee, B: 0xee, A: 0xff}
+		prefix := "  "
+		if i == t.codeSel {
+			c = color.RGBA{R: 0xff, G: 0xff, B: 0x4a, A: 0xff}
+			prefix = "> "
+		}
+		tinyfont.WriteLine(t.d, t.font, 0, y, prefix+t.prog.lines[i].String(), c)
+	}
+}
+
+func (t *Task) renderVars() {
+	var lines []string
+	if t.vm != nil && t.vm.running && t.vm.prog != nil && t.vm.pc >= 0 && t.vm.pc < len(t.vm.prog.lines) {
+		lines = append(lines, fmt.Sprintf("RUNNING line %d", t.vm.prog.lines[t.vm.pc].no))
+	} else {
+		lines = append(lines, "STOPPED")
+	}
+	if t.vm != nil {
+		lines = append(lines, fmt.Sprintf("stack: gosub=%d for=%d", len(t.vm.callStack), len(t.vm.forStack)))
+		open := 0
+		for i := range t.vm.files {
+			if t.vm.files[i].inUse {
+				open++
+			}
+		}
+		lines = append(lines, fmt.Sprintf("files: open=%d/%d", open, len(t.vm.files)))
+	}
+	lines = append(lines, "ints:")
+	if t.vm != nil {
+		for i := 0; i < 26; i++ {
+			v := t.vm.intVars[i]
+			if v == 0 {
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("  %c=%d", 'A'+byte(i), v))
+		}
+	}
+	lines = append(lines, "strings:")
+	if t.vm != nil {
+		for i := 0; i < 26; i++ {
+			v := t.vm.strVars[i]
+			if v == "" {
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("  %c$=%q", 'A'+byte(i), v))
+		}
+	}
+	lines = append(lines, "arrays:")
+	if t.vm != nil {
+		for i := 0; i < 26; i++ {
+			if t.vm.arrVars[i] == nil {
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("  %c(%d)", 'A'+byte(i), len(t.vm.arrVars[i])-1))
+		}
+	}
+	lines = append(lines, "debug: r run | s step | x stop")
+
+	visible := t.rows - 2 // header + status
+	if t.varTop < 0 {
+		t.varTop = 0
+	}
+	maxTop := 0
+	if len(lines) > visible {
+		maxTop = len(lines) - visible
+	}
+	if t.varTop > maxTop {
+		t.varTop = maxTop
+	}
+
+	for row := 0; row < visible; row++ {
+		i := t.varTop + row
+		if i < 0 || i >= len(lines) {
+			continue
+		}
+		tinyfont.WriteLine(t.d, t.font, 0, int16(row+1)*t.fontHeight+t.fontOffset, lines[i], color.RGBA{R: 0xee, G: 0xee, B: 0xee, A: 0xff})
+	}
 }
 
 func (t *Task) requestExit(ctx *kernel.Context) {
@@ -389,19 +679,6 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 			return
 		}
 	}
-}
-
-func consumeCSI(b []byte) int {
-	if len(b) < 2 || b[0] != 0x1b || b[1] != '[' {
-		return 0
-	}
-	// Consume until a final byte in the range 0x40..0x7e.
-	for i := 2; i < len(b); i++ {
-		if b[i] >= 0x40 && b[i] <= 0x7e {
-			return i + 1
-		}
-	}
-	return 0
 }
 
 func splitLeadingLineNumber(line string) (lineNo int, rest string, ok bool) {
