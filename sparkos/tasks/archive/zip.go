@@ -15,58 +15,62 @@ func parseZipIndex(
 	size uint32,
 	readAt func(off uint32, n uint16) ([]byte, bool, error),
 ) ([]entry, error) {
-	// Find EOCD in last 64k+22.
-	var tailMax uint32 = 22 + 0xFFFF
-	if size < tailMax {
-		tailMax = size
-	}
-	start := size - tailMax
-	tail, _, err := readAt(start, uint16(tailMax))
+	eocdOff, err := findZipEOCDAt(size, readAt)
 	if err != nil {
-		return nil, fmt.Errorf("zip: read tail: %w", err)
+		return nil, err
 	}
 
-	eocdOff := findZipEOCD(tail)
-	if eocdOff < 0 {
-		return nil, fmt.Errorf("zip: missing EOCD")
+	eocd, _, err := readAt(eocdOff, 22)
+	if err != nil {
+		return nil, fmt.Errorf("zip: read EOCD: %w", err)
 	}
-	e := tail[eocdOff:]
-	if len(e) < 22 {
+	if len(eocd) < 22 {
 		return nil, fmt.Errorf("zip: short EOCD")
 	}
-	cdSize := u32le(e[12:16])
-	cdOff := u32le(e[16:20])
+	cdSize := u32le(eocd[12:16])
+	cdOff := u32le(eocd[16:20])
 
 	if cdOff+cdSize > size {
 		return nil, fmt.Errorf("zip: central dir out of range")
 	}
-	cd, _, err := readAt(cdOff, uint16(cdSize))
-	if err != nil {
-		return nil, fmt.Errorf("zip: read central dir: %w", err)
-	}
-	if uint32(len(cd)) < cdSize {
-		return nil, fmt.Errorf("zip: short central dir")
-	}
 
 	var out []entry
-	cur := 0
-	for cur+46 <= len(cd) {
-		if u32le(cd[cur:cur+4]) != zipCentralSig {
+	cur := cdOff
+	end := cdOff + cdSize
+	for cur+46 <= end {
+		h, _, err := readAt(cur, 46)
+		if err != nil {
+			return nil, fmt.Errorf("zip: read central header: %w", err)
+		}
+		if len(h) < 46 {
+			return nil, fmt.Errorf("zip: short central header")
+		}
+		if u32le(h[0:4]) != zipCentralSig {
 			break
 		}
-		compMethod := u16le(cd[cur+10 : cur+12])
-		compSize := u32le(cd[cur+20 : cur+24])
-		uncompSize := u32le(cd[cur+24 : cur+28])
-		nameLen := int(u16le(cd[cur+28 : cur+30]))
-		extraLen := int(u16le(cd[cur+30 : cur+32]))
-		cmtLen := int(u16le(cd[cur+32 : cur+34]))
-		localOff := u32le(cd[cur+42 : cur+46])
-		cur += 46
-		if cur+nameLen+extraLen+cmtLen > len(cd) {
+
+		compMethod := u16le(h[10:12])
+		compSize := u32le(h[20:24])
+		uncompSize := u32le(h[24:28])
+		nameLen := u16le(h[28:30])
+		extraLen := u16le(h[30:32])
+		cmtLen := u16le(h[32:34])
+		localOff := u32le(h[42:46])
+
+		recSize := uint32(46) + uint32(nameLen) + uint32(extraLen) + uint32(cmtLen)
+		if cur+recSize > end {
 			return nil, fmt.Errorf("zip: central dir truncated")
 		}
-		name := sanitizeRelPath(string(cd[cur : cur+nameLen]))
-		cur += nameLen + extraLen + cmtLen
+
+		nameBytes, _, err := readAt(cur+46, nameLen)
+		if err != nil {
+			return nil, fmt.Errorf("zip: read name: %w", err)
+		}
+		if uint16(len(nameBytes)) < nameLen {
+			return nil, fmt.Errorf("zip: short name")
+		}
+		name := sanitizeRelPath(string(nameBytes))
+		cur += recSize
 		if name == "" {
 			continue
 		}
@@ -97,14 +101,59 @@ func parseZipIndex(
 	return out, nil
 }
 
-func findZipEOCD(b []byte) int {
-	// Search backwards for signature.
-	for i := len(b) - 22; i >= 0; i-- {
-		if u32le(b[i:i+4]) == zipEndSig {
-			return i
-		}
+func findZipEOCDAt(size uint32, readAt func(off uint32, n uint16) ([]byte, bool, error)) (uint32, error) {
+	// EOCD is guaranteed to be within last 65557 bytes.
+	const maxBack uint32 = 22 + 0xFFFF
+	start := uint32(0)
+	if size > maxBack {
+		start = size - maxBack
 	}
-	return -1
+
+	const scanChunk = 1024
+	var carry [3]byte
+	carryLen := 0
+
+	off := size
+	for off > start {
+		chunkOff := off
+		if chunkOff > scanChunk {
+			chunkOff -= scanChunk
+		} else {
+			chunkOff = 0
+		}
+		if chunkOff < start {
+			chunkOff = start
+		}
+
+		n := uint16(off - chunkOff)
+		b, _, err := readAt(chunkOff, n)
+		if err != nil {
+			return 0, fmt.Errorf("zip: read tail: %w", err)
+		}
+		if len(b) == 0 {
+			return 0, fmt.Errorf("zip: missing EOCD")
+		}
+
+		var buf [scanChunk + 3]byte
+		copy(buf[:], b)
+		copy(buf[len(b):], carry[:carryLen])
+		scanLen := len(b) + carryLen
+
+		for i := scanLen - 4; i >= 0; i-- {
+			if u32le(buf[i:i+4]) == zipEndSig {
+				return chunkOff + uint32(i), nil
+			}
+		}
+
+		carryLen = len(b)
+		if carryLen > 3 {
+			carryLen = 3
+		}
+		copy(carry[:], b[:carryLen])
+		off = chunkOff
+	}
+
+	return 0, fmt.Errorf("zip: missing EOCD")
 }
 
 func zipLocalDataOffset(

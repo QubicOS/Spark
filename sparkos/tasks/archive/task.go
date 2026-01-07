@@ -436,7 +436,7 @@ func (t *Task) openArchive(ctx *kernel.Context, path string) {
 		t.status = "Not a file."
 		return
 	}
-	head, _, err := t.vfs.ReadAt(ctx, path, 0, 64)
+	head, _, err := t.readAtFull(ctx, path, 0, 64)
 	if err != nil {
 		t.status = "Read failed."
 		return
@@ -448,9 +448,7 @@ func (t *Task) openArchive(ctx *kernel.Context, path string) {
 		return
 	}
 
-	readAt := func(off uint32, n uint16) ([]byte, bool, error) {
-		return t.vfs.ReadAt(ctx, path, off, n)
-	}
+	readAt := func(off uint32, n uint16) ([]byte, bool, error) { return t.readAtFull(ctx, path, off, n) }
 
 	var entries []entry
 	switch kind {
@@ -475,6 +473,47 @@ func (t *Task) openArchive(ctx *kernel.Context, path string) {
 	t.top = 0
 	t.rebuildItems()
 	t.status = fmt.Sprintf("Loaded %s (%d entries).", kind.String(), len(entries))
+}
+
+func (t *Task) readAtFull(ctx *kernel.Context, path string, off uint32, n uint16) ([]byte, bool, error) {
+	if t.vfs == nil {
+		return nil, false, errors.New("vfs unavailable")
+	}
+	if n == 0 {
+		return nil, false, nil
+	}
+
+	const maxChunk = kernel.MaxMessageBytes - 11
+
+	out := make([]byte, 0, int(n))
+	cur := off
+	remaining := int(n)
+	eof := false
+
+	for remaining > 0 {
+		want := remaining
+		if want > maxChunk {
+			want = maxChunk
+		}
+
+		b, gotEOF, err := t.vfs.ReadAt(ctx, path, cur, uint16(want))
+		if err != nil {
+			return nil, false, err
+		}
+		if len(b) == 0 {
+			return out, true, nil
+		}
+
+		out = append(out, b...)
+		cur += uint32(len(b))
+		remaining -= len(b)
+		if gotEOF {
+			eof = true
+			break
+		}
+	}
+
+	return out, eof, nil
 }
 
 func (t *Task) rebuildItems() {
