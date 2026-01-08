@@ -37,7 +37,10 @@ func triggerPanic(info PanicInfo) {
 		info.Stack = captureStack()
 		if v := panicHandler.Load(); v != nil {
 			if fn, ok := v.(func(PanicInfo)); ok && fn != nil {
-				fn(info)
+				func() {
+					defer func() { _ = recover() }()
+					fn(info)
+				}()
 			}
 		}
 	})
