@@ -3,6 +3,7 @@ package vfs
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
@@ -23,6 +24,7 @@ type Client struct {
 	replyCh      <-chan kernel.Message
 
 	nextRequestID uint32
+	opMu          sync.Mutex
 }
 
 type Writer struct {
@@ -30,6 +32,8 @@ type Writer struct {
 	ctx    *kernel.Context
 
 	requestID uint32
+	locked    bool
+	closed    bool
 }
 
 func New(vfsCap kernel.Capability) *Client {
@@ -89,6 +93,8 @@ func (c *Client) recv(op string) (kernel.Message, error) {
 }
 
 func (c *Client) List(ctx *kernel.Context, path string) ([]Entry, error) {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
 	if err := c.ensureReply(ctx); err != nil {
 		return nil, err
 	}
@@ -129,6 +135,8 @@ func (c *Client) List(ctx *kernel.Context, path string) ([]Entry, error) {
 }
 
 func (c *Client) Mkdir(ctx *kernel.Context, path string) error {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
 	if err := c.ensureReply(ctx); err != nil {
 		return err
 	}
@@ -165,6 +173,8 @@ func (c *Client) Mkdir(ctx *kernel.Context, path string) error {
 }
 
 func (c *Client) Remove(ctx *kernel.Context, path string) error {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
 	if err := c.ensureReply(ctx); err != nil {
 		return err
 	}
@@ -201,6 +211,8 @@ func (c *Client) Remove(ctx *kernel.Context, path string) error {
 }
 
 func (c *Client) Rename(ctx *kernel.Context, oldPath, newPath string) error {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
 	if err := c.ensureReply(ctx); err != nil {
 		return err
 	}
@@ -237,6 +249,8 @@ func (c *Client) Rename(ctx *kernel.Context, oldPath, newPath string) error {
 }
 
 func (c *Client) Copy(ctx *kernel.Context, srcPath, dstPath string) error {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
 	if err := c.ensureReply(ctx); err != nil {
 		return err
 	}
@@ -275,6 +289,8 @@ func (c *Client) Copy(ctx *kernel.Context, srcPath, dstPath string) error {
 }
 
 func (c *Client) Stat(ctx *kernel.Context, path string) (proto.VFSEntryType, uint32, error) {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
 	if err := c.ensureReply(ctx); err != nil {
 		return 0, 0, err
 	}
@@ -311,6 +327,8 @@ func (c *Client) Stat(ctx *kernel.Context, path string) (proto.VFSEntryType, uin
 }
 
 func (c *Client) ReadAt(ctx *kernel.Context, path string, off uint32, maxBytes uint16) ([]byte, bool, error) {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
 	if err := c.ensureReply(ctx); err != nil {
 		return nil, false, err
 	}
@@ -349,7 +367,9 @@ func (c *Client) ReadAt(ctx *kernel.Context, path string, off uint32, maxBytes u
 }
 
 func (c *Client) Write(ctx *kernel.Context, path string, mode proto.VFSWriteMode, data []byte) (uint32, error) {
-	w, err := c.OpenWriter(ctx, path, mode)
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
+	w, err := c.openWriterLocked(ctx, path, mode, false)
 	if err != nil {
 		return 0, err
 	}
@@ -361,6 +381,16 @@ func (c *Client) Write(ctx *kernel.Context, path string, mode proto.VFSWriteMode
 }
 
 func (c *Client) OpenWriter(ctx *kernel.Context, path string, mode proto.VFSWriteMode) (*Writer, error) {
+	c.opMu.Lock()
+	w, err := c.openWriterLocked(ctx, path, mode, true)
+	if err != nil {
+		c.opMu.Unlock()
+		return nil, err
+	}
+	return w, nil
+}
+
+func (c *Client) openWriterLocked(ctx *kernel.Context, path string, mode proto.VFSWriteMode, holdLock bool) (*Writer, error) {
 	if err := c.ensureReply(ctx); err != nil {
 		return nil, err
 	}
@@ -391,7 +421,7 @@ func (c *Client) OpenWriter(ctx *kernel.Context, path string, mode proto.VFSWrit
 			if !ok || gotID != reqID || done {
 				continue
 			}
-			return &Writer{client: c, ctx: ctx, requestID: reqID}, nil
+			return &Writer{client: c, ctx: ctx, requestID: reqID, locked: holdLock}, nil
 		}
 	}
 }
@@ -418,6 +448,14 @@ func (w *Writer) Write(p []byte) (int, error) {
 }
 
 func (w *Writer) Close() (uint32, error) {
+	if w.closed {
+		return 0, nil
+	}
+	w.closed = true
+	if w.locked {
+		defer w.client.opMu.Unlock()
+		w.locked = false
+	}
 	if err := w.client.send(w.ctx, proto.MsgVFSWriteClose, proto.VFSWriteClosePayload(w.requestID)); err != nil {
 		return 0, err
 	}
