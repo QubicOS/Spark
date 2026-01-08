@@ -108,11 +108,11 @@ func (c *Client) List(ctx *kernel.Context, path string) ([]Entry, error) {
 		case proto.MsgError:
 			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
 			if !ok || ref != proto.MsgVFSList {
-				return nil, fmt.Errorf("vfs list: %s", code)
+				continue
 			}
 			gotID, rest, ok := proto.DecodeErrorDetailWithRequestID(detail)
 			if !ok || gotID != reqID {
-				return nil, fmt.Errorf("vfs list: %s", code)
+				continue
 			}
 			return nil, fmt.Errorf("vfs list: %s: %s", code, string(rest))
 		case proto.MsgVFSListResp:
@@ -147,11 +147,11 @@ func (c *Client) Mkdir(ctx *kernel.Context, path string) error {
 		case proto.MsgError:
 			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
 			if !ok || ref != proto.MsgVFSMkdir {
-				return fmt.Errorf("vfs mkdir: %s", code)
+				continue
 			}
 			gotID, rest, ok := proto.DecodeErrorDetailWithRequestID(detail)
 			if !ok || gotID != reqID {
-				return fmt.Errorf("vfs mkdir: %s", code)
+				continue
 			}
 			return fmt.Errorf("vfs mkdir: %s: %s", code, string(rest))
 		case proto.MsgVFSMkdirResp:
@@ -183,11 +183,11 @@ func (c *Client) Remove(ctx *kernel.Context, path string) error {
 		case proto.MsgError:
 			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
 			if !ok || ref != proto.MsgVFSRemove {
-				return fmt.Errorf("vfs remove: %s", code)
+				continue
 			}
 			gotID, rest, ok := proto.DecodeErrorDetailWithRequestID(detail)
 			if !ok || gotID != reqID {
-				return fmt.Errorf("vfs remove: %s", code)
+				continue
 			}
 			return fmt.Errorf("vfs remove: %s: %s", code, string(rest))
 		case proto.MsgVFSRemoveResp:
@@ -219,11 +219,11 @@ func (c *Client) Rename(ctx *kernel.Context, oldPath, newPath string) error {
 		case proto.MsgError:
 			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
 			if !ok || ref != proto.MsgVFSRename {
-				return fmt.Errorf("vfs rename: %s", code)
+				continue
 			}
 			gotID, rest, ok := proto.DecodeErrorDetailWithRequestID(detail)
 			if !ok || gotID != reqID {
-				return fmt.Errorf("vfs rename: %s", code)
+				continue
 			}
 			return fmt.Errorf("vfs rename: %s: %s", code, string(rest))
 		case proto.MsgVFSRenameResp:
@@ -255,11 +255,11 @@ func (c *Client) Copy(ctx *kernel.Context, srcPath, dstPath string) error {
 		case proto.MsgError:
 			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
 			if !ok || ref != proto.MsgVFSCopy {
-				return fmt.Errorf("vfs copy: %s", code)
+				continue
 			}
 			gotID, rest, ok := proto.DecodeErrorDetailWithRequestID(detail)
 			if !ok || gotID != reqID {
-				return fmt.Errorf("vfs copy: %s", code)
+				continue
 			}
 			return fmt.Errorf("vfs copy: %s: %s", code, string(rest))
 		case proto.MsgVFSCopyResp:
@@ -293,11 +293,11 @@ func (c *Client) Stat(ctx *kernel.Context, path string) (proto.VFSEntryType, uin
 		case proto.MsgError:
 			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
 			if !ok || ref != proto.MsgVFSStat {
-				return 0, 0, fmt.Errorf("vfs stat: %s", code)
+				continue
 			}
 			gotID, rest, ok := proto.DecodeErrorDetailWithRequestID(detail)
 			if !ok || gotID != reqID {
-				return 0, 0, fmt.Errorf("vfs stat: %s", code)
+				continue
 			}
 			return 0, 0, fmt.Errorf("vfs stat: %s: %s", code, string(rest))
 		case proto.MsgVFSStatResp:
@@ -329,11 +329,11 @@ func (c *Client) ReadAt(ctx *kernel.Context, path string, off uint32, maxBytes u
 		case proto.MsgError:
 			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
 			if !ok || ref != proto.MsgVFSRead {
-				return nil, false, fmt.Errorf("vfs read: %s", code)
+				continue
 			}
 			gotID, rest, ok := proto.DecodeErrorDetailWithRequestID(detail)
 			if !ok || gotID != reqID {
-				return nil, false, fmt.Errorf("vfs read: %s", code)
+				continue
 			}
 			return nil, false, fmt.Errorf("vfs read: %s: %s", code, string(rest))
 		case proto.MsgVFSReadResp:
@@ -379,11 +379,11 @@ func (c *Client) OpenWriter(ctx *kernel.Context, path string, mode proto.VFSWrit
 		case proto.MsgError:
 			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
 			if !ok || ref != proto.MsgVFSWriteOpen {
-				return nil, fmt.Errorf("vfs write open: %s", code)
+				continue
 			}
 			gotID, rest, ok := proto.DecodeErrorDetailWithRequestID(detail)
 			if !ok || gotID != reqID {
-				return nil, fmt.Errorf("vfs write open: %s", code)
+				continue
 			}
 			return nil, fmt.Errorf("vfs write open: %s: %s", code, string(rest))
 		case proto.MsgVFSWriteResp:
@@ -431,11 +431,11 @@ func (w *Writer) Close() (uint32, error) {
 		case proto.MsgError:
 			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
 			if !ok || (ref != proto.MsgVFSWriteChunk && ref != proto.MsgVFSWriteClose) {
-				return 0, fmt.Errorf("vfs write: %s", code)
+				continue
 			}
 			gotID, rest, ok := proto.DecodeErrorDetailWithRequestID(detail)
 			if !ok || gotID != w.requestID {
-				return 0, fmt.Errorf("vfs write: %s", code)
+				continue
 			}
 			return 0, fmt.Errorf("vfs write: %s: %s", code, string(rest))
 		case proto.MsgVFSWriteResp:
