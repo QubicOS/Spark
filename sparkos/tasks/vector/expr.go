@@ -268,6 +268,23 @@ func builtinKeywords() []string {
 	set["and"] = struct{}{}
 	set["or"] = struct{}{}
 	set["not"] = struct{}{}
+	set["vec2"] = struct{}{}
+	set["vec3"] = struct{}{}
+	set["vec4"] = struct{}{}
+	set["x"] = struct{}{}
+	set["y"] = struct{}{}
+	set["z"] = struct{}{}
+	set["w"] = struct{}{}
+	set["dot"] = struct{}{}
+	set["cross"] = struct{}{}
+	set["mag"] = struct{}{}
+	set["unit"] = struct{}{}
+	set["normalize"] = struct{}{}
+	set["dist"] = struct{}{}
+	set["angle"] = struct{}{}
+	set["proj"] = struct{}{}
+	set["outer"] = struct{}{}
+	set["lerp"] = struct{}{}
 	set["zeros"] = struct{}{}
 	set["ones"] = struct{}{}
 	set["eye"] = struct{}{}
@@ -311,6 +328,8 @@ func isBuiltinKeyword(name string) bool {
 		return true
 	}
 	switch name {
+	case "vec2", "vec3", "vec4", "x", "y", "z", "w", "dot", "cross", "mag", "unit", "normalize", "dist", "angle", "proj", "outer", "lerp":
+		return true
 	case "zeros", "ones", "eye", "reshape", "T", "transpose", "det", "inv", "shape", "flatten",
 		"get", "set", "row", "col", "diag", "trace", "norm",
 		"re", "im", "conj", "arg",
@@ -1363,6 +1382,10 @@ func builtinCallValue(e *env, name string, args []Value) (Value, bool, error) {
 	}
 	if name == "range" {
 		out, err := builtinRange(args)
+		return out, true, err
+	}
+
+	if out, ok, err := builtinCallVector(e, name, args); ok {
 		return out, true, err
 	}
 

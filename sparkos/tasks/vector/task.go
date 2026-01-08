@@ -1866,6 +1866,34 @@ func (t *Task) updateHint() {
 		t.hint = "or(a, b)"
 	case "not":
 		t.hint = "not(a)"
+	case "vec2":
+		t.hint = "vec2(x, y)"
+	case "vec3":
+		t.hint = "vec3(x, y, z)"
+	case "vec4":
+		t.hint = "vec4(x, y, z, w)"
+	case "dot":
+		t.hint = "dot(a, b)"
+	case "cross":
+		t.hint = "cross(a, b)"
+	case "mag", "norm":
+		t.hint = "mag(v)"
+	case "unit", "normalize":
+		t.hint = "unit(v)"
+	case "dist":
+		t.hint = "dist(a, b)"
+	case "angle":
+		t.hint = "angle(a, b)"
+	case "proj":
+		t.hint = "proj(a, b)"
+	case "outer":
+		t.hint = "outer(a, b)"
+	case "lerp":
+		t.hint = "lerp(a, b, t)"
+	case "get":
+		t.hint = "get(v, i) or get(A, row, col)"
+	case "set":
+		t.hint = "set(v, i, value) or set(A, row, col, value)"
 	default:
 		if len(cands) > 1 {
 			t.hint = fmt.Sprintf("Tab: complete (%d)", len(cands))
