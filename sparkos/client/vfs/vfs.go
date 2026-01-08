@@ -41,6 +41,9 @@ func New(vfsCap kernel.Capability) *Client {
 }
 
 func (c *Client) ensureReply(ctx *kernel.Context) error {
+	if ctx == nil {
+		return errors.New("vfs client: nil context")
+	}
 	if c.replyCh != nil {
 		return nil
 	}
@@ -71,6 +74,9 @@ func (c *Client) nextID() uint32 {
 }
 
 func (c *Client) send(ctx *kernel.Context, kind proto.Kind, payload []byte) error {
+	if ctx == nil {
+		return errors.New("vfs client: nil context")
+	}
 	for {
 		res := ctx.SendToCapResult(c.vfsCap, uint16(kind), payload, c.replyCapXfer)
 		switch res {
