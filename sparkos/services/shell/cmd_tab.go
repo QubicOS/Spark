@@ -10,7 +10,7 @@ import (
 )
 
 func cmdTab(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
-	s.ensureTabs()
+	s.initTabsIfNeeded()
 	s.stashTab(s.tabIdx)
 
 	if len(args) == 0 {

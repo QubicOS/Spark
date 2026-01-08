@@ -75,7 +75,7 @@ func (s *Service) Run(ctx *kernel.Context) {
 		return
 	}
 
-	s.ensureTabs()
+	s.initTabsIfNeeded()
 	if s.reg == nil {
 		if err := s.initRegistry(); err != nil {
 			_ = s.printString(ctx, "shell: init: "+err.Error()+"\n")
@@ -124,20 +124,32 @@ type tabState struct {
 	best  string
 }
 
-func (s *Service) ensureTabs() {
+func (s *Service) initTabsIfNeeded() {
 	if len(s.tabs) == 0 {
-		s.tabs = []tabState{{cwd: "/"}}
+		if s.cwd == "" {
+			s.cwd = "/"
+		}
+		s.tabs = []tabState{{
+			line:   s.line,
+			cursor: s.cursor,
+
+			history: s.history,
+			histPos: s.histPos,
+			scratch: s.scratch,
+
+			scrollback: s.scrollback,
+
+			cwd: s.cwd,
+
+			hint:  s.hint,
+			ghost: s.ghost,
+			cands: s.cands,
+			best:  s.best,
+		}}
 		s.tabIdx = 0
 	}
 	if s.tabIdx < 0 || s.tabIdx >= len(s.tabs) {
 		s.tabIdx = 0
-	}
-	s.restoreTab(s.tabIdx)
-	if s.cwd == "" {
-		s.cwd = "/"
-	}
-	if s.histPos == 0 && len(s.history) > 0 {
-		s.histPos = len(s.history)
 	}
 }
 
@@ -191,14 +203,14 @@ func (s *Service) currentTab() (idx int, total int) {
 }
 
 func (s *Service) newTab(ctx *kernel.Context, suppressPrompt bool) {
-	s.ensureTabs()
+	s.initTabsIfNeeded()
 	s.stashTab(s.tabIdx)
 	s.tabs = append(s.tabs, tabState{cwd: s.cwd})
 	_ = s.switchTab(ctx, len(s.tabs)-1, suppressPrompt)
 }
 
 func (s *Service) closeTab(ctx *kernel.Context, suppressPrompt bool) {
-	s.ensureTabs()
+	s.initTabsIfNeeded()
 	if len(s.tabs) <= 1 {
 		_ = s.printString(ctx, "tab: cannot close the last tab\n")
 		return
@@ -214,7 +226,7 @@ func (s *Service) closeTab(ctx *kernel.Context, suppressPrompt bool) {
 }
 
 func (s *Service) nextTab(ctx *kernel.Context, suppressPrompt bool) {
-	s.ensureTabs()
+	s.initTabsIfNeeded()
 	if len(s.tabs) <= 1 {
 		return
 	}
@@ -222,7 +234,7 @@ func (s *Service) nextTab(ctx *kernel.Context, suppressPrompt bool) {
 }
 
 func (s *Service) prevTab(ctx *kernel.Context, suppressPrompt bool) {
-	s.ensureTabs()
+	s.initTabsIfNeeded()
 	if len(s.tabs) <= 1 {
 		return
 	}
@@ -231,7 +243,7 @@ func (s *Service) prevTab(ctx *kernel.Context, suppressPrompt bool) {
 }
 
 func (s *Service) switchTab(ctx *kernel.Context, idx int, suppressPrompt bool) bool {
-	s.ensureTabs()
+	s.initTabsIfNeeded()
 	if idx < 0 || idx >= len(s.tabs) || idx == s.tabIdx {
 		return false
 	}
