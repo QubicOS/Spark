@@ -61,7 +61,10 @@ func (s *Service) Run(ctx *kernel.Context) {
 				dirty = false
 			}
 
-		case msg := <-ch:
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
 			switch proto.Kind(msg.Kind) {
 			case proto.MsgTermWrite:
 				_, _ = s.t.Write(msg.Data[:msg.Len])
