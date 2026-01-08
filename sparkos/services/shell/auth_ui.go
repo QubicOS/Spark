@@ -204,7 +204,7 @@ func (s *Service) authFail(ctx *kernel.Context) {
 	s.authFails++
 	delay := uint64(1000)
 	if s.authFails > 1 {
-		delay = uint64(1000 * s.authFails)
+		delay = uint64(s.authFails) * 1000
 		if delay > 8000 {
 			delay = 8000
 		}
