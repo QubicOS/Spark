@@ -427,6 +427,9 @@ func (c *Client) openWriterLocked(ctx *kernel.Context, path string, mode proto.V
 }
 
 func (w *Writer) Write(p []byte) (int, error) {
+	if w.closed {
+		return 0, errors.New("vfs write: writer is closed")
+	}
 	if len(p) == 0 {
 		return 0, nil
 	}
