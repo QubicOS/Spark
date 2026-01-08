@@ -70,3 +70,17 @@ func TestPlotKey_TabToggles3DAxes(t *testing.T) {
 		t.Fatalf("expected showAxes3D=false after second Tab")
 	}
 }
+
+func TestREPL_AllowsRuneHotkeys(t *testing.T) {
+	tk := New(nil, kernel.Capability{}, kernel.Capability{})
+	tk.tab = tabTerminal
+
+	tk.handleKey(nil, key{kind: keyRune, r: 'q'})
+	tk.handleKey(nil, key{kind: keyRune, r: 'g'})
+	tk.handleKey(nil, key{kind: keyRune, r: 'h'})
+
+	got := string(tk.input)
+	if got != "qgh" {
+		t.Fatalf("input=%q", got)
+	}
+}

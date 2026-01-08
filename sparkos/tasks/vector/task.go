@@ -395,7 +395,8 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		return
 	}
 
-	if k.kind == keyRune && (k.r == 'H' || k.r == 'h') {
+	// Avoid letter hotkeys while typing in the REPL.
+	if t.tab != tabTerminal && k.kind == keyRune && (k.r == 'H' || k.r == 'h') {
 		t.showHelp = !t.showHelp
 		if t.showHelp {
 			t.helpTop = 0
@@ -509,7 +510,7 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 			}
 		}
 	case keyRune:
-		if k.r == 'q' {
+		if t.tab != tabTerminal && k.r == 'q' {
 			t.requestExit(ctx)
 			return
 		}
