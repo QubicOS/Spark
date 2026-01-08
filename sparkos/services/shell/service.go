@@ -115,19 +115,15 @@ func (s *Service) banner() string {
 
 	const logoW = 7
 	const textCol = 22
-	gap := " "
-	if textCol > logoW {
-		gap = strings.Repeat(" ", textCol-logoW)
-	}
 
 	// Left: a small "bolt" logo, right: brief intro.
 	return "" +
 		info + "Welcome to SparkOS" + reset + "\n" +
-		bolt + "   /\\   " + reset + gap + dim + "SparkOS is a personal operating system project" + reset + "\n" +
-		bolt + "  /  \\  " + reset + gap + dim + "focused on building a small and understandable" + reset + "\n" +
-		bolt + " /_/\\ \\ " + reset + gap + dim + "system for embedded devices." + reset + "\n" +
-		bolt + " \\ \\/ / " + reset + gap + dim + "Build: " + b + reset + "\n" +
-		bolt + "  \\__/  " + reset + gap + dim + "Type: help" + reset + "\n\n"
+		bolt + "   /\\   " + reset + dim + "Spark is a personal operating system project" + reset + "\n" +
+		bolt + "  /  \\  " + reset + dim + "focused on building a small and usable" + reset + "\n" +
+		bolt + " / /\\ \\ " + reset + dim + "system for embedded devices." + reset + "\n" +
+		bolt + " \\ \\/ / " + reset + dim + "Build: " + b + reset + "\n" +
+		bolt + "  \\__/  " + reset + dim + "Type: help" + reset + "\n\n"
 }
 
 func (s *Service) handleFocus(ctx *kernel.Context, active bool) {
