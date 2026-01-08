@@ -34,6 +34,23 @@ func (e *codeEditor) loadFromProgram(p *program) {
 	e.hint = ""
 }
 
+func (e *codeEditor) loadFromText(lines []string) {
+	e.lines = nil
+	for _, s := range lines {
+		s = strings.TrimRight(s, "\r")
+		e.lines = append(e.lines, []rune(s))
+	}
+	if len(e.lines) == 0 {
+		e.lines = [][]rune{nil}
+	}
+	e.curRow = 0
+	e.curCol = 0
+	e.top = 0
+	e.left = 0
+	e.ghost = ""
+	e.hint = ""
+}
+
 func (e *codeEditor) ensureNonEmpty() {
 	if len(e.lines) == 0 {
 		e.lines = [][]rune{nil}
@@ -321,8 +338,8 @@ func isWordRune(r rune) bool {
 
 var basicKeywords = []string{
 	"ABS", "AND", "CHR$", "CLS", "DEL", "DIM", "DIR", "ELSE",
-	"END", "EOF", "FOR", "GETB", "GOSUB", "GOTO", "IF", "INPUT",
-	"INT", "LEN", "LET", "NEXT", "OPEN", "OR", "PRINT", "PUTB",
+	"COPY", "END", "EOF", "FOR", "GETB", "GETW", "GOSUB", "GOTO", "IF", "INPUT",
+	"INT", "LEN", "LET", "NEXT", "OPEN", "OR", "POS", "PRINT", "PUTB", "PUTW",
 	"REN", "REM", "RETURN", "RND", "RUN", "SEEK", "SGN", "SLEEP",
 	"STOP", "THEN", "YIELD",
 }
@@ -341,11 +358,15 @@ var basicHints = map[string]string{
 	"NEW":    "NEW",
 	"OPEN":   "OPEN fd, \"path\", \"R|W|A|RB|WB|AB\"",
 	"GETB":   "GETB fd, A",
+	"GETW":   "GETW fd, A",
 	"PUTB":   "PUTB fd, expr",
+	"PUTW":   "PUTW fd, expr",
 	"SEEK":   "SEEK fd, pos",
+	"POS":    "POS(fd)",
 	"DIR":    "DIR \"path\"",
 	"DEL":    "DEL \"path\"",
 	"REN":    "REN \"old\",\"new\"",
+	"COPY":   "COPY \"src\",\"dst\"",
 	"EOF":    "EOF(fd)",
 }
 

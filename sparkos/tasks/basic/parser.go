@@ -199,6 +199,8 @@ func parseFactor(m *vm, s *scanner) (int32, error) {
 		})
 	case "EOF":
 		return parseEOF(m, s)
+	case "POS":
+		return parsePOS(m, s)
 	}
 
 	s.pos -= len(word)
@@ -282,6 +284,26 @@ func parseEOF(m *vm, s *scanner) (int32, error) {
 		return 1, nil
 	}
 	return 0, nil
+}
+
+func parsePOS(m *vm, s *scanner) (int32, error) {
+	s.skipSpaces()
+	if !s.accept('(') {
+		return 0, ErrSyntax
+	}
+	fd, err := parseIntExpr(m, s)
+	if err != nil {
+		return 0, err
+	}
+	s.skipSpaces()
+	if !s.accept(')') {
+		return 0, ErrSyntax
+	}
+	h, err := m.getFile(fd)
+	if err != nil {
+		return 0, err
+	}
+	return int32(h.pos), nil
 }
 
 func parseVarRef(m *vm, s *scanner) (varRef, error) {

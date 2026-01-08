@@ -205,6 +205,12 @@ func (m *vm) execLine(text string) (stepResult, error) {
 		return m.execDel(&s)
 	case "REN":
 		return m.execRen(&s)
+	case "COPY":
+		return m.execCopy(&s)
+	case "GETW":
+		return m.execGetW(&s)
+	case "PUTW":
+		return m.execPutW(&s)
 	case "CLS":
 		return m.execCLS(&s)
 	default:

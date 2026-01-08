@@ -216,6 +216,41 @@ func (c *Client) Rename(ctx *kernel.Context, oldPath, newPath string) error {
 	}
 }
 
+func (c *Client) Copy(ctx *kernel.Context, srcPath, dstPath string) error {
+	if err := c.ensureReply(ctx); err != nil {
+		return err
+	}
+
+	reqID := c.nextID()
+	if err := c.send(ctx, proto.MsgVFSCopy, proto.VFSCopyPayload(reqID, srcPath, dstPath)); err != nil {
+		return err
+	}
+
+	for {
+		msg := <-c.replyCh
+		switch proto.Kind(msg.Kind) {
+		case proto.MsgError:
+			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
+			if !ok || ref != proto.MsgVFSCopy {
+				return fmt.Errorf("vfs copy: %s", code)
+			}
+			gotID, rest, ok := proto.DecodeErrorDetailWithRequestID(detail)
+			if !ok || gotID != reqID {
+				return fmt.Errorf("vfs copy: %s", code)
+			}
+			return fmt.Errorf("vfs copy: %s: %s", code, string(rest))
+		case proto.MsgVFSCopyResp:
+			gotID, done, _, _, ok := proto.DecodeVFSCopyRespPayload(msg.Data[:msg.Len])
+			if !ok || gotID != reqID {
+				continue
+			}
+			if done {
+				return nil
+			}
+		}
+	}
+}
+
 func (c *Client) Stat(ctx *kernel.Context, path string) (proto.VFSEntryType, uint32, error) {
 	if err := c.ensureReply(ctx); err != nil {
 		return 0, 0, err

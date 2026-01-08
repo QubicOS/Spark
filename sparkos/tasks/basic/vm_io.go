@@ -1,6 +1,7 @@
 package basic
 
 import (
+	"encoding/binary"
 	"fmt"
 	"strings"
 )
@@ -79,6 +80,13 @@ func parseFileMode(s string) (fileMode, error) {
 }
 
 func (m *vm) execClose(s *scanner) (stepResult, error) {
+	s.skipSpaces()
+	if s.eof() {
+		for i := range m.files {
+			_ = m.closeHandle(&m.files[i])
+		}
+		return stepResult{}, nil
+	}
 	fd, err := parseIntExpr(m, s)
 	if err != nil {
 		return stepResult{}, err
@@ -173,6 +181,76 @@ func (m *vm) execPutB(s *scanner) (stepResult, error) {
 	return stepResult{}, nil
 }
 
+func (m *vm) execGetW(s *scanner) (stepResult, error) {
+	if err := m.ensureVFS(); err != nil {
+		return stepResult{}, err
+	}
+
+	fd, err := parseIntExpr(m, s)
+	if err != nil {
+		return stepResult{}, err
+	}
+	s.skipSpaces()
+	if !s.accept(',') {
+		return stepResult{}, ErrSyntax
+	}
+	dst, err := parseVarRef(m, s)
+	if err != nil {
+		return stepResult{}, err
+	}
+	if dst.kind != varInt {
+		return stepResult{}, ErrType
+	}
+
+	h, err := m.getFile(fd)
+	if err != nil {
+		return stepResult{}, err
+	}
+	if h.mode != fileRead {
+		return stepResult{}, ErrBadFile
+	}
+	data, eof, err := m.vfs.ReadAt(m.ctx, h.path, h.pos, 4)
+	if err != nil {
+		return stepResult{}, err
+	}
+	if eof || len(data) < 4 {
+		m.intVars[dst.index] = -1
+		return stepResult{}, nil
+	}
+	h.pos += 4
+	m.intVars[dst.index] = int32(binary.LittleEndian.Uint32(data[:4]))
+	return stepResult{}, nil
+}
+
+func (m *vm) execPutW(s *scanner) (stepResult, error) {
+	fd, err := parseIntExpr(m, s)
+	if err != nil {
+		return stepResult{}, err
+	}
+	s.skipSpaces()
+	if !s.accept(',') {
+		return stepResult{}, ErrSyntax
+	}
+	val, err := parseIntExpr(m, s)
+	if err != nil {
+		return stepResult{}, err
+	}
+	h, err := m.getFile(fd)
+	if err != nil {
+		return stepResult{}, err
+	}
+	if h.w == nil {
+		return stepResult{}, ErrBadFile
+	}
+	var buf [4]byte
+	binary.LittleEndian.PutUint32(buf[:], uint32(val))
+	if _, err := h.w.Write(buf[:]); err != nil {
+		return stepResult{}, err
+	}
+	h.pos += 4
+	return stepResult{}, nil
+}
+
 func (m *vm) execSeek(s *scanner) (stepResult, error) {
 	fd, err := parseIntExpr(m, s)
 	if err != nil {
@@ -244,4 +322,23 @@ func (m *vm) execRen(s *scanner) (stepResult, error) {
 		return stepResult{}, err
 	}
 	return stepResult{}, m.vfs.Rename(m.ctx, oldPath, newPath)
+}
+
+func (m *vm) execCopy(s *scanner) (stepResult, error) {
+	if err := m.ensureVFS(); err != nil {
+		return stepResult{}, err
+	}
+	srcPath, err := m.parseStringExpr(s)
+	if err != nil {
+		return stepResult{}, err
+	}
+	s.skipSpaces()
+	if !s.accept(',') {
+		return stepResult{}, ErrSyntax
+	}
+	dstPath, err := m.parseStringExpr(s)
+	if err != nil {
+		return stepResult{}, err
+	}
+	return stepResult{}, m.vfs.Copy(m.ctx, srcPath, dstPath)
 }

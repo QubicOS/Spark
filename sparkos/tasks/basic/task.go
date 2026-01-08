@@ -178,7 +178,22 @@ func (t *Task) Run(ctx *kernel.Context) {
 					continue
 				}
 				if arg != "" {
-					t.statusLine = arg
+					runAfter := false
+					path := arg
+					if strings.HasPrefix(arg, "run:") {
+						runAfter = true
+						path = strings.TrimPrefix(arg, "run:")
+					}
+					if err := t.loadPathIntoEditor(ctx, path); err != nil {
+						t.statusLine = "? " + err.Error()
+					} else if runAfter {
+						t.statusLine = "RUN"
+						t.onLine(ctx, "RUN")
+						t.tab = tabIO
+					} else {
+						t.statusLine = "loaded " + path
+						t.tab = tabCode
+					}
 				}
 				if t.active {
 					t.render()
@@ -195,6 +210,52 @@ func (t *Task) Run(ctx *kernel.Context) {
 			}
 		}
 	}
+}
+
+func (t *Task) loadPathIntoEditor(ctx *kernel.Context, path string) error {
+	if path == "" {
+		return nil
+	}
+	vfs := t.vfsClient()
+
+	const maxFileBytes = 256 * 1024
+	const maxChunk = kernel.MaxMessageBytes - 11
+
+	var buf []byte
+	var off uint32
+	for {
+		if len(buf) >= maxFileBytes {
+			return errors.New("file too large")
+		}
+		want := uint16(maxChunk)
+		if remain := maxFileBytes - len(buf); remain < int(want) {
+			want = uint16(remain)
+		}
+		chunk, eof, err := vfs.ReadAt(ctx, path, off, want)
+		if err != nil {
+			return fmt.Errorf("load %s: %w", path, err)
+		}
+		if len(chunk) == 0 && eof {
+			break
+		}
+		buf = append(buf, chunk...)
+		off += uint32(len(chunk))
+		if eof {
+			break
+		}
+	}
+
+	text := string(buf)
+	parts := strings.Split(text, "\n")
+	for i := range parts {
+		parts[i] = strings.TrimRight(parts[i], "\r")
+	}
+	t.codeEd.loadFromText(parts)
+	if err := t.syncEditorToProgram(); err != nil {
+		t.statusLine = "loaded (not runnable): " + err.Error()
+		return nil
+	}
+	return nil
 }
 
 func (t *Task) initFont() bool {
