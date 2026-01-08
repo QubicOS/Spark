@@ -14,6 +14,10 @@ func builtinKeywords() []string {
 	set["degree"] = struct{}{}
 	set["coeff"] = struct{}{}
 	set["collect"] = struct{}{}
+	set["factor"] = struct{}{}
+	set["gcd"] = struct{}{}
+	set["lcm"] = struct{}{}
+	set["resultant"] = struct{}{}
 	set["newton"] = struct{}{}
 	set["bisection"] = struct{}{}
 	set["secant"] = struct{}{}
@@ -112,6 +116,7 @@ func builtinKeywords() []string {
 func isBuiltinKeyword(name string) bool {
 	if name == "range" || name == "simp" || name == "diff" ||
 		name == "expand" || name == "series" || name == "horner" || name == "degree" || name == "coeff" || name == "collect" ||
+		name == "factor" || name == "gcd" || name == "lcm" || name == "resultant" ||
 		name == "newton" || name == "bisection" || name == "secant" || name == "integrate_num" || name == "diff_num" || name == "interp" ||
 		name == "solve1" || name == "solve2" || name == "roots" || name == "region" || name == "solve" ||
 		name == "polyfit" || name == "polyval" || name == "convolve" || name == "cov" || name == "corr" || name == "hist" ||

@@ -31,6 +31,124 @@ func builtinCallCAS(e *env, name string, args []node) (Value, bool, error) {
 		}
 		return ExprValue(polyToExprHorner(p, varName).Simplify()), true, nil
 
+	case "gcd":
+		// gcd(f, g[, x]).
+		if len(args) != 2 && len(args) != 3 {
+			return Value{}, true, fmt.Errorf("%w: gcd(f, g[, x])", ErrEval)
+		}
+		varName := "x"
+		if len(args) == 3 {
+			vn, ok := callArgIdent(args[2])
+			if !ok {
+				return Value{}, true, fmt.Errorf("%w: gcd expects third arg as identifier", ErrEval)
+			}
+			varName = vn
+		}
+		a, err := polyRatFromExpr(e, args[0], varName)
+		if err != nil {
+			return Value{}, true, fmt.Errorf("%w: gcd: %w", ErrEval, err)
+		}
+		b, err := polyRatFromExpr(e, args[1], varName)
+		if err != nil {
+			return Value{}, true, fmt.Errorf("%w: gcd: %w", ErrEval, err)
+		}
+		g, err := polyRatGCD(a, b)
+		if err != nil {
+			return Value{}, true, fmt.Errorf("%w: gcd: %w", ErrEval, err)
+		}
+		return ExprValue(polyRatToExprHorner(g, varName).Simplify()), true, nil
+
+	case "lcm":
+		// lcm(f, g[, x]).
+		if len(args) != 2 && len(args) != 3 {
+			return Value{}, true, fmt.Errorf("%w: lcm(f, g[, x])", ErrEval)
+		}
+		varName := "x"
+		if len(args) == 3 {
+			vn, ok := callArgIdent(args[2])
+			if !ok {
+				return Value{}, true, fmt.Errorf("%w: lcm expects third arg as identifier", ErrEval)
+			}
+			varName = vn
+		}
+		a, err := polyRatFromExpr(e, args[0], varName)
+		if err != nil {
+			return Value{}, true, fmt.Errorf("%w: lcm: %w", ErrEval, err)
+		}
+		b, err := polyRatFromExpr(e, args[1], varName)
+		if err != nil {
+			return Value{}, true, fmt.Errorf("%w: lcm: %w", ErrEval, err)
+		}
+		g, err := polyRatGCD(a, b)
+		if err != nil {
+			return Value{}, true, fmt.Errorf("%w: lcm: %w", ErrEval, err)
+		}
+		ab, err := polyRatMul(a, b)
+		if err != nil {
+			return Value{}, true, fmt.Errorf("%w: lcm: %w", ErrEval, err)
+		}
+		q, r, err := polyRatDivMod(ab, g)
+		if err != nil {
+			return Value{}, true, fmt.Errorf("%w: lcm: %w", ErrEval, err)
+		}
+		if r.degree() >= 0 {
+			return Value{}, true, fmt.Errorf("%w: lcm: non-exact division", ErrEval)
+		}
+		q, err = polyRatMonic(q)
+		if err != nil {
+			return Value{}, true, fmt.Errorf("%w: lcm: %w", ErrEval, err)
+		}
+		return ExprValue(polyRatToExprHorner(q, varName).Simplify()), true, nil
+
+	case "resultant":
+		// resultant(f, g, x).
+		if len(args) != 3 {
+			return Value{}, true, fmt.Errorf("%w: resultant(f, g, x)", ErrEval)
+		}
+		varName, ok := callArgIdent(args[2])
+		if !ok {
+			return Value{}, true, fmt.Errorf("%w: resultant expects third arg as identifier", ErrEval)
+		}
+		a, err := polyRatFromExpr(e, args[0], varName)
+		if err != nil {
+			return Value{}, true, fmt.Errorf("%w: resultant: %w", ErrEval, err)
+		}
+		b, err := polyRatFromExpr(e, args[1], varName)
+		if err != nil {
+			return Value{}, true, fmt.Errorf("%w: resultant: %w", ErrEval, err)
+		}
+		res, err := polyRatResultant(a, b)
+		if err != nil {
+			return Value{}, true, fmt.Errorf("%w: resultant: %w", ErrEval, err)
+		}
+		if e.mode == modeExact {
+			return NumberValue(RatNumber(res)), true, nil
+		}
+		return NumberValue(Float(res.Float64())), true, nil
+
+	case "factor":
+		// factor(expr[, x]) factors integer polynomials into linear factors when possible.
+		if len(args) != 1 && len(args) != 2 {
+			return Value{}, true, fmt.Errorf("%w: factor(expr[, x])", ErrEval)
+		}
+		varName := "x"
+		if len(args) == 2 {
+			vn, ok := callArgIdent(args[1])
+			if !ok {
+				return Value{}, true, fmt.Errorf("%w: factor expects second arg as identifier", ErrEval)
+			}
+			varName = vn
+		}
+		p, err := polyRatFromExpr(e, args[0], varName)
+		if err != nil {
+			return Value{}, true, fmt.Errorf("%w: factor: %w", ErrEval, err)
+		}
+		fx, err := polyRatFactorInteger(p, varName)
+		if err != nil {
+			return Value{}, true, fmt.Errorf("%w: factor: %w", ErrEval, err)
+		}
+		return ExprValue(fx.Simplify()), true, nil
+
 	case "degree":
 		if len(args) != 2 {
 			return Value{}, true, fmt.Errorf("%w: degree(expr, x)", ErrEval)

@@ -1951,6 +1951,14 @@ func (t *Task) updateHint() {
 		t.hint = "coeff(expr, x, n)"
 	case "collect":
 		t.hint = "collect(expr, x)"
+	case "factor":
+		t.hint = "factor(expr[, x])"
+	case "gcd":
+		t.hint = "gcd(f, g[, x])"
+	case "lcm":
+		t.hint = "lcm(f, g[, x])"
+	case "resultant":
+		t.hint = "resultant(f, g, x)"
 	case "newton":
 		t.hint = "newton(expr, x0[, tol[, maxIter]])"
 	case "bisection":
