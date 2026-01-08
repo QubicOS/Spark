@@ -686,6 +686,110 @@ type nodeBinary struct {
 	right node
 }
 
+type nodeCompare struct {
+	op    tokenKind
+	left  node
+	right node
+}
+
+func (n nodeCompare) Eval(e *env) (Value, error) {
+	a, err := n.left.Eval(e)
+	if err != nil {
+		return Value{}, err
+	}
+	b, err := n.right.Eval(e)
+	if err != nil {
+		return Value{}, err
+	}
+
+	if a.kind == valueExpr || b.kind == valueExpr {
+		return ExprValue(nodeCompare{op: n.op, left: a.ToNode(), right: b.ToNode()}.Simplify()), nil
+	}
+
+	out, err := evalCompare(e, n.op, a, b)
+	if err != nil {
+		return Value{}, err
+	}
+	if out {
+		return NumberValue(RatNumber(RatInt(1))), nil
+	}
+	return NumberValue(RatNumber(RatInt(0))), nil
+}
+
+func evalCompare(e *env, op tokenKind, a, b Value) (bool, error) {
+	_ = e
+	switch {
+	case a.kind == valueComplex || b.kind == valueComplex:
+		za, err := toComplexForCompare(a)
+		if err != nil {
+			return false, err
+		}
+		zb, err := toComplexForCompare(b)
+		if err != nil {
+			return false, err
+		}
+		switch op {
+		case tokEq:
+			return za == zb, nil
+		case tokNe:
+			return za != zb, nil
+		default:
+			return false, fmt.Errorf("%w: unsupported complex comparison %q", ErrEval, tokenText(op))
+		}
+	case a.kind == valueNumber && b.kind == valueNumber:
+		af := a.num.Float64()
+		bf := b.num.Float64()
+		switch op {
+		case tokEq:
+			return af == bf, nil
+		case tokNe:
+			return af != bf, nil
+		case tokLt:
+			return af < bf, nil
+		case tokLe:
+			return af <= bf, nil
+		case tokGt:
+			return af > bf, nil
+		case tokGe:
+			return af >= bf, nil
+		default:
+			return false, fmt.Errorf("%w: unknown compare op", ErrEval)
+		}
+	default:
+		return false, fmt.Errorf("%w: unsupported comparison", ErrEval)
+	}
+}
+
+func toComplexForCompare(v Value) (complex128, error) {
+	switch v.kind {
+	case valueComplex:
+		return v.c, nil
+	case valueNumber:
+		return complex(v.num.Float64(), 0), nil
+	default:
+		return 0, fmt.Errorf("%w: unsupported complex operand", ErrEval)
+	}
+}
+
+func tokenText(k tokenKind) string {
+	switch k {
+	case tokEq:
+		return "=="
+	case tokNe:
+		return "!="
+	case tokLt:
+		return "<"
+	case tokLe:
+		return "<="
+	case tokGt:
+		return ">"
+	case tokGe:
+		return ">="
+	default:
+		return "?"
+	}
+}
+
 func (n nodeBinary) Eval(e *env) (Value, error) {
 	a, err := n.left.Eval(e)
 	if err != nil {
@@ -913,6 +1017,27 @@ func (n nodeBinary) Deriv(varName string) node {
 	default:
 		return nodeNumber{v: RatNumber(RatInt(0))}
 	}
+}
+
+func (n nodeCompare) Simplify() node {
+	left := n.left.Simplify()
+	right := n.right.Simplify()
+	ln, lok := left.(nodeNumber)
+	rn, rok := right.(nodeNumber)
+	if lok && rok {
+		ok, err := evalCompare(newEnv(), n.op, NumberValue(ln.v), NumberValue(rn.v))
+		if err == nil {
+			if ok {
+				return nodeNumber{v: RatNumber(RatInt(1))}
+			}
+			return nodeNumber{v: RatNumber(RatInt(0))}
+		}
+	}
+	return nodeCompare{op: n.op, left: left, right: right}
+}
+
+func (n nodeCompare) Deriv(_ string) node {
+	return nodeNumber{v: RatNumber(RatInt(0))}
 }
 
 func evalBinaryArray(e *env, op byte, a, b Value) (Value, error) {
