@@ -19,6 +19,7 @@ func registerCoreCommands(r *registry) error {
 		{Name: "log", Usage: "log <line>", Desc: "Send a log line to logger service.", Run: cmdLog},
 		{Name: "scrollback", Usage: "scrollback [n]", Desc: "Show the last N output lines.", Run: cmdScrollback},
 		{Name: "history", Usage: "history [n]", Desc: "Show recent commands.", Run: cmdHistory},
+		{Name: "tab", Usage: "tab [new|close|next|prev|list|go <n>]", Desc: "Manage shell tabs (F1 prev, F2 next, F3 new).", Run: cmdTab},
 	} {
 		if err := r.register(cmd); err != nil {
 			return err

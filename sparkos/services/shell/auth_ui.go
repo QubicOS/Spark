@@ -224,6 +224,8 @@ func (s *Service) authSuccess(ctx *kernel.Context) {
 	s.authBanner = false
 
 	_ = s.writeString(ctx, "Welcome, root.\n\n")
+	s.ensureTabs()
+	_ = s.writeString(ctx, s.tabStatusLine())
 	_ = s.prompt(ctx)
 }
 
