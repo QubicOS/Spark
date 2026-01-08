@@ -110,7 +110,7 @@ type Task struct {
 }
 
 func New(disp hal.Display, ep kernel.Capability, vfsCap kernel.Capability) *Task {
-	return &Task{
+	t := &Task{
 		disp:   disp,
 		ep:     ep,
 		vfsCap: vfsCap,
@@ -128,6 +128,32 @@ func New(disp hal.Display, ep kernel.Capability, vfsCap kernel.Capability) *Task
 
 		zoomInFactor:  0.8,
 		zoomOutFactor: 1.25,
+	}
+	t.seedPlotVars()
+	return t
+}
+
+func (t *Task) seedPlotVars() {
+	if t.e == nil {
+		return
+	}
+	if _, ok := t.e.vars["x"]; !ok {
+		if v, err := builtinRange([]Value{
+			NumberValue(Float(t.xMin)),
+			NumberValue(Float(t.xMax)),
+			NumberValue(Float(256)),
+		}); err == nil && v.kind == valueArray {
+			t.e.vars["x"] = v
+		}
+	}
+	if _, ok := t.e.vars["y"]; !ok {
+		if v, err := builtinRange([]Value{
+			NumberValue(Float(t.yMin)),
+			NumberValue(Float(t.yMax)),
+			NumberValue(Float(256)),
+		}); err == nil && v.kind == valueArray {
+			t.e.vars["y"] = v
+		}
 	}
 }
 
@@ -257,6 +283,7 @@ func (t *Task) initSession() {
 	if t.e == nil {
 		t.e = newEnv()
 	}
+	t.seedPlotVars()
 	if len(t.lines) != 0 {
 		return
 	}
@@ -311,6 +338,8 @@ func (t *Task) unloadSession() {
 	t.stackTop = 0
 
 	t.vfs = nil
+
+	t.seedPlotVars()
 }
 
 func (t *Task) handleInput(ctx *kernel.Context, b []byte) {
@@ -583,6 +612,7 @@ func (t *Task) handleCommand(ctx *kernel.Context, cmdline string) {
 	case "term":
 		t.switchTab(tabTerminal)
 	case "plot":
+		t.forcePlot()
 		t.switchTab(tabPlot)
 	case "stack":
 		t.switchTab(tabStack)
@@ -974,6 +1004,27 @@ func (t *Task) handleServiceCommand(ctx *kernel.Context, cmdline string) {
 		t.appendLine("not found: " + name)
 	default:
 		t.appendLine("unknown service command: $" + cmd)
+	}
+}
+
+func (t *Task) forcePlot() {
+	// 1) Prefer existing graph expression.
+	if t.graph != nil && nodeHasIdent(t.graph, "x") {
+		t.addPlotFunc(t.graphExpr, t.graph)
+		return
+	}
+
+	// 2) If y is defined as an expression, plot it as y(x).
+	if v, ok := t.e.vars["y"]; ok && v.kind == valueExpr && v.expr != nil && nodeHasIdent(v.expr, "x") {
+		src := "y = " + NodeString(v.expr)
+		t.setGraphFromExpr(src, v.expr)
+		t.addPlotFunc(src, v.expr)
+		return
+	}
+
+	// 3) If y is an array and x is an array, plot a series.
+	if v, ok := t.e.vars["y"]; ok && v.kind == valueArray {
+		t.tryPlotSeries("y", v)
 	}
 }
 
@@ -1647,6 +1698,18 @@ func (t *Task) evalLine(ctx *kernel.Context, line string, recordHistory bool) {
 		case actionAssignVar:
 			v, err := act.expr.Eval(t.e)
 			if err != nil {
+				// Allow defining plot expressions like `y = x` in a fresh notebook.
+				if errors.Is(err, ErrUnknownVar) && (act.varName == "y" || act.varName == "z") && nodeHasIdent(act.expr, "x") {
+					ex := act.expr.Simplify()
+					t.e.vars[act.varName] = ExprValue(ex)
+					src := fmt.Sprintf("%s = %s", act.varName, NodeString(ex))
+					t.appendLine(src)
+					t.setGraphFromExpr(src, ex)
+					if nodeHasIdent(ex, "x") {
+						t.addPlotFunc(src, ex)
+					}
+					break
+				}
 				t.appendLine("error: " + err.Error())
 				return
 			}
@@ -1659,6 +1722,7 @@ func (t *Task) evalLine(ctx *kernel.Context, line string, recordHistory bool) {
 				}
 				if act.varName == "y" {
 					t.setRangeFromArray(v.arr)
+					t.tryPlotSeries("y", v)
 					break
 				}
 				t.tryPlotSeries(act.varName, v)

@@ -19,3 +19,14 @@ func TestEvalLine_SetsGraphFor3DSurface(t *testing.T) {
 		t.Fatalf("graph not set for 3D surface expression")
 	}
 }
+
+func TestEvalLine_AssignYPlotsAgainstX(t *testing.T) {
+	tk := New(nil, kernel.Capability{}, kernel.Capability{})
+
+	// Fresh notebook should have x seeded so this assignment works and creates a plot.
+	tk.evalLine(nil, "y = x", false)
+
+	if len(tk.plots) == 0 {
+		t.Fatalf("expected y=x to create a plot series")
+	}
+}
