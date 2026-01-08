@@ -54,3 +54,21 @@ func newEnv() *env {
 		funcs: make(map[string]userFunc),
 	}
 }
+
+func (e *env) clone() *env {
+	if e == nil {
+		return newEnv()
+	}
+
+	vars := make(map[string]Value, len(e.vars)+4)
+	for k, v := range e.vars {
+		vars[k] = v
+	}
+
+	return &env{
+		mode:  e.mode,
+		prec:  e.prec,
+		vars:  vars,
+		funcs: e.funcs,
+	}
+}

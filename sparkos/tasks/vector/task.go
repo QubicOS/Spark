@@ -104,6 +104,9 @@ type Task struct {
 	plotColorMode uint8
 	showAxes3D    bool
 
+	plotZBuf  []uint8
+	plotZGrid []float64
+
 	stackSel int
 	stackTop int
 
@@ -1310,16 +1313,25 @@ func (t *Task) zoom3D(factor float64) {
 }
 
 func (t *Task) evalGraphFor(expr node, x float64) (float64, bool) {
-	if expr == nil {
+	return evalGraphForEnv(t.e, expr, x)
+}
+
+func (t *Task) evalSurfaceFor(expr node, x, y float64) (float64, bool) {
+	return evalSurfaceForEnv(t.e, expr, x, y)
+}
+
+func evalGraphForEnv(e *env, expr node, x float64) (float64, bool) {
+	if e == nil || expr == nil {
 		return 0, false
 	}
-	prev, hadPrev := t.e.vars["x"]
-	t.e.vars["x"] = NumberValue(Float(x))
-	yv, err := expr.Eval(t.e)
+
+	prev, hadPrev := e.vars["x"]
+	e.vars["x"] = NumberValue(Float(x))
+	yv, err := expr.Eval(e)
 	if hadPrev {
-		t.e.vars["x"] = prev
+		e.vars["x"] = prev
 	} else {
-		delete(t.e.vars, "x")
+		delete(e.vars, "x")
 	}
 	if err != nil {
 		return 0, false
@@ -1330,28 +1342,28 @@ func (t *Task) evalGraphFor(expr node, x float64) (float64, bool) {
 	return yv.num.Float64(), true
 }
 
-func (t *Task) evalSurfaceFor(expr node, x, y float64) (float64, bool) {
-	if expr == nil {
+func evalSurfaceForEnv(e *env, expr node, x, y float64) (float64, bool) {
+	if e == nil || expr == nil {
 		return 0, false
 	}
 
-	prevX, hadPrevX := t.e.vars["x"]
-	prevY, hadPrevY := t.e.vars["y"]
+	prevX, hadPrevX := e.vars["x"]
+	prevY, hadPrevY := e.vars["y"]
 
-	t.e.vars["x"] = NumberValue(Float(x))
-	t.e.vars["y"] = NumberValue(Float(y))
+	e.vars["x"] = NumberValue(Float(x))
+	e.vars["y"] = NumberValue(Float(y))
 
-	zv, err := expr.Eval(t.e)
+	zv, err := expr.Eval(e)
 
 	if hadPrevX {
-		t.e.vars["x"] = prevX
+		e.vars["x"] = prevX
 	} else {
-		delete(t.e.vars, "x")
+		delete(e.vars, "x")
 	}
 	if hadPrevY {
-		t.e.vars["y"] = prevY
+		e.vars["y"] = prevY
 	} else {
-		delete(t.e.vars, "y")
+		delete(e.vars, "y")
 	}
 
 	if err != nil {
@@ -1362,7 +1374,6 @@ func (t *Task) evalSurfaceFor(expr node, x, y float64) (float64, bool) {
 	}
 	return zv.num.Float64(), true
 }
-
 func (t *Task) autoscalePlots() {
 	if len(t.plots) > 0 {
 		t.autoscaleFromSeries()
