@@ -29,6 +29,7 @@ func (s *Service) beginAuth(ctx *kernel.Context) {
 	s.authUser = ""
 	s.authBuf = s.authBuf[:0]
 	s.authPass1 = wipeBytes(s.authPass1)
+	s.utf8buf = s.utf8buf[:0]
 	s.authFails = 0
 	s.authBlock = 0
 
@@ -214,6 +215,7 @@ func (s *Service) authFail(ctx *kernel.Context) {
 	s.authStage = authUser
 	s.authUser = ""
 	s.authBuf = s.authBuf[:0]
+	s.utf8buf = s.utf8buf[:0]
 	s.authPass1 = wipeBytes(s.authPass1)
 }
 
@@ -222,6 +224,7 @@ func (s *Service) authSuccess(ctx *kernel.Context) {
 	s.authBuf = nil
 	s.authPass1 = wipeBytes(s.authPass1)
 	s.authBanner = false
+	s.utf8buf = s.utf8buf[:0]
 
 	_ = s.writeString(ctx, "Welcome, root.\n\n")
 	s.initTabsIfNeeded()
