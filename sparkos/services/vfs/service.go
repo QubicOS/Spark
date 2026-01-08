@@ -3,6 +3,7 @@ package vfs
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"spark/hal"
 	"spark/sparkos/fs/littlefs"
@@ -15,6 +16,7 @@ type Service struct {
 	flash hal.Flash
 
 	fs *littlefs.FS
+	sd fsHandle
 
 	writers map[uint32]*writeSession
 }
@@ -34,6 +36,34 @@ type writeHandle interface {
 	BytesWritten() uint32
 }
 
+type fsHandle interface {
+	ListDir(path string, fn func(name string, info littlefs.Info) bool) error
+	Mkdir(path string) error
+	Remove(path string) error
+	Rename(oldPath, newPath string) error
+	Stat(path string) (littlefs.Info, error)
+	ReadAt(path string, p []byte, off uint32) (n int, eof bool, err error)
+	OpenWriter(path string, mode littlefs.WriteMode) (writeHandle, error)
+}
+
+type flashFS struct {
+	fs *littlefs.FS
+}
+
+func (f flashFS) ListDir(path string, fn func(name string, info littlefs.Info) bool) error {
+	return f.fs.ListDir(path, fn)
+}
+func (f flashFS) Mkdir(path string) error                 { return f.fs.Mkdir(path) }
+func (f flashFS) Remove(path string) error                { return f.fs.Remove(path) }
+func (f flashFS) Rename(oldPath, newPath string) error    { return f.fs.Rename(oldPath, newPath) }
+func (f flashFS) Stat(path string) (littlefs.Info, error) { return f.fs.Stat(path) }
+func (f flashFS) ReadAt(path string, p []byte, off uint32) (int, bool, error) {
+	return f.fs.ReadAt(path, p, off)
+}
+func (f flashFS) OpenWriter(path string, mode littlefs.WriteMode) (writeHandle, error) {
+	return f.fs.OpenWriter(path, mode)
+}
+
 func (s *Service) Run(ctx *kernel.Context) {
 	ch, ok := ctx.RecvChan(s.inCap)
 	if !ok {
@@ -48,6 +78,9 @@ func (s *Service) Run(ctx *kernel.Context) {
 		if err == nil {
 			s.fs = fs
 		}
+	}
+	if s.fs != nil {
+		s.sd = s.initSD(ctx)
 	}
 
 	if s.writers == nil {
@@ -94,7 +127,17 @@ func (s *Service) handleList(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	if err := fs.ListDir(path, func(name string, info littlefs.Info) bool {
+	backend, rel, ok := s.resolve(path)
+	if !ok {
+		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSList, requestID, "invalid path")
+		return
+	}
+
+	if path == "/" && s.sd != nil {
+		_ = s.send(ctx, reply, proto.MsgVFSListResp, proto.VFSListRespPayload(requestID, false, proto.VFSEntryDir, 0, "sd"))
+	}
+
+	if err := backend.ListDir(rel, func(name string, info littlefs.Info) bool {
 		typ := proto.VFSEntryUnknown
 		switch info.Type {
 		case littlefs.TypeFile:
@@ -126,7 +169,12 @@ func (s *Service) handleMkdir(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	if err := fs.Mkdir(path); err != nil {
+	backend, rel, ok := s.resolve(path)
+	if !ok {
+		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSMkdir, requestID, "invalid path")
+		return
+	}
+	if err := backend.Mkdir(rel); err != nil {
 		_ = s.sendErr(ctx, reply, mapVFSError(err), proto.MsgVFSMkdir, requestID, err.Error())
 		return
 	}
@@ -147,7 +195,12 @@ func (s *Service) handleRemove(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	if err := fs.Remove(path); err != nil {
+	backend, rel, ok := s.resolve(path)
+	if !ok {
+		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSRemove, requestID, "invalid path")
+		return
+	}
+	if err := backend.Remove(rel); err != nil {
 		_ = s.sendErr(ctx, reply, mapVFSError(err), proto.MsgVFSRemove, requestID, err.Error())
 		return
 	}
@@ -168,7 +221,22 @@ func (s *Service) handleRename(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	if err := fs.Rename(oldPath, newPath); err != nil {
+	oldFS, oldRel, ok := s.resolve(oldPath)
+	if !ok {
+		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSRename, requestID, "invalid old path")
+		return
+	}
+	newFS, newRel, ok := s.resolve(newPath)
+	if !ok {
+		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSRename, requestID, "invalid new path")
+		return
+	}
+	if oldFS != newFS {
+		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSRename, requestID, "cross-device rename not supported")
+		return
+	}
+
+	if err := oldFS.Rename(oldRel, newRel); err != nil {
 		_ = s.sendErr(ctx, reply, mapVFSError(err), proto.MsgVFSRename, requestID, err.Error())
 		return
 	}
@@ -192,7 +260,18 @@ func (s *Service) handleCopy(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	info, err := fs.Stat(srcPath)
+	srcFS, srcRel, ok := s.resolve(srcPath)
+	if !ok {
+		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSCopy, requestID, "invalid src path")
+		return
+	}
+	dstFS, dstRel, ok := s.resolve(dstPath)
+	if !ok {
+		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSCopy, requestID, "invalid dst path")
+		return
+	}
+
+	info, err := srcFS.Stat(srcRel)
 	if err != nil {
 		_ = s.sendErr(ctx, reply, mapVFSError(err), proto.MsgVFSCopy, requestID, err.Error())
 		return
@@ -202,7 +281,7 @@ func (s *Service) handleCopy(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	w, err := fs.OpenWriter(dstPath, littlefs.WriteTruncate)
+	w, err := dstFS.OpenWriter(dstRel, littlefs.WriteTruncate)
 	if err != nil {
 		_ = s.sendErr(ctx, reply, mapVFSError(err), proto.MsgVFSCopy, requestID, err.Error())
 		return
@@ -238,7 +317,7 @@ func (s *Service) handleCopy(ctx *kernel.Context, msg kernel.Message) {
 
 	var off uint32
 	for {
-		n, eof, err := fs.ReadAt(srcPath, buf, off)
+		n, eof, err := srcFS.ReadAt(srcRel, buf, off)
 		if err != nil {
 			_ = s.sendErr(ctx, reply, mapVFSError(err), proto.MsgVFSCopy, requestID, err.Error())
 			return
@@ -283,7 +362,17 @@ func (s *Service) handleStat(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	info, err := fs.Stat(path)
+	backend, rel, ok := s.resolve(path)
+	if !ok {
+		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSStat, requestID, "invalid path")
+		return
+	}
+	if path == "/sd" && s.sd != nil {
+		_ = s.send(ctx, reply, proto.MsgVFSStatResp, proto.VFSStatRespPayload(requestID, proto.VFSEntryDir, 0))
+		return
+	}
+
+	info, err := backend.Stat(rel)
 	if err != nil {
 		_ = s.sendErr(ctx, reply, mapVFSError(err), proto.MsgVFSStat, requestID, err.Error())
 		return
@@ -324,7 +413,13 @@ func (s *Service) handleRead(ctx *kernel.Context, msg kernel.Message) {
 	}
 	buf := make([]byte, max)
 
-	n, eof, err := fs.ReadAt(path, buf, off)
+	backend, rel, ok := s.resolve(path)
+	if !ok {
+		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSRead, requestID, "invalid path")
+		return
+	}
+
+	n, eof, err := backend.ReadAt(rel, buf, off)
 	if err != nil {
 		_ = s.sendErr(ctx, reply, mapVFSError(err), proto.MsgVFSRead, requestID, err.Error())
 		return
@@ -360,7 +455,13 @@ func (s *Service) handleWriteOpen(ctx *kernel.Context, msg kernel.Message) {
 		wmode = littlefs.WriteAppend
 	}
 
-	w, err := fs.OpenWriter(path, wmode)
+	backend, rel, ok := s.resolve(path)
+	if !ok {
+		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSWriteOpen, requestID, "invalid path")
+		return
+	}
+
+	w, err := backend.OpenWriter(rel, wmode)
 	if err != nil {
 		_ = s.sendErr(ctx, reply, mapVFSError(err), proto.MsgVFSWriteOpen, requestID, err.Error())
 		return
@@ -459,4 +560,27 @@ func mapVFSError(err error) proto.ErrCode {
 	default:
 		return proto.ErrInternal
 	}
+}
+
+func (s *Service) resolve(path string) (fsHandle, string, bool) {
+	if s.fs == nil {
+		return nil, "", false
+	}
+	root := flashFS{fs: s.fs}
+	if path == "" {
+		return nil, "", false
+	}
+	if path == "/sd" || path == "/sd/" {
+		if s.sd == nil {
+			return nil, "", false
+		}
+		return s.sd, "/", true
+	}
+	if strings.HasPrefix(path, "/sd/") {
+		if s.sd == nil {
+			return nil, "", false
+		}
+		return s.sd, path[3:], true
+	}
+	return root, path, true
 }
