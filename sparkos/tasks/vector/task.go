@@ -1933,6 +1933,14 @@ func (t *Task) updateHint() {
 		t.hint = "expr(x)"
 	case "eval":
 		t.hint = "eval(expr)"
+	case "size":
+		t.hint = "size(expr)"
+	case "time":
+		t.hint = "time(expr) (sets _time_ms)"
+	case "numeric":
+		t.hint = "numeric(expr)"
+	case "exact":
+		t.hint = "exact(expr)"
 	case "if":
 		t.hint = "if(cond, a, b)"
 	case "where":

@@ -37,6 +37,10 @@ func builtinKeywords() []string {
 	set["param"] = struct{}{}
 	set["expr"] = struct{}{}
 	set["eval"] = struct{}{}
+	set["size"] = struct{}{}
+	set["time"] = struct{}{}
+	set["numeric"] = struct{}{}
+	set["exact"] = struct{}{}
 	set["if"] = struct{}{}
 	set["where"] = struct{}{}
 	set["and"] = struct{}{}
@@ -107,7 +111,8 @@ func isBuiltinKeyword(name string) bool {
 		name == "solve1" || name == "solve2" || name == "roots" || name == "region" || name == "solve" ||
 		name == "polyfit" || name == "polyval" || name == "convolve" || name == "cov" || name == "corr" || name == "hist" ||
 		name == "polar" || name == "rect" ||
-		name == "plane" || name == "param" || name == "expr" || name == "eval" {
+		name == "plane" || name == "param" || name == "expr" || name == "eval" ||
+		name == "size" || name == "time" || name == "numeric" || name == "exact" {
 		return true
 	}
 	switch name {

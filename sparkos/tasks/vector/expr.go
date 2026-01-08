@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/cmplx"
+	"time"
 )
 
 func scalarUnary(fn func(float64) float64) func(*env, []Number) (Number, error) {
@@ -1032,6 +1033,38 @@ func builtinCallControl(e *env, name string, args []Value) (Value, bool, error) 
 			return args[1], true, nil
 		}
 		return args[2], true, nil
+	case "size":
+		if len(args) != 1 || args[0].kind != valueExpr {
+			return Value{}, true, fmt.Errorf("%w: size(expr)", ErrEval)
+		}
+		return NumberValue(RatNumber(RatInt(int64(nodeSize(args[0].expr))))), true, nil
+	case "numeric":
+		if len(args) != 1 || args[0].kind != valueExpr {
+			return Value{}, true, fmt.Errorf("%w: numeric(expr)", ErrEval)
+		}
+		prev := e.mode
+		e.mode = modeFloat
+		out, err := args[0].expr.Eval(e)
+		e.mode = prev
+		return out, true, err
+	case "exact":
+		if len(args) != 1 || args[0].kind != valueExpr {
+			return Value{}, true, fmt.Errorf("%w: exact(expr)", ErrEval)
+		}
+		prev := e.mode
+		e.mode = modeExact
+		out, err := args[0].expr.Eval(e)
+		e.mode = prev
+		return out, true, err
+	case "time":
+		if len(args) != 1 || args[0].kind != valueExpr {
+			return Value{}, true, fmt.Errorf("%w: time(expr)", ErrEval)
+		}
+		start := time.Now()
+		out, err := args[0].expr.Eval(e)
+		dt := time.Since(start)
+		e.vars["_time_ms"] = NumberValue(Float(float64(dt.Microseconds()) / 1000))
+		return out, true, err
 	case "where":
 		if len(args) != 2 {
 			return Value{}, true, fmt.Errorf("%w: where(cond, value)", ErrEval)
@@ -1107,6 +1140,29 @@ func truthy(v Value) (bool, error) {
 		return v.c != 0, nil
 	default:
 		return false, fmt.Errorf("%w: condition must be a number", ErrEval)
+	}
+}
+
+func nodeSize(n node) int {
+	switch nn := n.(type) {
+	case nil:
+		return 0
+	case nodeNumber, nodeIdent:
+		return 1
+	case nodeUnary:
+		return 1 + nodeSize(nn.x)
+	case nodeBinary:
+		return 1 + nodeSize(nn.left) + nodeSize(nn.right)
+	case nodeCompare:
+		return 1 + nodeSize(nn.left) + nodeSize(nn.right)
+	case nodeCall:
+		sum := 1
+		for _, a := range nn.args {
+			sum += nodeSize(a)
+		}
+		return sum
+	default:
+		return 1
 	}
 }
 
