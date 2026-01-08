@@ -51,3 +51,22 @@ func TestService_PlotColorCycles(t *testing.T) {
 		t.Fatalf("plotcolor pos=%d", tk.plotColorMode)
 	}
 }
+
+func TestPlotKey_TabToggles3DAxes(t *testing.T) {
+	tk := New(nil, kernel.Capability{}, kernel.Capability{})
+	tk.tab = tabPlot
+	tk.plotDim = 3
+
+	if tk.showAxes3D {
+		t.Fatalf("expected default showAxes3D=false")
+	}
+
+	tk.handleKey(nil, key{kind: keyTab})
+	if !tk.showAxes3D {
+		t.Fatalf("expected showAxes3D=true after Tab")
+	}
+	tk.handleKey(nil, key{kind: keyTab})
+	if tk.showAxes3D {
+		t.Fatalf("expected showAxes3D=false after second Tab")
+	}
+}

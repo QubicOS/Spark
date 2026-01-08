@@ -27,6 +27,10 @@ var (
 	colorPlot1    = color.RGBA{R: 0xFF, G: 0xD1, B: 0x4A, A: 0xFF}
 	colorPlot2    = color.RGBA{R: 0x7F, G: 0xFF, B: 0x7F, A: 0xFF}
 	colorPlot3    = color.RGBA{R: 0xFF, G: 0x7F, B: 0xFF, A: 0xFF}
+
+	colorAxisX = color.RGBA{R: 0xF0, G: 0x40, B: 0x40, A: 0xFF}
+	colorAxisY = color.RGBA{R: 0x40, G: 0xF0, B: 0x40, A: 0xFF}
+	colorAxisZ = color.RGBA{R: 0x40, G: 0x80, B: 0xFF, A: 0xFF}
 )
 
 func lerpU8(a, b uint8, t float64) uint8 {
@@ -724,6 +728,9 @@ func (t *Task) renderGraph3D(panelY int16, w int16, viewHPx int) {
 	}
 
 	t.drawBox3D(plotX, plotY, plotW, plotH, zbuf)
+	if t.showAxes3D {
+		t.drawAxesArrows3D(plotX, plotY, plotW, plotH, zbuf)
+	}
 
 	xmin := 0.0
 	ymin := 0.0
@@ -830,6 +837,87 @@ func (t *Task) renderGraph3D(panelY int16, w int16, viewHPx int) {
 	}
 
 	t.drawLegend(plotX, plotY, plotW, plotH, []plot{{src: src, expr: expr}})
+}
+
+func (t *Task) drawAxesArrows3D(plotX, plotY, plotW, plotH int16, zbuf []uint8) {
+	xmin := 0.0
+	ymin := 0.0
+	xmax := float64(plotW - 1)
+	ymax := float64(plotH - 1)
+
+	ox, oy, od, ok := t.project3DToPlot(0, 0, 0, plotW, plotH)
+	if !ok {
+		return
+	}
+
+	type axis struct {
+		name string
+		x    float64
+		y    float64
+		z    float64
+		c    color.RGBA
+	}
+	axes := []axis{
+		{name: "X", x: 1, y: 0, z: 0, c: colorAxisX},
+		{name: "Y", x: 0, y: 1, z: 0, c: colorAxisY},
+		{name: "Z", x: 0, y: 0, z: 1, c: colorAxisZ},
+	}
+
+	drawArrow := func(ex, ey, ed float64, c color.RGBA) {
+		cx0, cy0, cx1, cy1, u0, u1, ok := clipLineToRectWithT(ox, oy, ex, ey, xmin, ymin, xmax, ymax)
+		if ok {
+			d0 := od + u0*(ed-od)
+			d1 := od + u1*(ed-od)
+			t.drawLineDepth(plotX, plotY, plotW, plotH, cx0, cy0, d0, cx1, cy1, d1, c, zbuf)
+		}
+
+		dx := ex - ox
+		dy := ey - oy
+		n := math.Hypot(dx, dy)
+		if n == 0 || math.IsNaN(n) || math.IsInf(n, 0) {
+			return
+		}
+		ux := dx / n
+		uy := dy / n
+		px := -uy
+		py := ux
+
+		arrowLen := 7.0
+		arrowW := 3.0
+		bx := ex - ux*arrowLen
+		by := ey - uy*arrowLen
+		lx := bx + px*arrowW
+		ly := by + py*arrowW
+		rx := bx - px*arrowW
+		ry := by - py*arrowW
+
+		cx0, cy0, cx1, cy1, _, _, ok = clipLineToRectWithT(ex, ey, lx, ly, xmin, ymin, xmax, ymax)
+		if ok {
+			t.drawLineDepth(plotX, plotY, plotW, plotH, cx0, cy0, ed, cx1, cy1, ed, c, zbuf)
+		}
+		cx0, cy0, cx1, cy1, _, _, ok = clipLineToRectWithT(ex, ey, rx, ry, xmin, ymin, xmax, ymax)
+		if ok {
+			t.drawLineDepth(plotX, plotY, plotW, plotH, cx0, cy0, ed, cx1, cy1, ed, c, zbuf)
+		}
+	}
+
+	for _, a := range axes {
+		ex, ey, ed, ok := t.project3DToPlot(a.x, a.y, a.z, plotW, plotH)
+		if !ok {
+			continue
+		}
+		drawArrow(ex, ey, ed, a.c)
+
+		lx := int16(roundInt16(ex)) + plotX + 2
+		ly := int16(roundInt16(ey)) + plotY - t.fontHeight
+		if lx < plotX+1 {
+			lx = plotX + 1
+		}
+		if ly < plotY+1 {
+			ly = plotY + 1
+		}
+		t.drawStringClipped(lx, ly, a.name, a.c, 1)
+	}
 }
 
 func (t *Task) project3DToPlot(x, y, z float64, plotW, plotH int16) (px, py, depth float64, ok bool) {

@@ -102,6 +102,7 @@ type Task struct {
 	plotPitch     float64
 	plotZoom      float64
 	plotColorMode uint8
+	showAxes3D    bool
 
 	stackSel int
 	stackTop int
@@ -419,8 +420,11 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 			t.submit(ctx)
 		}
 	case keyTab:
-		if t.tab == tabTerminal {
+		switch t.tab {
+		case tabTerminal:
 			t.autocomplete()
+		case tabPlot:
+			t.handlePlotKey(ctx, k)
 		}
 	case keyBackspace:
 		if t.tab == tabTerminal {
@@ -1195,6 +1199,15 @@ func downsampleSeries(xs, ys []float64, maxPoints int) ([]float64, []float64) {
 func (t *Task) handlePlotKey(ctx *kernel.Context, k key) {
 	_ = ctx
 	switch k.kind {
+	case keyTab:
+		if t.plotDim == 3 {
+			t.showAxes3D = !t.showAxes3D
+			if t.showAxes3D {
+				t.setMessage("3D axes: on")
+			} else {
+				t.setMessage("3D axes: off")
+			}
+		}
 	case keyRune:
 		switch k.r {
 		case 'c':
@@ -1696,7 +1709,7 @@ func (t *Task) switchTab(newTab tab) {
 
 func (t *Task) plotMessage() string {
 	if t.plotDim == 3 {
-		return "3D: arrows rotate | +/- zoom | PgUp/PgDn zoom | z zoom step | a autoscale | c term | $plotdim 2"
+		return "3D: arrows rotate | +/- zoom | PgUp/PgDn zoom | Tab axes | z zoom step | a autoscale | c term | $plotdim 2"
 	}
 	return "arrows pan | +/- zoom | PgUp/PgDn zoom | z zoom step | a autoscale | F1 term | F3 stack"
 }
