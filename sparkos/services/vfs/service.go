@@ -70,6 +70,7 @@ func (s *Service) Run(ctx *kernel.Context) {
 		return
 	}
 
+	s.sd = s.initSD(ctx)
 	if s.flash != nil {
 		fs, err := littlefs.New(s.flash, littlefs.Options{})
 		if err == nil {
@@ -78,9 +79,6 @@ func (s *Service) Run(ctx *kernel.Context) {
 		if err == nil {
 			s.fs = fs
 		}
-	}
-	if s.fs != nil {
-		s.sd = s.initSD(ctx)
 	}
 
 	if s.writers == nil {
@@ -121,15 +119,25 @@ func (s *Service) handleList(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	fs := s.fs
-	if fs == nil {
+	if path == "/" && s.fs == nil {
+		if s.sd != nil {
+			_ = s.send(ctx, reply, proto.MsgVFSListResp, proto.VFSListRespPayload(requestID, false, proto.VFSEntryDir, 0, "sd"))
+			_ = s.send(ctx, reply, proto.MsgVFSListResp, proto.VFSListRespPayload(requestID, true, proto.VFSEntryUnknown, 0, ""))
+			return
+		}
 		_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSList, requestID, "vfs not ready")
 		return
 	}
 
 	backend, rel, ok := s.resolve(path)
 	if !ok {
-		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSList, requestID, "invalid path")
+		if isSDPath(path) {
+			_ = s.sendErr(ctx, reply, proto.ErrNotFound, proto.MsgVFSList, requestID, "sd not available")
+		} else if s.fs == nil {
+			_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSList, requestID, "vfs not ready")
+		} else {
+			_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSList, requestID, "invalid path")
+		}
 		return
 	}
 
@@ -163,15 +171,15 @@ func (s *Service) handleMkdir(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	fs := s.fs
-	if fs == nil {
-		_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSMkdir, requestID, "vfs not ready")
-		return
-	}
-
 	backend, rel, ok := s.resolve(path)
 	if !ok {
-		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSMkdir, requestID, "invalid path")
+		if isSDPath(path) {
+			_ = s.sendErr(ctx, reply, proto.ErrNotFound, proto.MsgVFSMkdir, requestID, "sd not available")
+		} else if s.fs == nil {
+			_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSMkdir, requestID, "vfs not ready")
+		} else {
+			_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSMkdir, requestID, "invalid path")
+		}
 		return
 	}
 	if err := backend.Mkdir(rel); err != nil {
@@ -189,15 +197,15 @@ func (s *Service) handleRemove(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	fs := s.fs
-	if fs == nil {
-		_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSRemove, requestID, "vfs not ready")
-		return
-	}
-
 	backend, rel, ok := s.resolve(path)
 	if !ok {
-		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSRemove, requestID, "invalid path")
+		if isSDPath(path) {
+			_ = s.sendErr(ctx, reply, proto.ErrNotFound, proto.MsgVFSRemove, requestID, "sd not available")
+		} else if s.fs == nil {
+			_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSRemove, requestID, "vfs not ready")
+		} else {
+			_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSRemove, requestID, "invalid path")
+		}
 		return
 	}
 	if err := backend.Remove(rel); err != nil {
@@ -215,20 +223,26 @@ func (s *Service) handleRename(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	fs := s.fs
-	if fs == nil {
-		_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSRename, requestID, "vfs not ready")
-		return
-	}
-
 	oldFS, oldRel, ok := s.resolve(oldPath)
 	if !ok {
-		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSRename, requestID, "invalid old path")
+		if isSDPath(oldPath) {
+			_ = s.sendErr(ctx, reply, proto.ErrNotFound, proto.MsgVFSRename, requestID, "sd not available")
+		} else if s.fs == nil {
+			_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSRename, requestID, "vfs not ready")
+		} else {
+			_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSRename, requestID, "invalid old path")
+		}
 		return
 	}
 	newFS, newRel, ok := s.resolve(newPath)
 	if !ok {
-		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSRename, requestID, "invalid new path")
+		if isSDPath(newPath) {
+			_ = s.sendErr(ctx, reply, proto.ErrNotFound, proto.MsgVFSRename, requestID, "sd not available")
+		} else if s.fs == nil {
+			_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSRename, requestID, "vfs not ready")
+		} else {
+			_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSRename, requestID, "invalid new path")
+		}
 		return
 	}
 	if oldFS != newFS {
@@ -254,20 +268,26 @@ func (s *Service) handleCopy(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	fs := s.fs
-	if fs == nil {
-		_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSCopy, requestID, "vfs not ready")
-		return
-	}
-
 	srcFS, srcRel, ok := s.resolve(srcPath)
 	if !ok {
-		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSCopy, requestID, "invalid src path")
+		if isSDPath(srcPath) {
+			_ = s.sendErr(ctx, reply, proto.ErrNotFound, proto.MsgVFSCopy, requestID, "sd not available")
+		} else if s.fs == nil {
+			_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSCopy, requestID, "vfs not ready")
+		} else {
+			_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSCopy, requestID, "invalid src path")
+		}
 		return
 	}
 	dstFS, dstRel, ok := s.resolve(dstPath)
 	if !ok {
-		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSCopy, requestID, "invalid dst path")
+		if isSDPath(dstPath) {
+			_ = s.sendErr(ctx, reply, proto.ErrNotFound, proto.MsgVFSCopy, requestID, "sd not available")
+		} else if s.fs == nil {
+			_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSCopy, requestID, "vfs not ready")
+		} else {
+			_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSCopy, requestID, "invalid dst path")
+		}
 		return
 	}
 
@@ -356,15 +376,15 @@ func (s *Service) handleStat(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	fs := s.fs
-	if fs == nil {
-		_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSStat, requestID, "vfs not ready")
-		return
-	}
-
 	backend, rel, ok := s.resolve(path)
 	if !ok {
-		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSStat, requestID, "invalid path")
+		if isSDPath(path) {
+			_ = s.sendErr(ctx, reply, proto.ErrNotFound, proto.MsgVFSStat, requestID, "sd not available")
+		} else if s.fs == nil {
+			_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSStat, requestID, "vfs not ready")
+		} else {
+			_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSStat, requestID, "invalid path")
+		}
 		return
 	}
 	if path == "/sd" && s.sd != nil {
@@ -397,12 +417,6 @@ func (s *Service) handleRead(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	fs := s.fs
-	if fs == nil {
-		_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSRead, requestID, "vfs not ready")
-		return
-	}
-
 	max := int(maxBytes)
 	maxPayload := kernel.MaxMessageBytes - 11
 	if max > maxPayload {
@@ -415,7 +429,13 @@ func (s *Service) handleRead(ctx *kernel.Context, msg kernel.Message) {
 
 	backend, rel, ok := s.resolve(path)
 	if !ok {
-		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSRead, requestID, "invalid path")
+		if isSDPath(path) {
+			_ = s.sendErr(ctx, reply, proto.ErrNotFound, proto.MsgVFSRead, requestID, "sd not available")
+		} else if s.fs == nil {
+			_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSRead, requestID, "vfs not ready")
+		} else {
+			_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSRead, requestID, "invalid path")
+		}
 		return
 	}
 
@@ -439,12 +459,6 @@ func (s *Service) handleWriteOpen(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	fs := s.fs
-	if fs == nil {
-		_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSWriteOpen, requestID, "vfs not ready")
-		return
-	}
-
 	if prev := s.writers[requestID]; prev != nil {
 		_ = prev.writer.Close()
 		delete(s.writers, requestID)
@@ -457,7 +471,13 @@ func (s *Service) handleWriteOpen(ctx *kernel.Context, msg kernel.Message) {
 
 	backend, rel, ok := s.resolve(path)
 	if !ok {
-		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSWriteOpen, requestID, "invalid path")
+		if isSDPath(path) {
+			_ = s.sendErr(ctx, reply, proto.ErrNotFound, proto.MsgVFSWriteOpen, requestID, "sd not available")
+		} else if s.fs == nil {
+			_ = s.sendErr(ctx, reply, proto.ErrInternal, proto.MsgVFSWriteOpen, requestID, "vfs not ready")
+		} else {
+			_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSWriteOpen, requestID, "invalid path")
+		}
 		return
 	}
 
@@ -563,10 +583,6 @@ func mapVFSError(err error) proto.ErrCode {
 }
 
 func (s *Service) resolve(path string) (fsHandle, string, bool) {
-	if s.fs == nil {
-		return nil, "", false
-	}
-	root := flashFS{fs: s.fs}
 	if path == "" {
 		return nil, "", false
 	}
@@ -582,5 +598,13 @@ func (s *Service) resolve(path string) (fsHandle, string, bool) {
 		}
 		return s.sd, path[3:], true
 	}
+	if s.fs == nil {
+		return nil, "", false
+	}
+	root := flashFS{fs: s.fs}
 	return root, path, true
+}
+
+func isSDPath(path string) bool {
+	return path == "/sd" || path == "/sd/" || strings.HasPrefix(path, "/sd/")
 }
