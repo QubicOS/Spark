@@ -61,7 +61,8 @@ type Info struct {
 }
 
 type Writer struct {
-	file tinyfs.File
+	file    tinyfs.File
+	written uint32
 }
 
 type FS struct {
@@ -266,7 +267,9 @@ func (w *Writer) Write(p []byte) (int, error) {
 	if w == nil || w.file == nil {
 		return 0, errors.New("littlefs: write on closed writer")
 	}
-	return w.file.Write(p)
+	n, err := w.file.Write(p)
+	w.written += uint32(n)
+	return n, err
 }
 
 func (w *Writer) Close() error {
@@ -279,6 +282,13 @@ func (w *Writer) Close() error {
 		return wrapErr("close", err)
 	}
 	return nil
+}
+
+func (w *Writer) BytesWritten() uint32 {
+	if w == nil {
+		return 0
+	}
+	return w.written
 }
 
 type flashBlockDevice struct {
