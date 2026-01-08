@@ -27,7 +27,7 @@ func (s *Service) beginAuth(ctx *kernel.Context) {
 	s.authSetup = !ok
 	s.authStage = authUser
 	s.authUser = ""
-	s.authBuf = s.authBuf[:0]
+	s.authBuf = wipeBytes(s.authBuf)
 	s.authPass1 = wipeBytes(s.authPass1)
 	s.utf8buf = s.utf8buf[:0]
 	s.authFails = 0
@@ -214,7 +214,7 @@ func (s *Service) authFail(ctx *kernel.Context) {
 	_ = s.writeString(ctx, "login: ")
 	s.authStage = authUser
 	s.authUser = ""
-	s.authBuf = s.authBuf[:0]
+	s.authBuf = wipeBytes(s.authBuf)
 	s.utf8buf = s.utf8buf[:0]
 	s.authPass1 = wipeBytes(s.authPass1)
 }
