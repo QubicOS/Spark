@@ -5,6 +5,7 @@ func (s *Service) initRegistry() error {
 
 	for _, register := range []func(r *registry) error{
 		registerCoreCommands,
+		registerDebugCommands,
 		registerSysCommands,
 		registerFSCommands,
 		registerTextCommands,
