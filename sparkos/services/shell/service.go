@@ -118,6 +118,8 @@ type tabState struct {
 
 	cwd string
 
+	name string
+
 	hint  string
 	ghost string
 	cands []string
@@ -140,6 +142,8 @@ func (s *Service) initTabsIfNeeded() {
 			scrollback: s.scrollback,
 
 			cwd: s.cwd,
+
+			name: "",
 
 			hint:  s.hint,
 			ghost: s.ghost,
@@ -169,6 +173,8 @@ func (s *Service) stashTab(i int) {
 
 		cwd: s.cwd,
 
+		name: s.tabs[i].name,
+
 		hint:  s.hint,
 		ghost: s.ghost,
 		cands: s.cands,
@@ -191,6 +197,7 @@ func (s *Service) restoreTab(i int) {
 	s.scrollback = t.scrollback
 
 	s.cwd = t.cwd
+	s.tabs[i].name = t.name
 
 	s.hint = t.hint
 	s.ghost = t.ghost
@@ -260,7 +267,13 @@ func (s *Service) switchTab(ctx *kernel.Context, idx int, suppressPrompt bool) b
 func (s *Service) tabStatusLine() string {
 	tab := s.tabIdx + 1
 	total := len(s.tabs)
-	return fmt.Sprintf("\x1b[38;5;245m[tab %d/%d] %s\x1b[0m\n", tab, total, s.cwd)
+	label := s.cwd
+	if s.tabIdx >= 0 && s.tabIdx < len(s.tabs) {
+		if n := strings.TrimSpace(s.tabs[s.tabIdx].name); n != "" {
+			label = n
+		}
+	}
+	return fmt.Sprintf("\x1b[38;5;245m[tab %d/%d] %s\x1b[0m\n", tab, total, label)
 }
 
 func (s *Service) renderTab(ctx *kernel.Context) {
@@ -311,9 +324,9 @@ func (s *Service) handleFocus(ctx *kernel.Context, active bool) {
 		return
 	}
 	s.utf8buf = s.utf8buf[:0]
-	_ = s.sendToTerm(ctx, proto.MsgTermClear, nil)
-	_ = s.writeString(ctx, "\x1b[0m")
 	if !s.authed {
+		_ = s.sendToTerm(ctx, proto.MsgTermClear, nil)
+		_ = s.writeString(ctx, "\x1b[0m")
 		if !s.authBanner {
 			_ = s.writeString(ctx, s.banner())
 			s.authBanner = true
@@ -321,10 +334,11 @@ func (s *Service) handleFocus(ctx *kernel.Context, active bool) {
 			_ = s.writeString(ctx, s.banner())
 		}
 		_ = s.redrawAuth(ctx)
+		_ = s.sendToTerm(ctx, proto.MsgTermRefresh, nil)
 	} else {
-		_ = s.redrawLine(ctx)
+		s.initTabsIfNeeded()
+		s.renderTab(ctx)
 	}
-	_ = s.sendToTerm(ctx, proto.MsgTermRefresh, nil)
 }
 
 func (s *Service) handleInput(ctx *kernel.Context, b []byte) {
