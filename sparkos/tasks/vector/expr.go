@@ -261,6 +261,7 @@ func builtinKeywords() []string {
 	set["range"] = struct{}{}
 	set["simp"] = struct{}{}
 	set["diff"] = struct{}{}
+	set["param"] = struct{}{}
 	set["expr"] = struct{}{}
 	set["eval"] = struct{}{}
 	set["if"] = struct{}{}
@@ -324,7 +325,7 @@ func builtinKeywords() []string {
 }
 
 func isBuiltinKeyword(name string) bool {
-	if name == "range" || name == "simp" || name == "diff" || name == "expr" || name == "eval" {
+	if name == "range" || name == "simp" || name == "diff" || name == "param" || name == "expr" || name == "eval" {
 		return true
 	}
 	switch name {
@@ -1222,6 +1223,76 @@ type nodeCall struct {
 func (n nodeCall) Eval(e *env) (Value, error) {
 	if n.name == "expr" && len(n.args) == 1 {
 		return ExprValue(n.args[0].Simplify()), nil
+	}
+
+	if n.name == "param" && (len(n.args) == 4 || len(n.args) == 5) {
+		xExpr := n.args[0]
+		yExpr := n.args[1]
+
+		tMinV, err := n.args[2].Eval(e)
+		if err != nil {
+			return Value{}, err
+		}
+		tMaxV, err := n.args[3].Eval(e)
+		if err != nil {
+			return Value{}, err
+		}
+		if !tMinV.IsNumber() || !tMaxV.IsNumber() {
+			return Value{}, fmt.Errorf("%w: param expects numeric t bounds", ErrEval)
+		}
+
+		nPoints := 256
+		if len(n.args) == 5 {
+			nV, err := n.args[4].Eval(e)
+			if err != nil {
+				return Value{}, err
+			}
+			if !nV.IsNumber() {
+				return Value{}, fmt.Errorf("%w: param expects numeric point count", ErrEval)
+			}
+			nf := nV.num.Float64()
+			if nf < 2 || nf > 4096 {
+				return Value{}, fmt.Errorf("%w: param point count must be 2..4096", ErrEval)
+			}
+			nPoints = int(nf)
+		}
+
+		tMin := tMinV.num.Float64()
+		tMax := tMaxV.num.Float64()
+		if math.IsNaN(tMin) || math.IsNaN(tMax) || math.IsInf(tMin, 0) || math.IsInf(tMax, 0) {
+			return Value{}, fmt.Errorf("%w: param invalid t bounds", ErrEval)
+		}
+
+		prevT, hadPrevT := e.vars["t"]
+		defer func() {
+			if hadPrevT {
+				e.vars["t"] = prevT
+			} else {
+				delete(e.vars, "t")
+			}
+		}()
+
+		data := make([]float64, nPoints*2)
+		for i := 0; i < nPoints; i++ {
+			tt := tMin + float64(i)*(tMax-tMin)/float64(nPoints-1)
+			e.vars["t"] = NumberValue(Float(tt))
+
+			xv, err := xExpr.Eval(e)
+			if err != nil {
+				return Value{}, err
+			}
+			yv, err := yExpr.Eval(e)
+			if err != nil {
+				return Value{}, err
+			}
+			if !xv.IsNumber() || !yv.IsNumber() {
+				return Value{}, fmt.Errorf("%w: param expects x(t), y(t) to be numeric", ErrEval)
+			}
+			data[i*2+0] = xv.num.Float64()
+			data[i*2+1] = yv.num.Float64()
+		}
+
+		return MatrixValue(nPoints, 2, data), nil
 	}
 
 	if n.name == "simp" && len(n.args) == 1 {

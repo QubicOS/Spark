@@ -1660,6 +1660,8 @@ func (t *Task) evalLine(ctx *kernel.Context, line string, recordHistory bool) {
 					break
 				}
 				t.tryPlotSeries(act.varName, v)
+			} else if v.IsMatrix() && v.cols == 2 {
+				t.tryPlotMatrixXY(act.varName, v)
 			} else {
 				t.setGraphFromExpr(act.varName, v.ToNode())
 			}
@@ -1687,6 +1689,8 @@ func (t *Task) evalLine(ctx *kernel.Context, line string, recordHistory bool) {
 					t.setGraphFromExpr(NodeString(act.expr), act.expr)
 				}
 				t.tryPlotSeries("result", v)
+			} else if v.IsMatrix() && v.cols == 2 {
+				t.tryPlotMatrixXY("result", v)
 			} else {
 				t.setGraphFromExpr(NodeString(act.expr), v.ToNode())
 				if nodeHasIdent(act.expr, "x") {
@@ -1695,6 +1699,23 @@ func (t *Task) evalLine(ctx *kernel.Context, line string, recordHistory bool) {
 			}
 		}
 	}
+}
+
+func (t *Task) tryPlotMatrixXY(label string, v Value) {
+	if label == "" {
+		return
+	}
+	if v.kind != valueMatrix || v.cols != 2 || v.rows <= 0 {
+		return
+	}
+	xs := make([]float64, v.rows)
+	ys := make([]float64, v.rows)
+	for i := 0; i < v.rows; i++ {
+		xs[i] = v.mat[i*2+0]
+		ys[i] = v.mat[i*2+1]
+	}
+	t.addPlotSeries(label, xs, ys)
+	t.autoscalePlots()
 }
 
 func (t *Task) pushHistory(line string) {
@@ -1852,6 +1873,8 @@ func (t *Task) updateHint() {
 		t.hint = "diff(expr, x)"
 	case "simp":
 		t.hint = "simp(expr)"
+	case "param":
+		t.hint = "param(x(t), y(t), tmin, tmax[, n])"
 	case "expr":
 		t.hint = "expr(x)"
 	case "eval":
