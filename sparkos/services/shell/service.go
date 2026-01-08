@@ -450,6 +450,11 @@ func (s *Service) submit(ctx *kernel.Context) {
 
 	if len(s.history) == 0 || s.history[len(s.history)-1] != line {
 		s.history = append(s.history, line)
+		if len(s.history) > historyMaxEntries {
+			excess := len(s.history) - historyMaxEntries
+			copy(s.history, s.history[excess:])
+			s.history = s.history[:historyMaxEntries]
+		}
 	}
 	s.histPos = len(s.history)
 
