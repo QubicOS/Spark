@@ -2,12 +2,14 @@ package time
 
 import (
 	"fmt"
+	"sync"
 
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
 )
 
 type sleepState struct {
+	mu       sync.Mutex
 	replyCap kernel.Capability
 	nextID   uint32
 }
@@ -21,6 +23,8 @@ func Sleep(ctx *kernel.Context, timeCap kernel.Capability, dt uint32) error {
 	}
 
 	st := &sleepStates[ctx.TaskID()]
+	st.mu.Lock()
+	defer st.mu.Unlock()
 	if !st.replyCap.Valid() {
 		st.replyCap = ctx.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 		if !st.replyCap.Valid() {
