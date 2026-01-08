@@ -1227,6 +1227,9 @@ func (t *Task) formatValue(v Value) string {
 	if v.kind == valueExpr {
 		return NodeString(v.expr)
 	}
+	if v.kind == valueComplex {
+		return formatComplex(v.c, t.e.prec)
+	}
 	if v.kind == valueArray {
 		if len(v.arr) == 0 {
 			return "[]"
@@ -1260,6 +1263,22 @@ func (t *Task) formatValue(v Value) string {
 		return fmt.Sprintf("[%dx%d] %.*g..%.*g", v.rows, v.cols, 6, min, 6, max)
 	}
 	return v.num.String(t.e.prec)
+}
+
+func formatComplex(z complex128, prec int) string {
+	re := real(z)
+	im := imag(z)
+	if im == 0 {
+		return formatFloat(re, prec)
+	}
+	if re == 0 {
+		return formatFloat(im, prec) + "i"
+	}
+	ims := formatFloat(im, prec)
+	if im > 0 {
+		ims = "+" + ims
+	}
+	return formatFloat(re, prec) + ims + "i"
 }
 
 func (t *Task) setDomainFromArray(xs []float64) {
@@ -1989,6 +2008,21 @@ func (t *Task) valueEditString(v Value) string {
 		return NodeString(v.expr)
 	case valueArray:
 		return ""
+	case valueComplex:
+		re := real(v.c)
+		im := imag(v.c)
+		if im == 0 {
+			return formatFloat(re, t.e.prec)
+		}
+		if re == 0 {
+			return formatFloat(im, t.e.prec) + "*i"
+		}
+		sign := "+"
+		if im < 0 {
+			sign = "-"
+			im = -im
+		}
+		return fmt.Sprintf("%s%s%s*i", formatFloat(re, t.e.prec), sign, formatFloat(im, t.e.prec))
 	default:
 		return v.num.String(t.e.prec)
 	}

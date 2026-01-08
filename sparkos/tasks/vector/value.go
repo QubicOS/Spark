@@ -15,6 +15,7 @@ const (
 	valueExpr
 	valueArray
 	valueMatrix
+	valueComplex
 )
 
 type Value struct {
@@ -25,6 +26,7 @@ type Value struct {
 	mat  []float64
 	rows int
 	cols int
+	c    complex128
 }
 
 func NumberValue(n Number) Value { return Value{kind: valueNumber, num: n} }
@@ -37,6 +39,10 @@ func MatrixValue(rows, cols int, data []float64) Value {
 	return Value{kind: valueMatrix, rows: rows, cols: cols, mat: data}
 }
 
+func ComplexValue(re, im float64) Value { return Value{kind: valueComplex, c: complex(re, im)} }
+
+func ComplexValueC(z complex128) Value { return Value{kind: valueComplex, c: z} }
+
 func (v Value) IsNumber() bool { return v.kind == valueNumber }
 
 func (v Value) IsExpr() bool { return v.kind == valueExpr }
@@ -44,6 +50,8 @@ func (v Value) IsExpr() bool { return v.kind == valueExpr }
 func (v Value) IsArray() bool { return v.kind == valueArray }
 
 func (v Value) IsMatrix() bool { return v.kind == valueMatrix }
+
+func (v Value) IsComplex() bool { return v.kind == valueComplex }
 
 func (v Value) ToNode() node {
 	if v.kind == valueExpr && v.expr != nil {
@@ -54,6 +62,9 @@ func (v Value) ToNode() node {
 	}
 	if v.kind == valueMatrix {
 		return nodeIdent{name: "<matrix>"}
+	}
+	if v.kind == valueComplex {
+		return nodeIdent{name: "<complex>"}
 	}
 	return nodeNumber{v: v.num}
 }

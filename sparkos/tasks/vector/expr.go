@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/cmplx"
 	"sort"
 )
 
@@ -44,8 +45,11 @@ func newEnv() *env {
 			"e":     NumberValue(Float(math.E)),
 			"phi":   NumberValue(Float((1 + math.Sqrt(5)) / 2)),
 			"sqrt2": NumberValue(Float(math.Sqrt2)),
+			"sqrt3": NumberValue(Float(math.Sqrt(3))),
+			"sqrt5": NumberValue(Float(math.Sqrt(5))),
 			"ln2":   NumberValue(Float(math.Ln2)),
 			"ln10":  NumberValue(Float(math.Ln10)),
+			"i":     ComplexValue(0, 1),
 		},
 		funcs: make(map[string]userFunc),
 	}
@@ -274,6 +278,10 @@ func builtinKeywords() []string {
 	set["diag"] = struct{}{}
 	set["trace"] = struct{}{}
 	set["norm"] = struct{}{}
+	set["re"] = struct{}{}
+	set["im"] = struct{}{}
+	set["conj"] = struct{}{}
+	set["arg"] = struct{}{}
 	for name := range scalarBuiltins {
 		set[name] = struct{}{}
 	}
@@ -297,7 +305,8 @@ func isBuiltinKeyword(name string) bool {
 	}
 	switch name {
 	case "zeros", "ones", "eye", "reshape", "T", "transpose", "det", "inv", "shape", "flatten",
-		"get", "set", "row", "col", "diag", "trace", "norm":
+		"get", "set", "row", "col", "diag", "trace", "norm",
+		"re", "im", "conj", "arg":
 		return true
 	}
 	if _, ok := scalarBuiltins[name]; ok {
@@ -592,6 +601,16 @@ func (n nodeUnary) Eval(e *env) (Value, error) {
 	if err != nil {
 		return Value{}, err
 	}
+	if v.kind == valueComplex {
+		switch n.op {
+		case '+':
+			return v, nil
+		case '-':
+			return ComplexValueC(-v.c), nil
+		default:
+			return Value{}, fmt.Errorf("%w: unary %q", ErrEval, n.op)
+		}
+	}
 	if v.kind == valueArray {
 		switch n.op {
 		case '+':
@@ -677,6 +696,9 @@ func (n nodeBinary) Eval(e *env) (Value, error) {
 		return Value{}, err
 	}
 
+	if a.kind == valueComplex || b.kind == valueComplex {
+		return evalBinaryComplex(e, n.op, a, b)
+	}
 	if a.kind == valueMatrix || b.kind == valueMatrix {
 		return evalBinaryMatrix(e, n.op, a, b)
 	}
@@ -693,6 +715,48 @@ func (n nodeBinary) Eval(e *env) (Value, error) {
 		return Value{}, err
 	}
 	return NumberValue(out), nil
+}
+
+func evalBinaryComplex(e *env, op byte, a, b Value) (Value, error) {
+	_ = e
+
+	toComplex := func(v Value) (complex128, error) {
+		switch v.kind {
+		case valueComplex:
+			return v.c, nil
+		case valueNumber:
+			return complex(v.num.Float64(), 0), nil
+		default:
+			return 0, fmt.Errorf("%w: unsupported complex operand", ErrEval)
+		}
+	}
+
+	za, err := toComplex(a)
+	if err != nil {
+		return Value{}, err
+	}
+	zb, err := toComplex(b)
+	if err != nil {
+		return Value{}, err
+	}
+
+	switch op {
+	case '+':
+		return ComplexValueC(za + zb), nil
+	case '-':
+		return ComplexValueC(za - zb), nil
+	case '*':
+		return ComplexValueC(za * zb), nil
+	case '/':
+		if zb == 0 {
+			return Value{}, fmt.Errorf("%w: division by zero", ErrEval)
+		}
+		return ComplexValueC(za / zb), nil
+	case '^':
+		return ComplexValueC(cmplx.Pow(za, zb)), nil
+	default:
+		return Value{}, fmt.Errorf("%w: binary %q", ErrEval, op)
+	}
 }
 
 func evalBinaryNumber(e *env, op byte, a, b Number) (Number, error) {
@@ -1054,6 +1118,9 @@ func (n nodeCall) Eval(e *env) (Value, error) {
 }
 
 func builtinCallValue(e *env, name string, args []Value) (Value, bool, error) {
+	if out, ok, err := builtinCallComplex(e, name, args); ok {
+		return out, true, err
+	}
 	if name == "range" {
 		out, err := builtinRange(args)
 		return out, true, err
@@ -1101,6 +1168,59 @@ func builtinCallValue(e *env, name string, args []Value) (Value, bool, error) {
 	if agg, ok := arrayAggBuiltins[name]; ok {
 		_ = e
 		return NumberValue(Float(agg(args[0].arr))), true, nil
+	}
+
+	return Value{}, false, nil
+}
+
+func builtinCallComplex(e *env, name string, args []Value) (Value, bool, error) {
+	_ = e
+	if len(args) != 1 {
+		return Value{}, false, nil
+	}
+
+	switch name {
+	case "re":
+		if args[0].kind != valueComplex {
+			return Value{}, true, fmt.Errorf("%w: re(z)", ErrEval)
+		}
+		return NumberValue(Float(real(args[0].c))), true, nil
+	case "im":
+		if args[0].kind != valueComplex {
+			return Value{}, true, fmt.Errorf("%w: im(z)", ErrEval)
+		}
+		return NumberValue(Float(imag(args[0].c))), true, nil
+	case "conj":
+		if args[0].kind != valueComplex {
+			return Value{}, true, fmt.Errorf("%w: conj(z)", ErrEval)
+		}
+		return ComplexValueC(cmplx.Conj(args[0].c)), true, nil
+	case "arg":
+		if args[0].kind != valueComplex {
+			return Value{}, true, fmt.Errorf("%w: arg(z)", ErrEval)
+		}
+		return NumberValue(Float(cmplx.Phase(args[0].c))), true, nil
+	}
+
+	if args[0].kind != valueComplex {
+		return Value{}, false, nil
+	}
+	z := args[0].c
+	switch name {
+	case "abs":
+		return NumberValue(Float(cmplx.Abs(z))), true, nil
+	case "sqrt":
+		return ComplexValueC(cmplx.Sqrt(z)), true, nil
+	case "exp":
+		return ComplexValueC(cmplx.Exp(z)), true, nil
+	case "ln", "log":
+		return ComplexValueC(cmplx.Log(z)), true, nil
+	case "sin":
+		return ComplexValueC(cmplx.Sin(z)), true, nil
+	case "cos":
+		return ComplexValueC(cmplx.Cos(z)), true, nil
+	case "tan":
+		return ComplexValueC(cmplx.Tan(z)), true, nil
 	}
 
 	return Value{}, false, nil
