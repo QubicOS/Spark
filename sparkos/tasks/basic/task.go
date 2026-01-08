@@ -155,7 +155,11 @@ func (t *Task) Run(ctx *kernel.Context) {
 				}
 			}
 
-		case line := <-t.jobOut:
+		case line, ok := <-t.jobOut:
+			if !ok {
+				t.jobOut = nil
+				continue
+			}
 			if line != "" {
 				t.println(line)
 				if t.active && t.tab == tabIO {
