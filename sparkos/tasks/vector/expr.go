@@ -257,6 +257,19 @@ func builtinKeywords() []string {
 	set["range"] = struct{}{}
 	set["simp"] = struct{}{}
 	set["diff"] = struct{}{}
+	set["vec2"] = struct{}{}
+	set["vec3"] = struct{}{}
+	set["vec4"] = struct{}{}
+	set["dot"] = struct{}{}
+	set["cross"] = struct{}{}
+	set["mag"] = struct{}{}
+	set["unit"] = struct{}{}
+	set["normalize"] = struct{}{}
+	set["dist"] = struct{}{}
+	set["angle"] = struct{}{}
+	set["proj"] = struct{}{}
+	set["outer"] = struct{}{}
+	set["lerp"] = struct{}{}
 	set["zeros"] = struct{}{}
 	set["ones"] = struct{}{}
 	set["eye"] = struct{}{}
@@ -296,6 +309,8 @@ func isBuiltinKeyword(name string) bool {
 		return true
 	}
 	switch name {
+	case "vec2", "vec3", "vec4", "dot", "cross", "mag", "unit", "normalize", "dist", "angle", "proj", "outer", "lerp":
+		return true
 	case "zeros", "ones", "eye", "reshape", "T", "transpose", "det", "inv", "shape", "flatten",
 		"get", "set", "row", "col", "diag", "trace", "norm":
 		return true
@@ -1060,6 +1075,10 @@ func builtinCallValue(e *env, name string, args []Value) (Value, bool, error) {
 	}
 
 	if out, ok, err := builtinCallMatrix(e, name, args); ok {
+		return out, true, err
+	}
+
+	if out, ok, err := builtinCallVector(e, name, args); ok {
 		return out, true, err
 	}
 
