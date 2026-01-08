@@ -965,6 +965,10 @@ func (n nodeCall) Eval(e *env) (Value, error) {
 		return ExprValue(n.args[0].Deriv(varName).Simplify()), nil
 	}
 
+	if out, ok, err := builtinCallCAS(e, n.name, n.args); ok {
+		return out, err
+	}
+
 	args := make([]Value, 0, len(n.args))
 	for _, a := range n.args {
 		v, err := a.Eval(e)

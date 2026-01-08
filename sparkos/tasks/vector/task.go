@@ -1875,6 +1875,16 @@ func (t *Task) updateHint() {
 		t.hint = "diff(expr, x)"
 	case "simp":
 		t.hint = "simp(expr)"
+	case "expand":
+		t.hint = "expand(expr)"
+	case "series":
+		t.hint = "series(expr, x, a, n)"
+	case "degree":
+		t.hint = "degree(expr, x)"
+	case "coeff":
+		t.hint = "coeff(expr, x, n)"
+	case "collect":
+		t.hint = "collect(expr, x)"
 	case "solve1":
 		t.hint = "solve1(expr, x0[, tol[, maxIter]])"
 	case "solve2":

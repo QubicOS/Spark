@@ -8,6 +8,11 @@ func builtinKeywords() []string {
 	set["range"] = struct{}{}
 	set["simp"] = struct{}{}
 	set["diff"] = struct{}{}
+	set["expand"] = struct{}{}
+	set["series"] = struct{}{}
+	set["degree"] = struct{}{}
+	set["coeff"] = struct{}{}
+	set["collect"] = struct{}{}
 	set["solve1"] = struct{}{}
 	set["solve2"] = struct{}{}
 	set["roots"] = struct{}{}
@@ -77,7 +82,8 @@ func builtinKeywords() []string {
 }
 
 func isBuiltinKeyword(name string) bool {
-	if name == "range" || name == "simp" || name == "diff" || name == "solve1" || name == "solve2" || name == "roots" ||
+	if name == "range" || name == "simp" || name == "diff" || name == "expand" || name == "series" || name == "degree" ||
+		name == "coeff" || name == "collect" || name == "solve1" || name == "solve2" || name == "roots" ||
 		name == "region" || name == "plane" || name == "param" || name == "expr" || name == "eval" {
 		return true
 	}
