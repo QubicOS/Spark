@@ -1,6 +1,8 @@
 package consolemux
 
 import (
+	"fmt"
+
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
 )
@@ -107,6 +109,16 @@ func (s *Service) flushInput(ctx *kernel.Context, b []byte) {
 	dst := s.shellCap
 	if s.appActive {
 		dst = s.selectedAppCap()
+		if !dst.Valid() {
+			s.setActive(ctx, false)
+			dst = s.shellCap
+		} else {
+			if err := sendWithRetry(ctx, dst, proto.MsgTermInput, b, kernel.Capability{}); err == nil {
+				return
+			}
+			s.setActive(ctx, false)
+			dst = s.shellCap
+		}
 	}
 	_ = sendWithRetry(ctx, dst, proto.MsgTermInput, b, kernel.Capability{})
 }
@@ -177,17 +189,24 @@ func (s *Service) appCapByID(id proto.AppID) kernel.Capability {
 	}
 }
 
+const sendRetryLimit = 500
+
 func sendWithRetry(ctx *kernel.Context, toCap kernel.Capability, kind proto.Kind, payload []byte, xfer kernel.Capability) error {
 	if !toCap.Valid() {
 		return nil
 	}
 	if len(payload) == 0 {
+		retries := 0
 		for {
 			res := ctx.SendToCapResult(toCap, uint16(kind), nil, xfer)
 			switch res {
 			case kernel.SendOK:
 				return nil
 			case kernel.SendErrQueueFull:
+				retries++
+				if retries >= sendRetryLimit {
+					return fmt.Errorf("consolemux send %s: queue full", kind)
+				}
 				ctx.BlockOnTick()
 			default:
 				return nil
@@ -201,6 +220,7 @@ func sendWithRetry(ctx *kernel.Context, toCap kernel.Capability, kind proto.Kind
 			chunk = chunk[:kernel.MaxMessageBytes]
 		}
 
+		retries := 0
 		for {
 			res := ctx.SendToCapResult(toCap, uint16(kind), chunk, xfer)
 			switch res {
@@ -208,6 +228,10 @@ func sendWithRetry(ctx *kernel.Context, toCap kernel.Capability, kind proto.Kind
 				payload = payload[len(chunk):]
 				goto nextChunk
 			case kernel.SendErrQueueFull:
+				retries++
+				if retries >= sendRetryLimit {
+					return fmt.Errorf("consolemux send %s: queue full", kind)
+				}
 				ctx.BlockOnTick()
 			default:
 				return nil
