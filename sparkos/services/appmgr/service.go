@@ -353,7 +353,7 @@ func (s *Service) ensureRunning(ctx *kernel.Context, appID proto.AppID) {
 		s.mu.Unlock()
 
 	case proto.AppVector:
-		ctx.AddTask(vectortask.New(s.disp, s.vectorEP))
+		ctx.AddTask(vectortask.New(s.disp, s.vectorEP, s.vfsCap))
 		s.mu.Lock()
 		s.vectorRunning = true
 		s.mu.Unlock()

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"spark/hal"
+	vfsclient "spark/sparkos/client/vfs"
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
 
@@ -30,10 +31,20 @@ const (
 	maxPlotPoints     = 1024
 )
 
+const (
+	notebookDir  = "/vector"
+	notebooksDir = "/vector/notebooks"
+	notebookExt  = ".vnb"
+	maxNotebook  = 64 * 1024
+)
+
 // Task implements a framebuffer-based math calculator with graphing.
 type Task struct {
 	disp hal.Display
 	ep   kernel.Capability
+
+	vfsCap kernel.Capability
+	vfs    *vfsclient.Client
 
 	fb hal.Framebuffer
 	d  *fbDisplay
@@ -96,16 +107,17 @@ type Task struct {
 	zoomOutFactor float64
 }
 
-func New(disp hal.Display, ep kernel.Capability) *Task {
+func New(disp hal.Display, ep kernel.Capability, vfsCap kernel.Capability) *Task {
 	return &Task{
-		disp: disp,
-		ep:   ep,
-		e:    newEnv(),
-		tab:  tabTerminal,
-		xMin: -10,
-		xMax: 10,
-		yMin: -10,
-		yMax: 10,
+		disp:   disp,
+		ep:     ep,
+		vfsCap: vfsCap,
+		e:      newEnv(),
+		tab:    tabTerminal,
+		xMin:   -10,
+		xMax:   10,
+		yMin:   -10,
+		yMax:   10,
 
 		plotDim:   2,
 		plotYaw:   0.8,
@@ -197,6 +209,9 @@ func (t *Task) setActive(ctx *kernel.Context, active bool) {
 		t.unloadSession()
 		return
 	}
+	if t.vfs == nil && t.vfsCap.Valid() {
+		t.vfs = vfsclient.New(t.vfsCap)
+	}
 	t.initSession()
 	t.setMessage("F1 term | F2 plot | F3 stack | H help | q quit")
 	t.updateHint()
@@ -247,7 +262,7 @@ func (t *Task) initSession() {
 	t.appendLine("V   V Vector: calculator + graph + 2D/3D plotter")
 	t.appendLine("V   V Enter `sin(x)` (2D) or `sin(x)*cos(y)` (3D), then press Enter")
 	t.appendLine(" V V  Plot: press `g` or go to F2 | 3D: `$plotdim 3`, arrows rotate, +/- zoom")
-	t.appendLine("  V   Commands: :help :exact :float :prec N :autoscale :resetview")
+	t.appendLine("  V   Commands: :help :exact :float :prec N :autoscale :resetview :save :load :notebooks")
 }
 
 func (t *Task) unloadSession() {
@@ -292,6 +307,8 @@ func (t *Task) unloadSession() {
 
 	t.stackSel = 0
 	t.stackTop = 0
+
+	t.vfs = nil
 }
 
 func (t *Task) handleInput(ctx *kernel.Context, b []byte) {
@@ -528,6 +545,39 @@ func (t *Task) handleCommand(ctx *kernel.Context, cmdline string) {
 	cmd := fields[0]
 
 	switch cmd {
+	case "save":
+		if len(fields) != 2 {
+			t.setMessage("usage: :save NAME|/path/file.vnb")
+			return
+		}
+		if err := t.saveNotebook(ctx, fields[1]); err != nil {
+			t.setMessage("save: " + err.Error())
+			return
+		}
+		t.setMessage("saved")
+	case "load":
+		if len(fields) != 2 {
+			t.setMessage("usage: :load NAME|/path/file.vnb")
+			return
+		}
+		if err := t.loadNotebook(ctx, fields[1]); err != nil {
+			t.setMessage("load: " + err.Error())
+			return
+		}
+		t.setMessage("loaded")
+	case "notebooks":
+		if err := t.listNotebooks(ctx); err != nil {
+			t.setMessage("notebooks: " + err.Error())
+			return
+		}
+	case "new":
+		t.unloadSession()
+		if t.vfs == nil && t.vfsCap.Valid() {
+			t.vfs = vfsclient.New(t.vfsCap)
+		}
+		t.initSession()
+		t.setMessage("new notebook")
+
 	case "term":
 		t.switchTab(tabTerminal)
 	case "plot":
@@ -677,6 +727,158 @@ func (t *Task) handleCommand(ctx *kernel.Context, cmdline string) {
 		t.handleServiceCommand(ctx, cmdline)
 	default:
 		t.setMessage("unknown command: :" + cmdline)
+	}
+}
+
+func (t *Task) notebookPath(arg string) string {
+	if strings.Contains(arg, "/") {
+		if strings.HasSuffix(strings.ToLower(arg), notebookExt) {
+			return arg
+		}
+		return arg + notebookExt
+	}
+	name := arg
+	if strings.HasSuffix(strings.ToLower(name), notebookExt) {
+		name = name[:len(name)-len(notebookExt)]
+	}
+	return notebooksDir + "/" + name + notebookExt
+}
+
+func (t *Task) ensureNotebooksDir(ctx *kernel.Context) error {
+	if t.vfs == nil {
+		return errors.New("vfs unavailable")
+	}
+	if err := t.vfs.Mkdir(ctx, notebookDir); err != nil {
+		if typ, _, statErr := t.vfs.Stat(ctx, notebookDir); statErr != nil || typ != proto.VFSEntryDir {
+			return err
+		}
+	}
+	if err := t.vfs.Mkdir(ctx, notebooksDir); err != nil {
+		if typ, _, statErr := t.vfs.Stat(ctx, notebooksDir); statErr != nil || typ != proto.VFSEntryDir {
+			return err
+		}
+	}
+	return nil
+}
+
+func (t *Task) saveNotebook(ctx *kernel.Context, arg string) error {
+	if t.vfs == nil {
+		return errors.New("vfs unavailable")
+	}
+	if err := t.ensureNotebooksDir(ctx); err != nil {
+		return fmt.Errorf("ensure notebooks dir: %w", err)
+	}
+	path := t.notebookPath(arg)
+
+	var b strings.Builder
+	b.WriteString("# vector notebook v1\n")
+	b.WriteString("# saved: ")
+	b.WriteString(fmt.Sprintf("mode=%v prec=%d\n", t.e.mode, t.e.prec))
+	for _, line := range t.history {
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	data := []byte(b.String())
+	if len(data) > maxNotebook {
+		return fmt.Errorf("too large (%d bytes)", len(data))
+	}
+	_, err := t.vfs.Write(ctx, path, proto.VFSWriteTruncate, data)
+	if err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	t.appendLine(":save " + arg)
+	t.appendLine("saved: " + path)
+	return nil
+}
+
+func (t *Task) loadNotebook(ctx *kernel.Context, arg string) error {
+	if t.vfs == nil {
+		return errors.New("vfs unavailable")
+	}
+	path := t.notebookPath(arg)
+	data, err := t.readAll(ctx, path, maxNotebook)
+	if err != nil {
+		return err
+	}
+
+	t.appendLine(":load " + arg)
+	t.unloadSession()
+	if t.vfs == nil && t.vfsCap.Valid() {
+		t.vfs = vfsclient.New(t.vfsCap)
+	}
+	t.initSession()
+	t.setMessage("loaded: " + path)
+
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		t.evalLine(ctx, line, true)
+	}
+	return nil
+}
+
+func (t *Task) listNotebooks(ctx *kernel.Context) error {
+	if t.vfs == nil {
+		return errors.New("vfs unavailable")
+	}
+	if err := t.ensureNotebooksDir(ctx); err != nil {
+		return fmt.Errorf("ensure notebooks dir: %w", err)
+	}
+	ents, err := t.vfs.List(ctx, notebooksDir)
+	if err != nil {
+		return fmt.Errorf("list %s: %w", notebooksDir, err)
+	}
+	t.appendLine(":notebooks")
+	found := false
+	for _, e := range ents {
+		if e.Type != proto.VFSEntryFile {
+			continue
+		}
+		if !strings.HasSuffix(strings.ToLower(e.Name), notebookExt) {
+			continue
+		}
+		found = true
+		t.appendLine(e.Name)
+	}
+	if !found {
+		t.appendLine("(none)")
+	}
+	return nil
+}
+
+func (t *Task) readAll(ctx *kernel.Context, path string, maxBytes int) ([]byte, error) {
+	if t.vfs == nil {
+		return nil, errors.New("vfs unavailable")
+	}
+	typ, size, err := t.vfs.Stat(ctx, path)
+	if err != nil {
+		return nil, fmt.Errorf("stat %s: %w", path, err)
+	}
+	if typ != proto.VFSEntryFile {
+		return nil, fmt.Errorf("not a file: %s", path)
+	}
+	if maxBytes > 0 && int(size) > maxBytes {
+		return nil, fmt.Errorf("too large (%d bytes)", size)
+	}
+
+	out := make([]byte, 0, size)
+	var off uint32
+	for {
+		chunk, eof, err := t.vfs.ReadAt(ctx, path, off, 1024)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", path, err)
+		}
+		out = append(out, chunk...)
+		off += uint32(len(chunk))
+		if eof {
+			return out, nil
+		}
+		if maxBytes > 0 && len(out) > maxBytes {
+			return nil, fmt.Errorf("too large (> %d bytes)", maxBytes)
+		}
 	}
 }
 
@@ -1227,6 +1429,9 @@ func (t *Task) formatValue(v Value) string {
 	if v.kind == valueExpr {
 		return NodeString(v.expr)
 	}
+	if v.kind == valueComplex {
+		return formatComplex(v.c, t.e.prec)
+	}
 	if v.kind == valueArray {
 		if len(v.arr) == 0 {
 			return "[]"
@@ -1260,6 +1465,22 @@ func (t *Task) formatValue(v Value) string {
 		return fmt.Sprintf("[%dx%d] %.*g..%.*g", v.rows, v.cols, 6, min, 6, max)
 	}
 	return v.num.String(t.e.prec)
+}
+
+func formatComplex(z complex128, prec int) string {
+	re := real(z)
+	im := imag(z)
+	if im == 0 {
+		return formatFloat(re, prec)
+	}
+	if re == 0 {
+		return formatFloat(im, prec) + "i"
+	}
+	ims := formatFloat(im, prec)
+	if im > 0 {
+		ims = "+" + ims
+	}
+	return formatFloat(re, prec) + ims + "i"
 }
 
 func (t *Task) setDomainFromArray(xs []float64) {
@@ -1674,6 +1895,14 @@ func (t *Task) updateCommandHint(line string) {
 		t.hint = ":help"
 	case "prec":
 		t.hint = ":prec N"
+	case "save":
+		t.hint = ":save NAME|/path/file.vnb"
+	case "load":
+		t.hint = ":load NAME|/path/file.vnb"
+	case "notebooks":
+		t.hint = ":notebooks"
+	case "new":
+		t.hint = ":new"
 	case "plotclear":
 		t.hint = ":plotclear"
 	case "plots":
@@ -1912,6 +2141,7 @@ func (t *Task) completeFromPrefix(prefix string, commands bool) []string {
 	if commands {
 		for _, s := range []string{
 			"help",
+			"save", "load", "notebooks", "new",
 			"exact", "float", "prec",
 			"plotclear", "plots", "plotdel",
 			"x", "xrange", "domain",
@@ -1989,6 +2219,21 @@ func (t *Task) valueEditString(v Value) string {
 		return NodeString(v.expr)
 	case valueArray:
 		return ""
+	case valueComplex:
+		re := real(v.c)
+		im := imag(v.c)
+		if im == 0 {
+			return formatFloat(re, t.e.prec)
+		}
+		if re == 0 {
+			return formatFloat(im, t.e.prec) + "*i"
+		}
+		sign := "+"
+		if im < 0 {
+			sign = "-"
+			im = -im
+		}
+		return fmt.Sprintf("%s%s%s*i", formatFloat(re, t.e.prec), sign, formatFloat(im, t.e.prec))
 	default:
 		return v.num.String(t.e.prec)
 	}
