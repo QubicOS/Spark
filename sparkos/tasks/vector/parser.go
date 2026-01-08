@@ -1,5 +1,7 @@
 package vector
 
+// This file implements parsing for Vector expressions and assignments.
+
 import (
 	"fmt"
 	"strconv"

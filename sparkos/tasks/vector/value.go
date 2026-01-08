@@ -1,5 +1,7 @@
 package vector
 
+// This file defines runtime values and numeric types for the Vector evaluator.
+
 import (
 	"errors"
 	"fmt"
