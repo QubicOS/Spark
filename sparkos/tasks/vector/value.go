@@ -14,6 +14,7 @@ const (
 	valueNumber valueKind = iota
 	valueExpr
 	valueArray
+	valueMatrix
 )
 
 type Value struct {
@@ -21,6 +22,9 @@ type Value struct {
 	num  Number
 	expr node
 	arr  []float64
+	mat  []float64
+	rows int
+	cols int
 }
 
 func NumberValue(n Number) Value { return Value{kind: valueNumber, num: n} }
@@ -29,11 +33,17 @@ func ExprValue(n node) Value { return Value{kind: valueExpr, expr: n} }
 
 func ArrayValue(xs []float64) Value { return Value{kind: valueArray, arr: xs} }
 
+func MatrixValue(rows, cols int, data []float64) Value {
+	return Value{kind: valueMatrix, rows: rows, cols: cols, mat: data}
+}
+
 func (v Value) IsNumber() bool { return v.kind == valueNumber }
 
 func (v Value) IsExpr() bool { return v.kind == valueExpr }
 
 func (v Value) IsArray() bool { return v.kind == valueArray }
+
+func (v Value) IsMatrix() bool { return v.kind == valueMatrix }
 
 func (v Value) ToNode() node {
 	if v.kind == valueExpr && v.expr != nil {
@@ -41,6 +51,9 @@ func (v Value) ToNode() node {
 	}
 	if v.kind == valueArray {
 		return nodeIdent{name: "<array>"}
+	}
+	if v.kind == valueMatrix {
+		return nodeIdent{name: "<matrix>"}
 	}
 	return nodeNumber{v: v.num}
 }

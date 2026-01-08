@@ -257,6 +257,23 @@ func builtinKeywords() []string {
 	set["range"] = struct{}{}
 	set["simp"] = struct{}{}
 	set["diff"] = struct{}{}
+	set["zeros"] = struct{}{}
+	set["ones"] = struct{}{}
+	set["eye"] = struct{}{}
+	set["reshape"] = struct{}{}
+	set["T"] = struct{}{}
+	set["transpose"] = struct{}{}
+	set["det"] = struct{}{}
+	set["inv"] = struct{}{}
+	set["shape"] = struct{}{}
+	set["flatten"] = struct{}{}
+	set["get"] = struct{}{}
+	set["set"] = struct{}{}
+	set["row"] = struct{}{}
+	set["col"] = struct{}{}
+	set["diag"] = struct{}{}
+	set["trace"] = struct{}{}
+	set["norm"] = struct{}{}
 	for name := range scalarBuiltins {
 		set[name] = struct{}{}
 	}
@@ -276,6 +293,11 @@ func builtinKeywords() []string {
 
 func isBuiltinKeyword(name string) bool {
 	if name == "range" || name == "simp" || name == "diff" {
+		return true
+	}
+	switch name {
+	case "zeros", "ones", "eye", "reshape", "T", "transpose", "det", "inv", "shape", "flatten",
+		"get", "set", "row", "col", "diag", "trace", "norm":
 		return true
 	}
 	if _, ok := scalarBuiltins[name]; ok {
@@ -584,6 +606,20 @@ func (n nodeUnary) Eval(e *env) (Value, error) {
 			return Value{}, fmt.Errorf("%w: unary %q", ErrEval, n.op)
 		}
 	}
+	if v.kind == valueMatrix {
+		switch n.op {
+		case '+':
+			return v, nil
+		case '-':
+			out := make([]float64, len(v.mat))
+			for i, x := range v.mat {
+				out[i] = -x
+			}
+			return MatrixValue(v.rows, v.cols, out), nil
+		default:
+			return Value{}, fmt.Errorf("%w: unary %q", ErrEval, n.op)
+		}
+	}
 	if v.kind == valueExpr {
 		return ExprValue(nodeUnary{op: n.op, x: v.expr}.Simplify()), nil
 	}
@@ -641,6 +677,9 @@ func (n nodeBinary) Eval(e *env) (Value, error) {
 		return Value{}, err
 	}
 
+	if a.kind == valueMatrix || b.kind == valueMatrix {
+		return evalBinaryMatrix(e, n.op, a, b)
+	}
 	if a.kind == valueArray || b.kind == valueArray {
 		return evalBinaryArray(e, n.op, a, b)
 	}
@@ -857,6 +896,108 @@ func evalBinaryArray(e *env, op byte, a, b Value) (Value, error) {
 	}
 }
 
+func evalBinaryMatrix(e *env, op byte, a, b Value) (Value, error) {
+	switch {
+	case a.kind == valueMatrix && b.kind == valueMatrix:
+		switch op {
+		case '+':
+			if a.rows != b.rows || a.cols != b.cols {
+				return Value{}, fmt.Errorf("%w: %w", ErrEval, ErrMatrixShape)
+			}
+			out, err := matrixAdd(a.rows, a.cols, a.mat, b.mat)
+			if err != nil {
+				return Value{}, err
+			}
+			return MatrixValue(a.rows, a.cols, out), nil
+		case '-':
+			if a.rows != b.rows || a.cols != b.cols {
+				return Value{}, fmt.Errorf("%w: %w", ErrEval, ErrMatrixShape)
+			}
+			out, err := matrixSub(a.rows, a.cols, a.mat, b.mat)
+			if err != nil {
+				return Value{}, err
+			}
+			return MatrixValue(a.rows, a.cols, out), nil
+		case '*':
+			out, err := matrixMul(a.rows, a.cols, a.mat, b.rows, b.cols, b.mat)
+			if err != nil {
+				return Value{}, fmt.Errorf("%w: %w", ErrEval, err)
+			}
+			return MatrixValue(a.rows, b.cols, out), nil
+		default:
+			return Value{}, fmt.Errorf("%w: unsupported matrix operation %q", ErrEval, op)
+		}
+
+	case a.kind == valueMatrix && b.kind == valueNumber:
+		switch op {
+		case '*':
+			out, err := matrixScale(a.rows, a.cols, a.mat, b.num.Float64())
+			if err != nil {
+				return Value{}, err
+			}
+			return MatrixValue(a.rows, a.cols, out), nil
+		case '/':
+			den := b.num.Float64()
+			if den == 0 {
+				return Value{}, fmt.Errorf("%w: division by zero", ErrEval)
+			}
+			out, err := matrixScale(a.rows, a.cols, a.mat, 1/den)
+			if err != nil {
+				return Value{}, err
+			}
+			return MatrixValue(a.rows, a.cols, out), nil
+		case '+', '-':
+			// Broadcast scalar across all entries.
+			out := make([]float64, len(a.mat))
+			bf := b.num.Float64()
+			for i, x := range a.mat {
+				nn, err := evalBinaryNumber(e, op, Float(x), Float(bf))
+				if err != nil {
+					return Value{}, err
+				}
+				out[i] = nn.Float64()
+			}
+			return MatrixValue(a.rows, a.cols, out), nil
+		default:
+			return Value{}, fmt.Errorf("%w: unsupported matrix operation %q", ErrEval, op)
+		}
+
+	case a.kind == valueNumber && b.kind == valueMatrix:
+		switch op {
+		case '*':
+			out, err := matrixScale(b.rows, b.cols, b.mat, a.num.Float64())
+			if err != nil {
+				return Value{}, err
+			}
+			return MatrixValue(b.rows, b.cols, out), nil
+		case '+', '-':
+			out := make([]float64, len(b.mat))
+			af := a.num.Float64()
+			for i, x := range b.mat {
+				nn, err := evalBinaryNumber(e, op, Float(af), Float(x))
+				if err != nil {
+					return Value{}, err
+				}
+				out[i] = nn.Float64()
+			}
+			return MatrixValue(b.rows, b.cols, out), nil
+		default:
+			return Value{}, fmt.Errorf("%w: unsupported matrix operation %q", ErrEval, op)
+		}
+
+	case a.kind == valueMatrix && b.kind == valueArray && op == '*':
+		out, err := matrixMulVec(a.rows, a.cols, a.mat, b.arr)
+		if err != nil {
+			return Value{}, fmt.Errorf("%w: %w", ErrEval, err)
+		}
+		_ = e
+		return ArrayValue(out), nil
+
+	default:
+		return Value{}, fmt.Errorf("%w: unsupported matrix operation", ErrEval)
+	}
+}
+
 type nodeCall struct {
 	name string
 	args []node
@@ -915,6 +1056,10 @@ func (n nodeCall) Eval(e *env) (Value, error) {
 func builtinCallValue(e *env, name string, args []Value) (Value, bool, error) {
 	if name == "range" {
 		out, err := builtinRange(args)
+		return out, true, err
+	}
+
+	if out, ok, err := builtinCallMatrix(e, name, args); ok {
 		return out, true, err
 	}
 

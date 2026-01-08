@@ -1243,6 +1243,22 @@ func (t *Task) formatValue(v Value) string {
 		}
 		return fmt.Sprintf("[%d] %.*g..%.*g", len(v.arr), 6, min, 6, max)
 	}
+	if v.kind == valueMatrix {
+		if len(v.mat) == 0 || v.rows <= 0 || v.cols <= 0 {
+			return "[?]"
+		}
+		min := v.mat[0]
+		max := v.mat[0]
+		for _, x := range v.mat[1:] {
+			if x < min {
+				min = x
+			}
+			if x > max {
+				max = x
+			}
+		}
+		return fmt.Sprintf("[%dx%d] %.*g..%.*g", v.rows, v.cols, 6, min, 6, max)
+	}
 	return v.num.String(t.e.prec)
 }
 
