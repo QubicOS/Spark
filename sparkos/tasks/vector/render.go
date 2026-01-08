@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"sync"
 
 	"spark/hal"
 	"spark/sparkos/fonts/font6x8cp1251"
@@ -673,7 +674,13 @@ func (t *Task) renderGraph3D(panelY int16, w int16, viewHPx int) {
 
 	_ = t.d.FillRectangle(plotX, plotY, plotW, plotH, colorPanelBG)
 
-	zbuf := make([]uint8, int(plotW)*int(plotH))
+	needZ := int(plotW) * int(plotH)
+	if cap(t.plotZBuf) < needZ {
+		t.plotZBuf = make([]uint8, needZ)
+	} else {
+		t.plotZBuf = t.plotZBuf[:needZ]
+	}
+	zbuf := t.plotZBuf
 	for i := range zbuf {
 		zbuf[i] = 0xFF
 	}
@@ -698,24 +705,82 @@ func (t *Task) renderGraph3D(panelY int16, w int16, viewHPx int) {
 		yR = 1
 	}
 
-	zMin := math.Inf(1)
-	zMax := math.Inf(-1)
-	for iy := 0; iy < gridY; iy++ {
-		y := t.yMin + (float64(iy)/float64(gridY-1))*(t.yMax-t.yMin)
-		for ix := 0; ix < gridX; ix++ {
-			x := t.xMin + (float64(ix)/float64(gridX-1))*(t.xMax-t.xMin)
-			z, ok := t.evalSurfaceFor(expr, x, y)
-			if !ok || math.IsNaN(z) || math.IsInf(z, 0) {
-				continue
-			}
-			if z < zMin {
-				zMin = z
-			}
-			if z > zMax {
-				zMax = z
+	needGrid := gridX * gridY
+	if cap(t.plotZGrid) < needGrid {
+		t.plotZGrid = make([]float64, needGrid)
+	} else {
+		t.plotZGrid = t.plotZGrid[:needGrid]
+	}
+	zGrid := t.plotZGrid
+	for i := range zGrid {
+		zGrid[i] = math.NaN()
+	}
+
+	type minmax struct {
+		min float64
+		max float64
+	}
+	results := [2]minmax{
+		{min: math.Inf(1), max: math.Inf(-1)},
+		{min: math.Inf(1), max: math.Inf(-1)},
+	}
+
+	e0 := t.e.clone()
+	e1 := t.e.clone()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	split := gridY / 2
+	go func() {
+		defer wg.Done()
+		localMin := math.Inf(1)
+		localMax := math.Inf(-1)
+		for iy := 0; iy < split; iy++ {
+			y := t.yMin + (float64(iy)/float64(gridY-1))*(t.yMax-t.yMin)
+			for ix := 0; ix < gridX; ix++ {
+				x := t.xMin + (float64(ix)/float64(gridX-1))*(t.xMax-t.xMin)
+				z, ok := evalSurfaceForEnv(e0, expr, x, y)
+				if !ok || math.IsNaN(z) || math.IsInf(z, 0) {
+					continue
+				}
+				zGrid[iy*gridX+ix] = z
+				if z < localMin {
+					localMin = z
+				}
+				if z > localMax {
+					localMax = z
+				}
 			}
 		}
-	}
+		results[0] = minmax{min: localMin, max: localMax}
+	}()
+	go func() {
+		defer wg.Done()
+		localMin := math.Inf(1)
+		localMax := math.Inf(-1)
+		for iy := split; iy < gridY; iy++ {
+			y := t.yMin + (float64(iy)/float64(gridY-1))*(t.yMax-t.yMin)
+			for ix := 0; ix < gridX; ix++ {
+				x := t.xMin + (float64(ix)/float64(gridX-1))*(t.xMax-t.xMin)
+				z, ok := evalSurfaceForEnv(e1, expr, x, y)
+				if !ok || math.IsNaN(z) || math.IsInf(z, 0) {
+					continue
+				}
+				zGrid[iy*gridX+ix] = z
+				if z < localMin {
+					localMin = z
+				}
+				if z > localMax {
+					localMax = z
+				}
+			}
+		}
+		results[1] = minmax{min: localMin, max: localMax}
+	}()
+	wg.Wait()
+
+	zMin := math.Min(results[0].min, results[1].min)
+	zMax := math.Max(results[0].max, results[1].max)
 	if math.IsInf(zMin, 0) || math.IsInf(zMax, 0) {
 		t.drawStringClipped(plotX+t.fontWidth, plotY+t.fontHeight, "3D: no valid samples", colorDim, t.cols-2)
 		return
@@ -748,6 +813,78 @@ func (t *Task) renderGraph3D(panelY int16, w int16, viewHPx int) {
 		stepY = 2
 	}
 
+	type seg struct {
+		x0 float64
+		y0 float64
+		d0 float64
+		x1 float64
+		y1 float64
+		d1 float64
+		c  color.RGBA
+	}
+
+	dispatchY := int(plotH) / 2
+	ch0 := make(chan seg, 256)
+	ch1 := make(chan seg, 256)
+
+	drawSegments := func(yStart, yEnd int, zsub []uint8, in <-chan seg) {
+		rxmin := xmin
+		rxmax := xmax
+		rymin := float64(yStart)
+		rymax := float64(yEnd - 1)
+		for s := range in {
+			cx0, cy0, cx1, cy1, u0, u1, ok := clipLineToRectWithT(s.x0, s.y0, s.x1, s.y1, rxmin, rymin, rxmax, rymax)
+			if !ok {
+				continue
+			}
+			d0 := s.d0 + u0*(s.d1-s.d0)
+			d1 := s.d0 + u1*(s.d1-s.d0)
+			t.drawLineDepthSub(plotX, plotY, plotW, plotH, cx0, cy0, d0, cx1, cy1, d1, s.c, zsub, yStart, yEnd)
+		}
+	}
+
+	wPlot := int(plotW)
+	if wPlot <= 0 {
+		return
+	}
+
+	zsub0 := zbuf[:dispatchY*wPlot]
+	zsub1 := zbuf[dispatchY*wPlot:]
+
+	wg = sync.WaitGroup{}
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		drawSegments(0, dispatchY, zsub0, ch0)
+	}()
+	go func() {
+		defer wg.Done()
+		drawSegments(dispatchY, int(plotH), zsub1, ch1)
+	}()
+
+	sendSeg := func(x0, y0, d0, x1, y1, d1 float64, col color.RGBA) {
+		cx0, cy0, cx1, cy1, u0, u1, ok := clipLineToRectWithT(x0, y0, x1, y1, xmin, ymin, xmax, ymax)
+		if !ok {
+			return
+		}
+		cd0 := d0 + u0*(d1-d0)
+		cd1 := d0 + u1*(d1-d0)
+
+		minY := math.Min(cy0, cy1)
+		maxY := math.Max(cy0, cy1)
+		s := seg{x0: cx0, y0: cy0, d0: cd0, x1: cx1, y1: cy1, d1: cd1, c: col}
+		if maxY < float64(dispatchY) {
+			ch0 <- s
+			return
+		}
+		if minY >= float64(dispatchY) {
+			ch1 <- s
+			return
+		}
+		ch0 <- s
+		ch1 <- s
+	}
+
 	for iy := 0; iy < gridY; iy += stepY {
 		var prevX, prevY, prevD float64
 		var prevXN, prevYN, prevZ01 float64
@@ -755,13 +892,13 @@ func (t *Task) renderGraph3D(panelY int16, w int16, viewHPx int) {
 		y := t.yMin + (float64(iy)/float64(gridY-1))*(t.yMax-t.yMin)
 		yN := (y - yC) / yR
 		for ix := 0; ix < gridX; ix += stepX {
-			x := t.xMin + (float64(ix)/float64(gridX-1))*(t.xMax-t.xMin)
-			z, ok := t.evalSurfaceFor(expr, x, y)
-			if !ok || math.IsNaN(z) || math.IsInf(z, 0) {
+			z := zGrid[iy*gridX+ix]
+			if math.IsNaN(z) || math.IsInf(z, 0) {
 				prevOK = false
 				continue
 			}
 
+			x := t.xMin + (float64(ix)/float64(gridX-1))*(t.xMax-t.xMin)
 			xN := (x - xC) / xR
 			zN := (z - zC) / zR
 			zNorm := z01(zN)
@@ -771,16 +908,11 @@ func (t *Task) renderGraph3D(panelY int16, w int16, viewHPx int) {
 				continue
 			}
 			if prevOK {
-				cx0, cy0, cx1, cy1, u0, u1, ok := clipLineToRectWithT(prevX, prevY, curX, curY, xmin, ymin, xmax, ymax)
-				if ok {
-					d0 := prevD + u0*(curD-prevD)
-					d1 := prevD + u1*(curD-prevD)
-					col := wire
-					if t.plotColorMode != 0 {
-						col = t.plot3DWireColor((prevXN+xN)/2, (prevYN+yN)/2, 0.5*(prevZ01+zNorm))
-					}
-					t.drawLineDepth(plotX, plotY, plotW, plotH, cx0, cy0, d0, cx1, cy1, d1, col, zbuf)
+				col := wire
+				if t.plotColorMode != 0 {
+					col = t.plot3DWireColor((prevXN+xN)/2, (prevYN+yN)/2, 0.5*(prevZ01+zNorm))
 				}
+				sendSeg(prevX, prevY, prevD, curX, curY, curD, col)
 			}
 			prevOK = true
 			prevX = curX
@@ -799,13 +931,13 @@ func (t *Task) renderGraph3D(panelY int16, w int16, viewHPx int) {
 		x := t.xMin + (float64(ix)/float64(gridX-1))*(t.xMax-t.xMin)
 		xN := (x - xC) / xR
 		for iy := 0; iy < gridY; iy += stepY {
-			y := t.yMin + (float64(iy)/float64(gridY-1))*(t.yMax-t.yMin)
-			z, ok := t.evalSurfaceFor(expr, x, y)
-			if !ok || math.IsNaN(z) || math.IsInf(z, 0) {
+			z := zGrid[iy*gridX+ix]
+			if math.IsNaN(z) || math.IsInf(z, 0) {
 				prevOK = false
 				continue
 			}
 
+			y := t.yMin + (float64(iy)/float64(gridY-1))*(t.yMax-t.yMin)
 			yN := (y - yC) / yR
 			zN := (z - zC) / zR
 			zNorm := z01(zN)
@@ -815,16 +947,11 @@ func (t *Task) renderGraph3D(panelY int16, w int16, viewHPx int) {
 				continue
 			}
 			if prevOK {
-				cx0, cy0, cx1, cy1, u0, u1, ok := clipLineToRectWithT(prevX, prevY, curX, curY, xmin, ymin, xmax, ymax)
-				if ok {
-					d0 := prevD + u0*(curD-prevD)
-					d1 := prevD + u1*(curD-prevD)
-					col := wire
-					if t.plotColorMode != 0 {
-						col = t.plot3DWireColor((prevXN+xN)/2, (prevYN+yN)/2, 0.5*(prevZ01+zNorm))
-					}
-					t.drawLineDepth(plotX, plotY, plotW, plotH, cx0, cy0, d0, cx1, cy1, d1, col, zbuf)
+				col := wire
+				if t.plotColorMode != 0 {
+					col = t.plot3DWireColor((prevXN+xN)/2, (prevYN+yN)/2, 0.5*(prevZ01+zNorm))
 				}
+				sendSeg(prevX, prevY, prevD, curX, curY, curD, col)
 			}
 			prevOK = true
 			prevX = curX
@@ -835,6 +962,10 @@ func (t *Task) renderGraph3D(panelY int16, w int16, viewHPx int) {
 			prevZ01 = zNorm
 		}
 	}
+
+	close(ch0)
+	close(ch1)
+	wg.Wait()
 
 	t.drawLegend(plotX, plotY, plotW, plotH, []plot{{src: src, expr: expr}})
 }
@@ -1108,6 +1239,64 @@ func (t *Task) drawLineDepth(plotX, plotY, plotW, plotH int16, x0, y0, d0, x1, y
 		z := depthToByte(d)
 		if z <= zbuf[idx] {
 			zbuf[idx] = z
+			t.d.SetPixel(plotX+int16(ix), plotY+int16(iy), c)
+		}
+	}
+}
+
+func (t *Task) drawLineDepthSub(
+	plotX, plotY, plotW, plotH int16,
+	x0, y0, d0, x1, y1, d1 float64,
+	c color.RGBA,
+	zsub []uint8,
+	yBase, yLimit int,
+) {
+	w := int(plotW)
+	h := int(plotH)
+	if w <= 0 || h <= 0 || yBase < 0 || yLimit > h || yBase >= yLimit {
+		return
+	}
+	if len(zsub) < (yLimit-yBase)*w {
+		return
+	}
+
+	dx := x1 - x0
+	dy := y1 - y0
+	steps := math.Abs(dx)
+	if ay := math.Abs(dy); ay > steps {
+		steps = ay
+	}
+	n := int(steps)
+	if n <= 0 {
+		ix := int(roundInt16(x0))
+		iy := int(roundInt16(y0))
+		if ix < 0 || ix >= w || iy < yBase || iy >= yLimit {
+			return
+		}
+		idx := (iy-yBase)*w + ix
+		z := depthToByte(d0)
+		if z <= zsub[idx] {
+			zsub[idx] = z
+			t.d.SetPixel(plotX+int16(ix), plotY+int16(iy), c)
+		}
+		return
+	}
+
+	for i := 0; i <= n; i++ {
+		tp := float64(i) / float64(n)
+		x := x0 + dx*tp
+		y := y0 + dy*tp
+		d := d0 + (d1-d0)*tp
+
+		ix := int(roundInt16(x))
+		iy := int(roundInt16(y))
+		if ix < 0 || ix >= w || iy < yBase || iy >= yLimit {
+			continue
+		}
+		idx := (iy-yBase)*w + ix
+		z := depthToByte(d)
+		if z <= zsub[idx] {
+			zsub[idx] = z
 			t.d.SetPixel(plotX+int16(ix), plotY+int16(iy), c)
 		}
 	}
