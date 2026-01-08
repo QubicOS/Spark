@@ -938,8 +938,10 @@ func (t *Task) project3DToPlot(x, y, z float64, plotW, plotH int16) (px, py, dep
 
 	cPitch := math.Cos(t.plotPitch)
 	sPitch := math.Sin(t.plotPitch)
-	y2 := y1*cPitch - z1*sPitch
-	z2 := y1*sPitch + z1*cPitch
+	// Rotate around X so that +Z goes "up" in screen space.
+	// This is a right-handed rotation: pitch tilts the Y/Z plane.
+	y2 := y1*cPitch + z1*sPitch
+	z2 := -y1*sPitch + z1*cPitch
 	x2 := x1
 
 	const dist = 3.0
