@@ -56,7 +56,9 @@ func (s *Service) Run(ctx *kernel.Context) {
 		return
 	}
 
-	go s.statusLoop(ctx)
+	done := make(chan struct{})
+	defer close(done)
+	go s.statusLoop(ctx, done)
 
 	for msg := range ch {
 		switch proto.Kind(msg.Kind) {
@@ -74,10 +76,15 @@ func (s *Service) Run(ctx *kernel.Context) {
 	}
 }
 
-func (s *Service) statusLoop(ctx *kernel.Context) {
+func (s *Service) statusLoop(ctx *kernel.Context, done <-chan struct{}) {
 	last := ctx.NowTick()
 	lastSent := last
 	for {
+		select {
+		case <-done:
+			return
+		default:
+		}
 		last = ctx.WaitTick(last)
 		if last-lastSent < statusEveryTicks {
 			continue
