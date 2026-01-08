@@ -37,7 +37,7 @@ func New() HAL {
 		fb:     &stubFramebuffer{w: 320, h: 320, format: PixelFormatRGB565},
 		kbd:    &stubKeyboard{},
 		t:      newTinyGoTime(),
-		flash:  stubFlash{},
+		flash:  newRP2Flash(),
 		net:    nullNetwork{},
 		audio:  newTinyGoAudio(),
 	}

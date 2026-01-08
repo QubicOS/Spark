@@ -50,7 +50,7 @@ func New() HAL {
 		fb:     disp,
 		kbd:    kbd,
 		t:      newTinyGoTime(),
-		flash:  stubFlash{},
+		flash:  newRP2Flash(),
 		net:    nullNetwork{},
 		audio:  newTinyGoAudio(),
 	}
