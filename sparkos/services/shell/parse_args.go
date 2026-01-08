@@ -16,6 +16,7 @@ func parseArgs(line string) (args []string, redir redirection, ok bool) {
 
 	var cur []rune
 	st := stNone
+	escReturn := stNone
 
 	flush := func() {
 		if len(cur) == 0 {
@@ -36,7 +37,7 @@ func parseArgs(line string) (args []string, redir redirection, ok bool) {
 		switch st {
 		case stEscape:
 			cur = append(cur, r)
-			st = stNone
+			st = escReturn
 			continue
 		case stSingle:
 			if r == '\'' {
@@ -51,6 +52,7 @@ func parseArgs(line string) (args []string, redir redirection, ok bool) {
 				continue
 			}
 			if r == '\\' {
+				escReturn = stDouble
 				st = stEscape
 				continue
 			}
@@ -60,6 +62,7 @@ func parseArgs(line string) (args []string, redir redirection, ok bool) {
 
 		switch r {
 		case '\\':
+			escReturn = stNone
 			st = stEscape
 		case '\'':
 			st = stSingle
