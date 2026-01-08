@@ -1852,6 +1852,20 @@ func (t *Task) updateHint() {
 		t.hint = "diff(expr, x)"
 	case "simp":
 		t.hint = "simp(expr)"
+	case "expr":
+		t.hint = "expr(x)"
+	case "eval":
+		t.hint = "eval(expr)"
+	case "if":
+		t.hint = "if(cond, a, b)"
+	case "where":
+		t.hint = "where(cond, value)"
+	case "and":
+		t.hint = "and(a, b)"
+	case "or":
+		t.hint = "or(a, b)"
+	case "not":
+		t.hint = "not(a)"
 	default:
 		if len(cands) > 1 {
 			t.hint = fmt.Sprintf("Tab: complete (%d)", len(cands))

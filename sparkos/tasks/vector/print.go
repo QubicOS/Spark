@@ -21,6 +21,15 @@ func nodeStringPrec(n node, parentPrec int) string {
 			return "(" + s + ")"
 		}
 		return s
+	case nodeCompare:
+		prec := 0
+		left := nodeStringPrec(nn.left, prec)
+		right := nodeStringPrec(nn.right, prec)
+		s := fmt.Sprintf("%s %s %s", left, tokenText(nn.op), right)
+		if prec < parentPrec {
+			return "(" + s + ")"
+		}
+		return s
 	case nodeBinary:
 		prec := binPrec(nn.op)
 		left := nodeStringPrec(nn.left, prec)
@@ -70,6 +79,8 @@ func nodeHasIdent(n node, name string) bool {
 		return false
 	case nodeUnary:
 		return nodeHasIdent(nn.x, name)
+	case nodeCompare:
+		return nodeHasIdent(nn.left, name) || nodeHasIdent(nn.right, name)
 	case nodeBinary:
 		return nodeHasIdent(nn.left, name) || nodeHasIdent(nn.right, name)
 	case nodeCall:

@@ -22,6 +22,12 @@ const (
 	tokRParen
 	tokComma
 	tokAssign
+	tokEq
+	tokNe
+	tokLt
+	tokLe
+	tokGt
+	tokGe
 )
 
 type token struct {
@@ -86,8 +92,37 @@ func (l *lexer) next() token {
 		l.i++
 		return token{kind: tokComma, text: ","}
 	case '=':
+		if l.i+1 < len(l.s) && l.s[l.i+1] == '=' {
+			l.i += 2
+			return token{kind: tokEq, text: "=="}
+		}
 		l.i++
 		return token{kind: tokAssign, text: "="}
+	case '!':
+		if l.i+1 < len(l.s) && l.s[l.i+1] == '=' {
+			l.i += 2
+			return token{kind: tokNe, text: "!="}
+		}
+	case '<':
+		if l.i+1 < len(l.s) {
+			switch l.s[l.i+1] {
+			case '=':
+				l.i += 2
+				return token{kind: tokLe, text: "<="}
+			case '>':
+				l.i += 2
+				return token{kind: tokNe, text: "<>"}
+			}
+		}
+		l.i++
+		return token{kind: tokLt, text: "<"}
+	case '>':
+		if l.i+1 < len(l.s) && l.s[l.i+1] == '=' {
+			l.i += 2
+			return token{kind: tokGe, text: ">="}
+		}
+		l.i++
+		return token{kind: tokGt, text: ">"}
 	}
 
 	ch := rune(l.s[l.i])
@@ -295,7 +330,26 @@ func (p *parser) tryParseFuncDef(name string, identTok token, afterIdentPos int)
 }
 
 func (p *parser) parseExpr() (node, error) {
-	return p.parseSum()
+	return p.parseCompare()
+}
+
+func (p *parser) parseCompare() (node, error) {
+	left, err := p.parseSum()
+	if err != nil {
+		return nil, err
+	}
+	switch p.cur.kind {
+	case tokEq, tokNe, tokLt, tokLe, tokGt, tokGe:
+		op := p.cur.kind
+		p.next()
+		right, err := p.parseSum()
+		if err != nil {
+			return nil, err
+		}
+		return nodeCompare{op: op, left: left, right: right}, nil
+	default:
+		return left, nil
+	}
 }
 
 func (p *parser) parseSum() (node, error) {
