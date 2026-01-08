@@ -80,6 +80,14 @@ func (c *Client) send(ctx *kernel.Context, kind proto.Kind, payload []byte) erro
 	}
 }
 
+func (c *Client) recv(op string) (kernel.Message, error) {
+	msg, ok := <-c.replyCh
+	if !ok {
+		return kernel.Message{}, fmt.Errorf("vfs %s: reply channel closed", op)
+	}
+	return msg, nil
+}
+
 func (c *Client) List(ctx *kernel.Context, path string) ([]Entry, error) {
 	if err := c.ensureReply(ctx); err != nil {
 		return nil, err
@@ -92,7 +100,10 @@ func (c *Client) List(ctx *kernel.Context, path string) ([]Entry, error) {
 
 	var out []Entry
 	for {
-		msg := <-c.replyCh
+		msg, err := c.recv("list")
+		if err != nil {
+			return nil, err
+		}
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
 			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
@@ -128,7 +139,10 @@ func (c *Client) Mkdir(ctx *kernel.Context, path string) error {
 	}
 
 	for {
-		msg := <-c.replyCh
+		msg, err := c.recv("mkdir")
+		if err != nil {
+			return err
+		}
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
 			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
@@ -161,7 +175,10 @@ func (c *Client) Remove(ctx *kernel.Context, path string) error {
 	}
 
 	for {
-		msg := <-c.replyCh
+		msg, err := c.recv("remove")
+		if err != nil {
+			return err
+		}
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
 			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
@@ -194,7 +211,10 @@ func (c *Client) Rename(ctx *kernel.Context, oldPath, newPath string) error {
 	}
 
 	for {
-		msg := <-c.replyCh
+		msg, err := c.recv("rename")
+		if err != nil {
+			return err
+		}
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
 			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
@@ -227,7 +247,10 @@ func (c *Client) Copy(ctx *kernel.Context, srcPath, dstPath string) error {
 	}
 
 	for {
-		msg := <-c.replyCh
+		msg, err := c.recv("copy")
+		if err != nil {
+			return err
+		}
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
 			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
@@ -262,7 +285,10 @@ func (c *Client) Stat(ctx *kernel.Context, path string) (proto.VFSEntryType, uin
 	}
 
 	for {
-		msg := <-c.replyCh
+		msg, err := c.recv("stat")
+		if err != nil {
+			return 0, 0, err
+		}
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
 			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
@@ -295,7 +321,10 @@ func (c *Client) ReadAt(ctx *kernel.Context, path string, off uint32, maxBytes u
 	}
 
 	for {
-		msg := <-c.replyCh
+		msg, err := c.recv("read")
+		if err != nil {
+			return nil, false, err
+		}
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
 			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
@@ -342,7 +371,10 @@ func (c *Client) OpenWriter(ctx *kernel.Context, path string, mode proto.VFSWrit
 	}
 
 	for {
-		msg := <-c.replyCh
+		msg, err := c.recv("write open")
+		if err != nil {
+			return nil, err
+		}
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
 			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
@@ -391,7 +423,10 @@ func (w *Writer) Close() (uint32, error) {
 	}
 
 	for {
-		msg := <-w.client.replyCh
+		msg, err := w.client.recv("write")
+		if err != nil {
+			return 0, err
+		}
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
 			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
