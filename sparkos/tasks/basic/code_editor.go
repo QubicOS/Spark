@@ -339,9 +339,9 @@ func isWordRune(r rune) bool {
 var basicKeywords = []string{
 	"ABS", "AND", "CHR$", "CLS", "DEL", "DIM", "DIR", "ELSE",
 	"COPY", "END", "EOF", "FOR", "GETB", "GETW", "GOSUB", "GOTO", "IF", "INPUT",
-	"INT", "LEN", "LET", "NEXT", "OPEN", "OR", "POS", "PRINT", "PUTB", "PUTW",
-	"REN", "REM", "RETURN", "RND", "RUN", "SEEK", "SGN", "SLEEP",
-	"STOP", "THEN", "YIELD",
+	"INT", "LEN", "LET", "LINE", "MKDIR", "NEXT", "OPEN", "OR", "PSET", "POS", "PRINT",
+	"PUTB", "PUTW", "RECT", "REN", "REM", "RETURN", "RMDIR", "RND", "RUN", "SEEK",
+	"SGN", "SLEEP", "SPAWN", "STAT", "STOP", "TEXT", "THEN", "YIELD",
 }
 
 var basicHints = map[string]string{
@@ -368,6 +368,14 @@ var basicHints = map[string]string{
 	"REN":    "REN \"old\",\"new\"",
 	"COPY":   "COPY \"src\",\"dst\"",
 	"EOF":    "EOF(fd)",
+	"MKDIR":  "MKDIR \"path\"",
+	"RMDIR":  "RMDIR \"path\"",
+	"STAT":   "STAT \"path\", T, S",
+	"PSET":   "PSET x,y,c",
+	"LINE":   "LINE x1,y1,x2,y2,c",
+	"RECT":   "RECT x,y,w,h,c",
+	"TEXT":   "TEXT x,y,\"str\"",
+	"SPAWN":  "SPAWN \"prog.bas\"",
 }
 
 func completeKeyword(prefix string) []string {

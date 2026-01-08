@@ -10,6 +10,8 @@ import (
 	vfsclient "spark/sparkos/client/vfs"
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
+
+	"tinygo.org/x/tinyfont"
 )
 
 var (
@@ -71,6 +73,7 @@ type vm struct {
 	vfs  *vfsclient.Client
 	prog *program
 	fb   hal.Framebuffer
+	d    *fbDisplay
 
 	running bool
 	pc      int
@@ -86,6 +89,13 @@ type vm struct {
 	files []fileHandle
 
 	pendingInputs []varRef
+
+	font       tinyfont.Fonter
+	fontWidth  int16
+	fontHeight int16
+	fontOffset int16
+
+	spawnFn func(path string) error
 }
 
 func newVM(maxFiles int) *vm {
@@ -107,11 +117,20 @@ func (m *vm) reset() {
 	for i := range m.files {
 		m.files[i] = fileHandle{}
 	}
+	m.d = nil
+	m.font = nil
+	m.fontWidth = 0
+	m.fontHeight = 0
+	m.fontOffset = 0
+	m.spawnFn = nil
 }
 
 func (m *vm) start() error {
 	if m.prog == nil {
 		return fmt.Errorf("run: %w", ErrBadCommand)
+	}
+	if m.fb != nil && m.d == nil {
+		m.d = newFBDisplay(m.fb)
 	}
 	m.index = make(map[int]int, len(m.prog.lines))
 	for i, ln := range m.prog.lines {
@@ -201,6 +220,12 @@ func (m *vm) execLine(text string) (stepResult, error) {
 		return m.execSeek(&s)
 	case "DIR":
 		return m.execDir(&s)
+	case "MKDIR":
+		return m.execMkdir(&s)
+	case "RMDIR":
+		return m.execRmdir(&s)
+	case "STAT":
+		return m.execStat(&s)
 	case "DEL":
 		return m.execDel(&s)
 	case "REN":
@@ -211,8 +236,18 @@ func (m *vm) execLine(text string) (stepResult, error) {
 		return m.execGetW(&s)
 	case "PUTW":
 		return m.execPutW(&s)
+	case "SPAWN":
+		return m.execSpawn(&s)
 	case "CLS":
 		return m.execCLS(&s)
+	case "PSET":
+		return m.execPSet(&s)
+	case "LINE":
+		return m.execGfxLine(&s)
+	case "RECT":
+		return m.execRect(&s)
+	case "TEXT":
+		return m.execText(&s)
 	default:
 		s = newScanner(text)
 		return m.execAssignment(&s)
@@ -294,6 +329,17 @@ func (m *vm) gotoLine(lineNo int32) error {
 	}
 	m.pc = i - 1
 	return nil
+}
+
+func (m *vm) rebuildIndex() {
+	if m.prog == nil {
+		m.index = nil
+		return
+	}
+	m.index = make(map[int]int, len(m.prog.lines))
+	for i, ln := range m.prog.lines {
+		m.index[ln.no] = i
+	}
 }
 
 func (m *vm) getFile(fd int32) (*fileHandle, error) {

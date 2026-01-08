@@ -2,6 +2,7 @@ package basic
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -294,6 +295,60 @@ func (m *vm) execDir(s *scanner) (stepResult, error) {
 	return stepResult{output: out}, nil
 }
 
+func (m *vm) execMkdir(s *scanner) (stepResult, error) {
+	if err := m.ensureVFS(); err != nil {
+		return stepResult{}, err
+	}
+	path, err := m.parseStringExpr(s)
+	if err != nil {
+		return stepResult{}, err
+	}
+	return stepResult{}, m.vfs.Mkdir(m.ctx, path)
+}
+
+func (m *vm) execRmdir(s *scanner) (stepResult, error) {
+	return m.execDel(s)
+}
+
+func (m *vm) execStat(s *scanner) (stepResult, error) {
+	if err := m.ensureVFS(); err != nil {
+		return stepResult{}, err
+	}
+	path, err := m.parseStringExpr(s)
+	if err != nil {
+		return stepResult{}, err
+	}
+	s.skipSpaces()
+	if !s.accept(',') {
+		return stepResult{}, ErrSyntax
+	}
+	typVar, err := parseVarRef(m, s)
+	if err != nil {
+		return stepResult{}, err
+	}
+	if typVar.kind != varInt {
+		return stepResult{}, ErrType
+	}
+	s.skipSpaces()
+	if !s.accept(',') {
+		return stepResult{}, ErrSyntax
+	}
+	sizeVar, err := parseVarRef(m, s)
+	if err != nil {
+		return stepResult{}, err
+	}
+	if sizeVar.kind != varInt {
+		return stepResult{}, ErrType
+	}
+	typ, size, err := m.vfs.Stat(m.ctx, path)
+	if err != nil {
+		return stepResult{}, err
+	}
+	m.intVars[typVar.index] = int32(typ)
+	m.intVars[sizeVar.index] = int32(size)
+	return stepResult{}, nil
+}
+
 func (m *vm) execDel(s *scanner) (stepResult, error) {
 	if err := m.ensureVFS(); err != nil {
 		return stepResult{}, err
@@ -341,4 +396,18 @@ func (m *vm) execCopy(s *scanner) (stepResult, error) {
 		return stepResult{}, err
 	}
 	return stepResult{}, m.vfs.Copy(m.ctx, srcPath, dstPath)
+}
+
+func (m *vm) execSpawn(s *scanner) (stepResult, error) {
+	if m.spawnFn == nil {
+		return stepResult{}, errors.New("spawn not available")
+	}
+	path, err := m.parseStringExpr(s)
+	if err != nil {
+		return stepResult{}, err
+	}
+	if err := m.spawnFn(path); err != nil {
+		return stepResult{}, err
+	}
+	return stepResult{}, nil
 }

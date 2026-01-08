@@ -78,6 +78,8 @@ type Task struct {
 
 	nowTick uint64
 	blinkOn bool
+
+	jobOut chan string
 }
 
 func New(disp hal.Display, ep kernel.Capability, vfsCap kernel.Capability) *Task {
@@ -119,6 +121,9 @@ func (t *Task) Run(ctx *kernel.Context) {
 	defer close(done)
 
 	tickCh := make(chan uint64, 8)
+	if t.jobOut == nil {
+		t.jobOut = make(chan string, 64)
+	}
 	go func() {
 		last := ctx.NowTick()
 		for {
@@ -146,6 +151,14 @@ func (t *Task) Run(ctx *kernel.Context) {
 			if blink != t.blinkOn {
 				t.blinkOn = blink
 				if t.tab == tabCode {
+					t.render()
+				}
+			}
+
+		case line := <-t.jobOut:
+			if line != "" {
+				t.println(line)
+				if t.active && t.tab == tabIO {
 					t.render()
 				}
 			}
@@ -553,6 +566,12 @@ func (t *Task) onLine(ctx *kernel.Context, line string) {
 		t.vm.vfs = t.vfsClient()
 		t.vm.ctx = ctx
 		t.vm.fb = t.fb
+		t.vm.d = t.d
+		t.vm.font = t.font
+		t.vm.fontWidth = t.fontWidth
+		t.vm.fontHeight = t.fontHeight
+		t.vm.fontOffset = t.fontOffset
+		t.vm.spawnFn = func(path string) error { return t.spawnProgram(ctx, path) }
 		if err := t.vm.start(); err != nil {
 			t.printf("? %v", err)
 			t.vm.running = false
@@ -577,6 +596,12 @@ func (t *Task) onLine(ctx *kernel.Context, line string) {
 		t.vm.vfs = t.vfsClient()
 		t.vm.ctx = ctx
 		t.vm.fb = t.fb
+		t.vm.d = t.d
+		t.vm.font = t.font
+		t.vm.fontWidth = t.fontWidth
+		t.vm.fontHeight = t.fontHeight
+		t.vm.fontOffset = t.fontOffset
+		t.vm.spawnFn = func(path string) error { return t.spawnProgram(ctx, path) }
 		res, err := t.vm.execImmediate(line)
 		if err != nil {
 			t.printf("? %v", err)
@@ -612,6 +637,108 @@ func (t *Task) syncEditorToProgram() error {
 		p.upsertLine(no, rest)
 	}
 	t.prog = p
+	return nil
+}
+
+func (t *Task) spawnProgram(ctx *kernel.Context, path string) error {
+	if path == "" {
+		return errors.New("spawn: empty path")
+	}
+	vfs := t.vfsClient()
+
+	const maxFileBytes = 128 * 1024
+	const maxChunk = kernel.MaxMessageBytes - 11
+
+	var buf []byte
+	var off uint32
+	for {
+		if len(buf) >= maxFileBytes {
+			return errors.New("spawn: file too large")
+		}
+		want := uint16(maxChunk)
+		if remain := maxFileBytes - len(buf); remain < int(want) {
+			want = uint16(remain)
+		}
+		chunk, eof, err := vfs.ReadAt(ctx, path, off, want)
+		if err != nil {
+			return fmt.Errorf("spawn %s: %w", path, err)
+		}
+		if len(chunk) == 0 && eof {
+			break
+		}
+		buf = append(buf, chunk...)
+		off += uint32(len(chunk))
+		if eof {
+			break
+		}
+	}
+
+	lines := strings.Split(string(buf), "\n")
+	var p program
+	for _, raw := range lines {
+		raw = strings.TrimSpace(strings.TrimRight(raw, "\r"))
+		if raw == "" {
+			continue
+		}
+		no, rest, ok := splitLeadingLineNumber(raw)
+		if !ok {
+			return errors.New("spawn: non-numbered line")
+		}
+		if strings.TrimSpace(rest) == "" {
+			continue
+		}
+		p.upsertLine(no, rest)
+	}
+
+	go func() {
+		vm := newVM(defaultMaxFiles)
+		vm.prog = &p
+		vm.vfs = vfs
+		vm.ctx = ctx
+		vm.spawnFn = nil
+		if err := vm.start(); err != nil {
+			select {
+			case t.jobOut <- "[spawn] " + err.Error():
+			default:
+			}
+			return
+		}
+		for vm.running {
+			step, err := vm.step()
+			if err != nil {
+				select {
+				case t.jobOut <- "[spawn] " + err.Error():
+				default:
+				}
+				return
+			}
+			for _, out := range step.output {
+				select {
+				case t.jobOut <- "[spawn] " + out:
+				default:
+				}
+			}
+			if step.awaitInput {
+				select {
+				case t.jobOut <- "[spawn] INPUT not supported":
+				default:
+				}
+				return
+			}
+			if step.halt {
+				break
+			}
+		}
+		select {
+		case t.jobOut <- "[spawn] done: " + path:
+		default:
+		}
+	}()
+
+	select {
+	case t.jobOut <- "[spawn] started: " + path:
+	default:
+	}
 	return nil
 }
 
