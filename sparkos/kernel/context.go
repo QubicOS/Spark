@@ -42,7 +42,11 @@ func (c *Context) Recv(epCap Capability) (Message, bool) {
 	if !ok {
 		return Message{}, false
 	}
-	return <-ch, true
+	msg, ok := <-ch
+	if !ok {
+		return Message{}, false
+	}
+	return msg, true
 }
 
 // TryRecv reads one message from the capability endpoint without blocking.
@@ -52,7 +56,10 @@ func (c *Context) TryRecv(epCap Capability) (Message, bool) {
 		return Message{}, false
 	}
 	select {
-	case msg := <-ch:
+	case msg, ok := <-ch:
+		if !ok {
+			return Message{}, false
+		}
 		return msg, true
 	default:
 		return Message{}, false
