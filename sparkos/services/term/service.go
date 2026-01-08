@@ -41,10 +41,18 @@ func (s *Service) Run(ctx *kernel.Context) {
 
 	dirty := false
 
+	done := make(chan struct{})
+	defer close(done)
+
 	tickCh := make(chan uint64, 16)
 	go func() {
 		last := ctx.NowTick()
 		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
 			last = ctx.WaitTick(last)
 			select {
 			case tickCh <- last:
