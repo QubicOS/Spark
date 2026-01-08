@@ -31,10 +31,18 @@ func (s *Service) Run(ctx *kernel.Context) {
 		return
 	}
 
+	done := make(chan struct{})
+	defer close(done)
+
 	tickCh := make(chan uint64, 128)
 	go func() {
 		last := ctx.NowTick()
 		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
 			last = ctx.WaitTick(last)
 			select {
 			case tickCh <- last:
