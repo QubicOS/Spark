@@ -49,7 +49,10 @@ func (s *Service) Run(ctx *kernel.Context) {
 			s.now = now
 			s.wakeReady(ctx)
 
-		case msg := <-reqCh:
+		case msg, ok := <-reqCh:
+			if !ok {
+				return
+			}
 			if msg.Kind != uint16(proto.MsgSleep) {
 				continue
 			}
