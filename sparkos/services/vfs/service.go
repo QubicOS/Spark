@@ -21,11 +21,17 @@ type Service struct {
 
 type writeSession struct {
 	reply  kernel.Capability
-	writer *littlefs.Writer
+	writer writeHandle
 }
 
 func New(flash hal.Flash, inCap kernel.Capability) *Service {
 	return &Service{flash: flash, inCap: inCap}
+}
+
+type writeHandle interface {
+	Write(p []byte) (n int, err error)
+	Close() error
+	BytesWritten() uint32
 }
 
 func (s *Service) Run(ctx *kernel.Context) {
