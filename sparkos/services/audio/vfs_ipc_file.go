@@ -25,6 +25,9 @@ type ipcFile struct {
 }
 
 func newIPCFile(ctx *kernel.Context, vfsCap kernel.Capability, path string) (*ipcFile, error) {
+	if ctx == nil {
+		return nil, errors.New("audio: nil context")
+	}
 	if !vfsCap.Valid() {
 		return nil, errors.New("audio: vfs capability is missing")
 	}
