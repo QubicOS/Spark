@@ -60,7 +60,10 @@ func (s *Service) Run(ctx *kernel.Context) {
 
 	for {
 		select {
-		case ev := <-s.events:
+		case ev, ok := <-s.events:
+			if !ok {
+				return
+			}
 			s.handleKeyEvent(ctx, ev)
 		case tick := <-tickCh:
 			s.handleRepeat(tick)
