@@ -261,6 +261,13 @@ func builtinKeywords() []string {
 	set["range"] = struct{}{}
 	set["simp"] = struct{}{}
 	set["diff"] = struct{}{}
+	set["expr"] = struct{}{}
+	set["eval"] = struct{}{}
+	set["if"] = struct{}{}
+	set["where"] = struct{}{}
+	set["and"] = struct{}{}
+	set["or"] = struct{}{}
+	set["not"] = struct{}{}
 	set["zeros"] = struct{}{}
 	set["ones"] = struct{}{}
 	set["eye"] = struct{}{}
@@ -300,13 +307,14 @@ func builtinKeywords() []string {
 }
 
 func isBuiltinKeyword(name string) bool {
-	if name == "range" || name == "simp" || name == "diff" {
+	if name == "range" || name == "simp" || name == "diff" || name == "expr" || name == "eval" {
 		return true
 	}
 	switch name {
 	case "zeros", "ones", "eye", "reshape", "T", "transpose", "det", "inv", "shape", "flatten",
 		"get", "set", "row", "col", "diag", "trace", "norm",
-		"re", "im", "conj", "arg":
+		"re", "im", "conj", "arg",
+		"if", "where", "and", "or", "not":
 		return true
 	}
 	if _, ok := scalarBuiltins[name]; ok {
@@ -1193,6 +1201,10 @@ type nodeCall struct {
 }
 
 func (n nodeCall) Eval(e *env) (Value, error) {
+	if n.name == "expr" && len(n.args) == 1 {
+		return ExprValue(n.args[0].Simplify()), nil
+	}
+
 	if n.name == "simp" && len(n.args) == 1 {
 		return ExprValue(n.args[0].Simplify()), nil
 	}
@@ -1211,6 +1223,10 @@ func (n nodeCall) Eval(e *env) (Value, error) {
 			return Value{}, err
 		}
 		args = append(args, v)
+	}
+
+	if out, ok, err := builtinCallControl(e, n.name, args); ok {
+		return out, err
 	}
 
 	if out, ok, err := builtinCallValue(e, n.name, args); ok {
@@ -1240,6 +1256,105 @@ func (n nodeCall) Eval(e *env) (Value, error) {
 		return Value{}, err
 	}
 	return NumberValue(out), nil
+}
+
+func builtinCallControl(e *env, name string, args []Value) (Value, bool, error) {
+	_ = e
+	switch name {
+	case "eval":
+		if len(args) != 1 || args[0].kind != valueExpr {
+			return Value{}, true, fmt.Errorf("%w: eval(expr)", ErrEval)
+		}
+		out, err := args[0].expr.Eval(e)
+		return out, true, err
+	case "if":
+		if len(args) != 3 {
+			return Value{}, true, fmt.Errorf("%w: if(cond, a, b)", ErrEval)
+		}
+		ok, err := truthy(args[0])
+		if err != nil {
+			return Value{}, true, err
+		}
+		if ok {
+			return args[1], true, nil
+		}
+		return args[2], true, nil
+	case "where":
+		if len(args) != 2 {
+			return Value{}, true, fmt.Errorf("%w: where(cond, value)", ErrEval)
+		}
+		ok, err := truthy(args[0])
+		if err != nil {
+			return Value{}, true, err
+		}
+		if ok {
+			return args[1], true, nil
+		}
+		return NumberValue(Float(math.NaN())), true, nil
+	case "and":
+		if len(args) != 2 {
+			return Value{}, true, fmt.Errorf("%w: and(a, b)", ErrEval)
+		}
+		a, err := truthy(args[0])
+		if err != nil {
+			return Value{}, true, err
+		}
+		if !a {
+			return NumberValue(RatNumber(RatInt(0))), true, nil
+		}
+		b, err := truthy(args[1])
+		if err != nil {
+			return Value{}, true, err
+		}
+		if b {
+			return NumberValue(RatNumber(RatInt(1))), true, nil
+		}
+		return NumberValue(RatNumber(RatInt(0))), true, nil
+	case "or":
+		if len(args) != 2 {
+			return Value{}, true, fmt.Errorf("%w: or(a, b)", ErrEval)
+		}
+		a, err := truthy(args[0])
+		if err != nil {
+			return Value{}, true, err
+		}
+		if a {
+			return NumberValue(RatNumber(RatInt(1))), true, nil
+		}
+		b, err := truthy(args[1])
+		if err != nil {
+			return Value{}, true, err
+		}
+		if b {
+			return NumberValue(RatNumber(RatInt(1))), true, nil
+		}
+		return NumberValue(RatNumber(RatInt(0))), true, nil
+	case "not":
+		if len(args) != 1 {
+			return Value{}, true, fmt.Errorf("%w: not(a)", ErrEval)
+		}
+		a, err := truthy(args[0])
+		if err != nil {
+			return Value{}, true, err
+		}
+		if a {
+			return NumberValue(RatNumber(RatInt(0))), true, nil
+		}
+		return NumberValue(RatNumber(RatInt(1))), true, nil
+	default:
+		return Value{}, false, nil
+	}
+}
+
+func truthy(v Value) (bool, error) {
+	switch v.kind {
+	case valueNumber:
+		return v.num.Float64() != 0, nil
+	case valueComplex:
+		return v.c != 0, nil
+	default:
+		return false, fmt.Errorf("%w: condition must be a number", ErrEval)
+	}
 }
 
 func builtinCallValue(e *env, name string, args []Value) (Value, bool, error) {
