@@ -6,6 +6,9 @@ package tinyterm
 import "image/color"
 
 func (c Color) calcRGBA() color.RGBA {
+	if int(c) < 0 || int(c) >= len(colors) {
+		return color.RGBA{0, 0, 0, 255}
+	}
 	return color.RGBA{R: byte(colors[c] >> 16), G: byte(colors[c] >> 8), B: byte(colors[c]), A: 255}
 }
 

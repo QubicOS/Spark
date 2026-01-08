@@ -5,7 +5,6 @@ package tinyterm
 
 import (
 	"image/color"
-	"strconv"
 )
 
 func (c Color) calcRGBA() color.RGBA {
@@ -58,5 +57,5 @@ func (c Color) calcRGBA() color.RGBA {
 		v := uint8((23-(255-c))*10 + 8)
 		return color.RGBA{v, v, v, 255}
 	}
-	panic("invalid color: " + strconv.Itoa(int(c)))
+	return color.RGBA{0, 0, 0, 255}
 }

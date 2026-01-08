@@ -130,6 +130,25 @@ func (t *Terminal) Configure(config *Config) {
 	_ = t.display.FillRectangle(0, t.scroll, t.width, t.fontHeight, t.attrs.bgcol)
 }
 
+func (t *Terminal) resetToInitialState() {
+	t.state = stateInput
+	t.command = 0
+	if t.params == nil {
+		t.params = bytes.NewBuffer(make([]byte, 32))
+	} else {
+		t.params.Reset()
+	}
+
+	t.attrs.reset()
+
+	t.scroll = 0
+	t.next = 0
+	if !t.useSoftwareScroll {
+		t.display.SetScroll(0)
+	}
+	_ = t.display.FillRectangle(0, 0, t.width, t.height, t.attrs.bgcol)
+}
+
 // Write some data to the terminal.
 func (t *Terminal) Write(buf []byte) (int, error) {
 	for i := 0; i < len(buf); {
@@ -242,7 +261,7 @@ func (t *Terminal) putchar(b byte) {
 			t.command = b
 		case 'c':
 			// RIS: Reset to Initial State
-			// TODO: need to implement
+			t.resetToInitialState()
 			t.state = stateInput
 		}
 	case stateCSI:
