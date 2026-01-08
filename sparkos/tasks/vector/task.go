@@ -1881,6 +1881,8 @@ func (t *Task) updateHint() {
 		t.hint = "roots(expr, xmin, xmax[, n])"
 	case "region":
 		t.hint = "region(cond, xmin, xmax, ymin, ymax[, n])"
+	case "plane":
+		t.hint = "plane(n, d) or plane(p0, p1, p2)"
 	case "param":
 		t.hint = "param(x(t), y(t), tmin, tmax[, n])"
 	case "expr":
