@@ -29,6 +29,67 @@ var (
 	colorPlot3    = color.RGBA{R: 0xFF, G: 0x7F, B: 0xFF, A: 0xFF}
 )
 
+func lerpU8(a, b uint8, t float64) uint8 {
+	if t <= 0 {
+		return a
+	}
+	if t >= 1 {
+		return b
+	}
+	return uint8(float64(a) + (float64(b)-float64(a))*t)
+}
+
+func clamp01(t float64) float64 {
+	if t < 0 {
+		return 0
+	}
+	if t > 1 {
+		return 1
+	}
+	return t
+}
+
+// plotColorRamp maps t in [0,1] to a "blue -> cyan -> yellow" ramp similar to scientific colormaps.
+func plotColorRamp(t float64) color.RGBA {
+	t = clamp01(t)
+	if t < 0.5 {
+		u := t / 0.5
+		return color.RGBA{
+			R: lerpU8(0x10, colorPlot0.R, u),
+			G: lerpU8(0x20, colorPlot0.G, u),
+			B: lerpU8(0x80, colorPlot0.B, u),
+			A: 0xFF,
+		}
+	}
+	u := (t - 0.5) / 0.5
+	return color.RGBA{
+		R: lerpU8(colorPlot0.R, 0xFF, u),
+		G: lerpU8(colorPlot0.G, 0xF0, u),
+		B: lerpU8(colorPlot0.B, 0x40, u),
+		A: 0xFF,
+	}
+}
+
+func (t *Task) plot3DWireColor(xN, yN, z01 float64) color.RGBA {
+	switch t.plotColorMode {
+	case 1:
+		return plotColorRamp(z01)
+	case 2:
+		// Position-based: hue-ish via x/y and brightness via z.
+		u := clamp01(0.5 * (xN + 1))
+		v := clamp01(0.5 * (yN + 1))
+		b := 0.35 + 0.65*clamp01(z01)
+		return color.RGBA{
+			R: uint8(255 * clamp01(u*b)),
+			G: uint8(255 * clamp01(v*b)),
+			B: uint8(255 * clamp01((1-u)*b)),
+			A: 0xFF,
+		}
+	default:
+		return colorPlot0
+	}
+}
+
 type fbDisplay struct {
 	fb hal.Framebuffer
 }
@@ -670,6 +731,7 @@ func (t *Task) renderGraph3D(panelY int16, w int16, viewHPx int) {
 	ymax := float64(plotH - 1)
 
 	wire := colorPlot0
+	z01 := func(zN float64) float64 { return clamp01(0.5 * (zN + 1)) }
 	stepX := 1
 	stepY := 1
 	if gridX > 24 {
@@ -681,6 +743,7 @@ func (t *Task) renderGraph3D(panelY int16, w int16, viewHPx int) {
 
 	for iy := 0; iy < gridY; iy += stepY {
 		var prevX, prevY, prevD float64
+		var prevXN, prevYN, prevZ01 float64
 		prevOK := false
 		y := t.yMin + (float64(iy)/float64(gridY-1))*(t.yMax-t.yMin)
 		yN := (y - yC) / yR
@@ -694,6 +757,7 @@ func (t *Task) renderGraph3D(panelY int16, w int16, viewHPx int) {
 
 			xN := (x - xC) / xR
 			zN := (z - zC) / zR
+			zNorm := z01(zN)
 			curX, curY, curD, ok := t.project3DToPlot(xN, yN, zN, plotW, plotH)
 			if !ok {
 				prevOK = false
@@ -704,18 +768,26 @@ func (t *Task) renderGraph3D(panelY int16, w int16, viewHPx int) {
 				if ok {
 					d0 := prevD + u0*(curD-prevD)
 					d1 := prevD + u1*(curD-prevD)
-					t.drawLineDepth(plotX, plotY, plotW, plotH, cx0, cy0, d0, cx1, cy1, d1, wire, zbuf)
+					col := wire
+					if t.plotColorMode != 0 {
+						col = t.plot3DWireColor((prevXN+xN)/2, (prevYN+yN)/2, 0.5*(prevZ01+zNorm))
+					}
+					t.drawLineDepth(plotX, plotY, plotW, plotH, cx0, cy0, d0, cx1, cy1, d1, col, zbuf)
 				}
 			}
 			prevOK = true
 			prevX = curX
 			prevY = curY
 			prevD = curD
+			prevXN = xN
+			prevYN = yN
+			prevZ01 = zNorm
 		}
 	}
 
 	for ix := 0; ix < gridX; ix += stepX {
 		var prevX, prevY, prevD float64
+		var prevXN, prevYN, prevZ01 float64
 		prevOK := false
 		x := t.xMin + (float64(ix)/float64(gridX-1))*(t.xMax-t.xMin)
 		xN := (x - xC) / xR
@@ -729,6 +801,7 @@ func (t *Task) renderGraph3D(panelY int16, w int16, viewHPx int) {
 
 			yN := (y - yC) / yR
 			zN := (z - zC) / zR
+			zNorm := z01(zN)
 			curX, curY, curD, ok := t.project3DToPlot(xN, yN, zN, plotW, plotH)
 			if !ok {
 				prevOK = false
@@ -739,13 +812,20 @@ func (t *Task) renderGraph3D(panelY int16, w int16, viewHPx int) {
 				if ok {
 					d0 := prevD + u0*(curD-prevD)
 					d1 := prevD + u1*(curD-prevD)
-					t.drawLineDepth(plotX, plotY, plotW, plotH, cx0, cy0, d0, cx1, cy1, d1, wire, zbuf)
+					col := wire
+					if t.plotColorMode != 0 {
+						col = t.plot3DWireColor((prevXN+xN)/2, (prevYN+yN)/2, 0.5*(prevZ01+zNorm))
+					}
+					t.drawLineDepth(plotX, plotY, plotW, plotH, cx0, cy0, d0, cx1, cy1, d1, col, zbuf)
 				}
 			}
 			prevOK = true
 			prevX = curX
 			prevY = curY
 			prevD = curD
+			prevXN = xN
+			prevYN = yN
+			prevZ01 = zNorm
 		}
 	}
 

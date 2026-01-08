@@ -30,3 +30,24 @@ func TestEvalLine_AssignYPlotsAgainstX(t *testing.T) {
 		t.Fatalf("expected y=x to create a plot series")
 	}
 }
+
+func TestService_PlotColorCycles(t *testing.T) {
+	tk := New(nil, kernel.Capability{}, kernel.Capability{})
+	before := tk.plotColorMode
+	tk.handleServiceCommand(nil, "plotcolor")
+	if tk.plotColorMode == before {
+		t.Fatalf("plotcolor did not change mode")
+	}
+	tk.handleServiceCommand(nil, "plotcolor mono")
+	if tk.plotColorMode != 0 {
+		t.Fatalf("plotcolor mono=%d", tk.plotColorMode)
+	}
+	tk.handleServiceCommand(nil, "plotcolor height")
+	if tk.plotColorMode != 1 {
+		t.Fatalf("plotcolor height=%d", tk.plotColorMode)
+	}
+	tk.handleServiceCommand(nil, "plotcolor pos")
+	if tk.plotColorMode != 2 {
+		t.Fatalf("plotcolor pos=%d", tk.plotColorMode)
+	}
+}

@@ -97,10 +97,11 @@ type Task struct {
 	yMin float64
 	yMax float64
 
-	plotDim   int
-	plotYaw   float64
-	plotPitch float64
-	plotZoom  float64
+	plotDim       int
+	plotYaw       float64
+	plotPitch     float64
+	plotZoom      float64
+	plotColorMode uint8
 
 	stackSel int
 	stackTop int
@@ -122,15 +123,34 @@ func New(disp hal.Display, ep kernel.Capability, vfsCap kernel.Capability) *Task
 		yMax:   10,
 
 		plotDim:   2,
-		plotYaw:   0.8,
-		plotPitch: 0.55,
-		plotZoom:  1.2,
+		plotYaw:   default3DYaw,
+		plotPitch: default3DPitch,
+		plotZoom:  default3DZoom,
+
+		plotColorMode: default3DPlotColorMode,
 
 		zoomInFactor:  0.8,
 		zoomOutFactor: 1.25,
 	}
 	t.seedPlotVars()
 	return t
+}
+
+const (
+	default3DYaw   = 0.8
+	default3DPitch = 0.85
+	default3DZoom  = 1.1
+	// 0=mono, 1=height, 2=position.
+	default3DPlotColorMode = 1
+)
+
+func (t *Task) reset3DView() {
+	t.plotYaw = default3DYaw
+	t.plotPitch = default3DPitch
+	t.plotZoom = default3DZoom
+	if t.plotColorMode > 2 {
+		t.plotColorMode = default3DPlotColorMode
+	}
 }
 
 func (t *Task) seedPlotVars() {
@@ -330,9 +350,7 @@ func (t *Task) unloadSession() {
 	t.yMax = 10
 
 	t.plotDim = 2
-	t.plotYaw = 0.8
-	t.plotPitch = 0.55
-	t.plotZoom = 1.2
+	t.reset3DView()
 
 	t.stackSel = 0
 	t.stackTop = 0
@@ -931,6 +949,9 @@ func (t *Task) handleServiceCommand(ctx *kernel.Context, cmdline string) {
 			if s == "plotdim" {
 				line += " 2|3"
 			}
+			if s == "plotcolor" {
+				line += " [0|1|2]"
+			}
 			t.appendLine("  " + line)
 		}
 	case "about":
@@ -949,15 +970,47 @@ func (t *Task) handleServiceCommand(ctx *kernel.Context, cmdline string) {
 			return
 		}
 		t.plotDim = n
+		if n == 3 {
+			t.reset3DView()
+		}
 		if t.tab == tabPlot {
 			t.setMessage(t.plotMessage())
 		} else {
 			t.setMessage(fmt.Sprintf("plotdim: %d", n))
 		}
+	case "plotcolor":
+		// plotcolor [0|1|2] or plotcolor [mono|height|pos].
+		if len(fields) == 1 {
+			t.plotColorMode = (t.plotColorMode + 1) % 3
+		} else if len(fields) == 2 {
+			switch fields[1] {
+			case "0", "mono":
+				t.plotColorMode = 0
+			case "1", "height":
+				t.plotColorMode = 1
+			case "2", "pos", "position":
+				t.plotColorMode = 2
+			default:
+				t.appendLine("plotcolor: expected 0|1|2 or mono|height|pos")
+				return
+			}
+		} else {
+			t.appendLine("usage: $plotcolor [0|1|2]")
+			return
+		}
+		name := "mono"
+		switch t.plotColorMode {
+		case 1:
+			name = "height"
+		case 2:
+			name = "pos"
+		}
+		t.setMessage("plotcolor: " + name)
 	case "resetview":
 		t.xMin, t.xMax = -10, 10
 		t.yMin, t.yMax = -10, 10
 		t.normalizeView()
+		t.reset3DView()
 		t.setMessage("view reset")
 	case "autoscale":
 		t.autoscalePlots()
@@ -1034,6 +1087,7 @@ func serviceCommands() []string {
 		"about",
 		"clear",
 		"plotdim",
+		"plotcolor",
 		"resetview",
 		"autoscale",
 		"vars",
