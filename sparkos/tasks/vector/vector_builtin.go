@@ -7,6 +7,58 @@ import (
 
 func builtinCallVector(_ *env, name string, args []Value) (Value, bool, error) {
 	switch name {
+	case "get":
+		if len(args) != 2 {
+			return Value{}, false, nil
+		}
+		if args[0].kind != valueArray || !args[1].IsNumber() {
+			return Value{}, false, nil
+		}
+		i, err := vectorIndex(args[1].num.Float64(), len(args[0].arr))
+		if err != nil {
+			return Value{}, true, fmt.Errorf("%w: %w", ErrEval, err)
+		}
+		return NumberValue(Float(args[0].arr[i])), true, nil
+
+	case "set":
+		if len(args) != 3 {
+			return Value{}, false, nil
+		}
+		if args[0].kind != valueArray || !args[1].IsNumber() || !args[2].IsNumber() {
+			return Value{}, false, nil
+		}
+		i, err := vectorIndex(args[1].num.Float64(), len(args[0].arr))
+		if err != nil {
+			return Value{}, true, fmt.Errorf("%w: %w", ErrEval, err)
+		}
+		out := make([]float64, len(args[0].arr))
+		copy(out, args[0].arr)
+		out[i] = args[2].num.Float64()
+		return ArrayValue(out), true, nil
+
+	case "x", "y", "z", "w":
+		if len(args) != 1 {
+			return Value{}, true, fmt.Errorf("%w: %s(v)", ErrEval, name)
+		}
+		if args[0].kind != valueArray {
+			return Value{}, false, nil
+		}
+		idx := 0
+		switch name {
+		case "x":
+			idx = 0
+		case "y":
+			idx = 1
+		case "z":
+			idx = 2
+		case "w":
+			idx = 3
+		}
+		if idx < 0 || idx >= len(args[0].arr) {
+			return Value{}, true, fmt.Errorf("%w: %s expects vector length >= %d", ErrEval, name, idx+1)
+		}
+		return NumberValue(Float(args[0].arr[idx])), true, nil
+
 	case "vec2":
 		if len(args) != 2 || !args[0].IsNumber() || !args[1].IsNumber() {
 			return Value{}, true, fmt.Errorf("%w: vec2(x, y)", ErrEval)
@@ -31,8 +83,11 @@ func builtinCallVector(_ *env, name string, args []Value) (Value, bool, error) {
 		}), true, nil
 
 	case "dot":
-		if len(args) != 2 || args[0].kind != valueArray || args[1].kind != valueArray {
+		if len(args) != 2 {
 			return Value{}, true, fmt.Errorf("%w: dot(a, b)", ErrEval)
+		}
+		if args[0].kind != valueArray || args[1].kind != valueArray {
+			return Value{}, false, nil
 		}
 		a, b := args[0].arr, args[1].arr
 		if len(a) != len(b) {
@@ -45,8 +100,11 @@ func builtinCallVector(_ *env, name string, args []Value) (Value, bool, error) {
 		return NumberValue(Float(s)), true, nil
 
 	case "cross":
-		if len(args) != 2 || args[0].kind != valueArray || args[1].kind != valueArray {
+		if len(args) != 2 {
 			return Value{}, true, fmt.Errorf("%w: cross(a, b)", ErrEval)
+		}
+		if args[0].kind != valueArray || args[1].kind != valueArray {
+			return Value{}, false, nil
 		}
 		a, b := args[0].arr, args[1].arr
 		if len(a) != 3 || len(b) != 3 {
@@ -59,8 +117,11 @@ func builtinCallVector(_ *env, name string, args []Value) (Value, bool, error) {
 		}), true, nil
 
 	case "norm", "mag":
-		if len(args) != 1 || args[0].kind != valueArray {
+		if len(args) != 1 {
 			return Value{}, true, fmt.Errorf("%w: norm(v)", ErrEval)
+		}
+		if args[0].kind != valueArray {
+			return Value{}, false, nil
 		}
 		v := args[0].arr
 		var ss float64
@@ -70,8 +131,11 @@ func builtinCallVector(_ *env, name string, args []Value) (Value, bool, error) {
 		return NumberValue(Float(math.Sqrt(ss))), true, nil
 
 	case "unit", "normalize":
-		if len(args) != 1 || args[0].kind != valueArray {
+		if len(args) != 1 {
 			return Value{}, true, fmt.Errorf("%w: unit(v)", ErrEval)
+		}
+		if args[0].kind != valueArray {
+			return Value{}, false, nil
 		}
 		v := args[0].arr
 		var ss float64
@@ -89,8 +153,11 @@ func builtinCallVector(_ *env, name string, args []Value) (Value, bool, error) {
 		return ArrayValue(out), true, nil
 
 	case "dist":
-		if len(args) != 2 || args[0].kind != valueArray || args[1].kind != valueArray {
+		if len(args) != 2 {
 			return Value{}, true, fmt.Errorf("%w: dist(a, b)", ErrEval)
+		}
+		if args[0].kind != valueArray || args[1].kind != valueArray {
+			return Value{}, false, nil
 		}
 		a, b := args[0].arr, args[1].arr
 		if len(a) != len(b) {
@@ -104,8 +171,11 @@ func builtinCallVector(_ *env, name string, args []Value) (Value, bool, error) {
 		return NumberValue(Float(math.Sqrt(ss))), true, nil
 
 	case "angle":
-		if len(args) != 2 || args[0].kind != valueArray || args[1].kind != valueArray {
+		if len(args) != 2 {
 			return Value{}, true, fmt.Errorf("%w: angle(a, b)", ErrEval)
+		}
+		if args[0].kind != valueArray || args[1].kind != valueArray {
+			return Value{}, false, nil
 		}
 		a, b := args[0].arr, args[1].arr
 		if len(a) != len(b) {
@@ -132,8 +202,11 @@ func builtinCallVector(_ *env, name string, args []Value) (Value, bool, error) {
 		return NumberValue(Float(math.Acos(c))), true, nil
 
 	case "proj":
-		if len(args) != 2 || args[0].kind != valueArray || args[1].kind != valueArray {
+		if len(args) != 2 {
 			return Value{}, true, fmt.Errorf("%w: proj(a, b)", ErrEval)
+		}
+		if args[0].kind != valueArray || args[1].kind != valueArray {
+			return Value{}, false, nil
 		}
 		a, b := args[0].arr, args[1].arr
 		if len(a) != len(b) {
@@ -156,8 +229,11 @@ func builtinCallVector(_ *env, name string, args []Value) (Value, bool, error) {
 		return ArrayValue(out), true, nil
 
 	case "outer":
-		if len(args) != 2 || args[0].kind != valueArray || args[1].kind != valueArray {
+		if len(args) != 2 {
 			return Value{}, true, fmt.Errorf("%w: outer(a, b)", ErrEval)
+		}
+		if args[0].kind != valueArray || args[1].kind != valueArray {
+			return Value{}, false, nil
 		}
 		a, b := args[0].arr, args[1].arr
 		r := len(a)
@@ -174,7 +250,13 @@ func builtinCallVector(_ *env, name string, args []Value) (Value, bool, error) {
 		return MatrixValue(r, c, data), true, nil
 
 	case "lerp":
-		if len(args) != 3 || args[0].kind != valueArray || args[1].kind != valueArray || !args[2].IsNumber() {
+		if len(args) != 3 {
+			return Value{}, true, fmt.Errorf("%w: lerp(a, b, t)", ErrEval)
+		}
+		if args[0].kind != valueArray || args[1].kind != valueArray {
+			return Value{}, false, nil
+		}
+		if !args[2].IsNumber() {
 			return Value{}, true, fmt.Errorf("%w: lerp(a, b, t)", ErrEval)
 		}
 		a, b := args[0].arr, args[1].arr
@@ -190,4 +272,18 @@ func builtinCallVector(_ *env, name string, args []Value) (Value, bool, error) {
 	}
 
 	return Value{}, false, nil
+}
+
+func vectorIndex(x float64, size int) (int, error) {
+	if math.IsNaN(x) || math.IsInf(x, 0) {
+		return 0, fmt.Errorf("invalid index %v", x)
+	}
+	if x != math.Trunc(x) {
+		return 0, fmt.Errorf("index must be an integer: %v", x)
+	}
+	i := int(x)
+	if i < 1 || i > size {
+		return 0, fmt.Errorf("index out of range: %d", i)
+	}
+	return i - 1, nil
 }
