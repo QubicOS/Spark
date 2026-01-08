@@ -1977,6 +1977,12 @@ func (t *Task) updateHint() {
 		t.hint = "corr(x, y)"
 	case "hist":
 		t.hint = "hist(data, bins)"
+	case "implicit":
+		t.hint = "implicit(expr, xmin, xmax, ymin, ymax[, n])"
+	case "contour":
+		t.hint = "contour(expr, levels, xmin, xmax, ymin, ymax[, n])"
+	case "vectorfield":
+		t.hint = "vectorfield(f, g, xmin, xmax, ymin, ymax[, n])"
 	case "polar":
 		t.hint = "polar(z)"
 	case "rect":
@@ -2043,6 +2049,10 @@ func (t *Task) updateHint() {
 		t.hint = "get(v, i) or get(A, row, col)"
 	case "set":
 		t.hint = "set(v, i, value) or set(A, row, col, value)"
+	case "qr":
+		t.hint = "qr(A) (sets _Q, _R)"
+	case "svd":
+		t.hint = "svd(A) (returns s, sets _U, _V, _S)"
 	default:
 		if len(cands) > 1 {
 			t.hint = fmt.Sprintf("Tab: complete (%d)", len(cands))

@@ -1195,6 +1195,10 @@ func builtinCallValue(e *env, name string, args []Value) (Value, bool, error) {
 		return out, true, err
 	}
 
+	if out, ok, err := builtinCallPlot(e, name, args); ok {
+		return out, true, err
+	}
+
 	if out, ok, err := builtinCallPlane(e, name, args); ok {
 		return out, true, err
 	}

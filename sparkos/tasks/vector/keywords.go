@@ -31,6 +31,9 @@ func builtinKeywords() []string {
 	set["cov"] = struct{}{}
 	set["corr"] = struct{}{}
 	set["hist"] = struct{}{}
+	set["implicit"] = struct{}{}
+	set["contour"] = struct{}{}
+	set["vectorfield"] = struct{}{}
 	set["polar"] = struct{}{}
 	set["rect"] = struct{}{}
 	set["plane"] = struct{}{}
@@ -87,6 +90,8 @@ func builtinKeywords() []string {
 	set["median"] = struct{}{}
 	set["variance"] = struct{}{}
 	set["std"] = struct{}{}
+	set["qr"] = struct{}{}
+	set["svd"] = struct{}{}
 	for name := range scalarBuiltins {
 		set[name] = struct{}{}
 	}
@@ -110,6 +115,7 @@ func isBuiltinKeyword(name string) bool {
 		name == "newton" || name == "bisection" || name == "secant" || name == "integrate_num" || name == "diff_num" || name == "interp" ||
 		name == "solve1" || name == "solve2" || name == "roots" || name == "region" || name == "solve" ||
 		name == "polyfit" || name == "polyval" || name == "convolve" || name == "cov" || name == "corr" || name == "hist" ||
+		name == "implicit" || name == "contour" || name == "vectorfield" ||
 		name == "polar" || name == "rect" ||
 		name == "plane" || name == "param" || name == "expr" || name == "eval" ||
 		name == "size" || name == "time" || name == "numeric" || name == "exact" {
@@ -119,7 +125,7 @@ func isBuiltinKeyword(name string) bool {
 	case "vec2", "vec3", "vec4", "x", "y", "z", "w", "dot", "cross", "mag", "unit", "normalize", "dist", "angle", "proj", "outer", "lerp":
 		return true
 	case "zeros", "ones", "eye", "reshape", "T", "transpose", "det", "inv", "shape", "flatten",
-		"get", "set", "row", "col", "diag", "trace", "norm",
+		"get", "set", "row", "col", "diag", "trace", "norm", "qr", "svd",
 		"re", "im", "conj", "arg", "median", "variance", "std",
 		"if", "where", "and", "or", "not":
 		return true
