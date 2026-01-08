@@ -1244,13 +1244,13 @@ func (t *Task) handlePlotKey(ctx *kernel.Context, k key) {
 		}
 	case keyUp:
 		if t.plotDim == 3 {
-			t.plotPitch = clampFloat(t.plotPitch+0.08, -1.2, 1.2)
+			t.plotPitch = clampFloat(t.plotPitch-0.08, -1.2, 1.2)
 		} else {
 			t.pan(0, 0.1)
 		}
 	case keyDown:
 		if t.plotDim == 3 {
-			t.plotPitch = clampFloat(t.plotPitch-0.08, -1.2, 1.2)
+			t.plotPitch = clampFloat(t.plotPitch+0.08, -1.2, 1.2)
 		} else {
 			t.pan(0, -0.1)
 		}
