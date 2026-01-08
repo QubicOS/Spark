@@ -262,7 +262,7 @@ func (t *Task) initSession() {
 	t.appendLine("V   V Vector: calculator + graph + 2D/3D plotter")
 	t.appendLine("V   V Enter `sin(x)` (2D) or `sin(x)*cos(y)` (3D), then press Enter")
 	t.appendLine(" V V  Plot: press `g` or go to F2 | 3D: `$plotdim 3`, arrows rotate, +/- zoom")
-	t.appendLine("  V   Commands: :help :exact :float :prec N :autoscale :resetview :save :load")
+	t.appendLine("  V   Commands: :help :exact :float :prec N :autoscale :resetview :save :load :notebooks")
 }
 
 func (t *Task) unloadSession() {
@@ -1895,6 +1895,14 @@ func (t *Task) updateCommandHint(line string) {
 		t.hint = ":help"
 	case "prec":
 		t.hint = ":prec N"
+	case "save":
+		t.hint = ":save NAME|/path/file.vnb"
+	case "load":
+		t.hint = ":load NAME|/path/file.vnb"
+	case "notebooks":
+		t.hint = ":notebooks"
+	case "new":
+		t.hint = ":new"
 	case "plotclear":
 		t.hint = ":plotclear"
 	case "plots":
@@ -2133,6 +2141,7 @@ func (t *Task) completeFromPrefix(prefix string, commands bool) []string {
 	if commands {
 		for _, s := range []string{
 			"help",
+			"save", "load", "notebooks", "new",
 			"exact", "float", "prec",
 			"plotclear", "plots", "plotdel",
 			"x", "xrange", "domain",
