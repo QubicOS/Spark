@@ -1873,6 +1873,14 @@ func (t *Task) updateHint() {
 		t.hint = "diff(expr, x)"
 	case "simp":
 		t.hint = "simp(expr)"
+	case "solve1":
+		t.hint = "solve1(expr, x0[, tol[, maxIter]])"
+	case "solve2":
+		t.hint = "solve2(f, g, x0, y0[, tol[, maxIter]])"
+	case "roots":
+		t.hint = "roots(expr, xmin, xmax[, n])"
+	case "region":
+		t.hint = "region(cond, xmin, xmax, ymin, ymax[, n])"
 	case "param":
 		t.hint = "param(x(t), y(t), tmin, tmax[, n])"
 	case "expr":

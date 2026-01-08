@@ -261,6 +261,10 @@ func builtinKeywords() []string {
 	set["range"] = struct{}{}
 	set["simp"] = struct{}{}
 	set["diff"] = struct{}{}
+	set["solve1"] = struct{}{}
+	set["solve2"] = struct{}{}
+	set["roots"] = struct{}{}
+	set["region"] = struct{}{}
 	set["param"] = struct{}{}
 	set["expr"] = struct{}{}
 	set["eval"] = struct{}{}
@@ -325,7 +329,8 @@ func builtinKeywords() []string {
 }
 
 func isBuiltinKeyword(name string) bool {
-	if name == "range" || name == "simp" || name == "diff" || name == "param" || name == "expr" || name == "eval" {
+	if name == "range" || name == "simp" || name == "diff" || name == "solve1" || name == "solve2" || name == "roots" ||
+		name == "region" || name == "param" || name == "expr" || name == "eval" {
 		return true
 	}
 	switch name {
@@ -1453,6 +1458,10 @@ func builtinCallValue(e *env, name string, args []Value) (Value, bool, error) {
 	}
 	if name == "range" {
 		out, err := builtinRange(args)
+		return out, true, err
+	}
+
+	if out, ok, err := builtinCallSolve(e, name, args); ok {
 		return out, true, err
 	}
 
