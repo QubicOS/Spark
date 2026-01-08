@@ -7,7 +7,7 @@ import (
 )
 
 func TestEvalLine_SetsGraphFor3DSurface(t *testing.T) {
-	tk := New(nil, kernel.Capability{})
+	tk := New(nil, kernel.Capability{}, kernel.Capability{})
 	tk.plotDim = 3
 
 	tk.e.vars["x"] = ArrayValue([]float64{-1, 0, 1})
