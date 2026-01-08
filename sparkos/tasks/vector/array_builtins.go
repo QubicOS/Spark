@@ -1,6 +1,9 @@
 package vector
 
-import "math"
+import (
+	"math"
+	"sort"
+)
 
 // unaryArrayBuiltins apply an element-wise function to an array value.
 var unaryArrayBuiltins = map[string]func(float64) float64{
@@ -92,6 +95,9 @@ var arrayAggBuiltins = map[string]func([]float64) float64{
 		}
 		return m
 	},
+	"median":   arrayMedian,
+	"variance": arrayVariance,
+	"std":      arrayStd,
 }
 
 func arrayAvg(xs []float64) float64 {
@@ -104,3 +110,32 @@ func arrayAvg(xs []float64) float64 {
 	}
 	return total / float64(len(xs))
 }
+
+func arrayMedian(xs []float64) float64 {
+	if len(xs) == 0 {
+		return math.NaN()
+	}
+	tmp := make([]float64, len(xs))
+	copy(tmp, xs)
+	sort.Float64s(tmp)
+	mid := len(tmp) / 2
+	if len(tmp)%2 == 1 {
+		return tmp[mid]
+	}
+	return 0.5 * (tmp[mid-1] + tmp[mid])
+}
+
+func arrayVariance(xs []float64) float64 {
+	if len(xs) == 0 {
+		return math.NaN()
+	}
+	mean := arrayAvg(xs)
+	var sum float64
+	for _, x := range xs {
+		d := x - mean
+		sum += d * d
+	}
+	return sum / float64(len(xs))
+}
+
+func arrayStd(xs []float64) float64 { return math.Sqrt(arrayVariance(xs)) }

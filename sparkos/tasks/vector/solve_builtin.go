@@ -97,6 +97,10 @@ func builtinCallSolve(e *env, name string, args []Value) (Value, bool, error) {
 
 	case "roots":
 		// roots(f, xmin, xmax[, n]) where f is expr in x.
+		if len(args) == 1 && args[0].kind == valueArray {
+			// Let polynomial roots overload handle roots([c0..cn]).
+			return Value{}, false, nil
+		}
 		if len(args) < 3 || len(args) > 4 {
 			return Value{}, true, fmt.Errorf("%w: roots(expr, xmin, xmax[, n])", ErrEval)
 		}

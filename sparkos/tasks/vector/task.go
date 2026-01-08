@@ -1879,12 +1879,44 @@ func (t *Task) updateHint() {
 		t.hint = "expand(expr)"
 	case "series":
 		t.hint = "series(expr, x, a, n)"
+	case "horner":
+		t.hint = "horner(expr, x)"
 	case "degree":
 		t.hint = "degree(expr, x)"
 	case "coeff":
 		t.hint = "coeff(expr, x, n)"
 	case "collect":
 		t.hint = "collect(expr, x)"
+	case "newton":
+		t.hint = "newton(expr, x0[, tol[, maxIter]])"
+	case "bisection":
+		t.hint = "bisection(expr, a, b[, tol[, maxIter]])"
+	case "secant":
+		t.hint = "secant(expr, x0, x1[, tol[, maxIter]])"
+	case "diff_num":
+		t.hint = "diff_num(expr, x[, h])"
+	case "integrate_num":
+		t.hint = "integrate_num(expr, a, b[, method[, n]])"
+	case "interp":
+		t.hint = "interp(data, x)"
+	case "polyval":
+		t.hint = "polyval(coeffs, x)"
+	case "polyfit":
+		t.hint = "polyfit(data, n) or polyfit(x, y, n)"
+	case "solve":
+		t.hint = "solve(A, b)"
+	case "convolve":
+		t.hint = "convolve(a, b)"
+	case "cov":
+		t.hint = "cov(x, y)"
+	case "corr":
+		t.hint = "corr(x, y)"
+	case "hist":
+		t.hint = "hist(data, bins)"
+	case "polar":
+		t.hint = "polar(z)"
+	case "rect":
+		t.hint = "rect(r, phi)"
 	case "solve1":
 		t.hint = "solve1(expr, x0[, tol[, maxIter]])"
 	case "solve2":

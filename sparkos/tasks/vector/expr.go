@@ -1119,7 +1119,19 @@ func builtinCallValue(e *env, name string, args []Value) (Value, bool, error) {
 		return out, true, err
 	}
 
+	if out, ok, err := builtinCallNumeric(e, name, args); ok {
+		return out, true, err
+	}
+
 	if out, ok, err := builtinCallSolve(e, name, args); ok {
+		return out, true, err
+	}
+
+	if out, ok, err := builtinCallPoly(e, name, args); ok {
+		return out, true, err
+	}
+
+	if out, ok, err := builtinCallLinAlg(e, name, args); ok {
 		return out, true, err
 	}
 
@@ -1133,6 +1145,17 @@ func builtinCallValue(e *env, name string, args []Value) (Value, bool, error) {
 
 	if out, ok, err := builtinCallMatrix(e, name, args); ok {
 		return out, true, err
+	}
+
+	if out, ok, err := builtinCallStats(e, name, args); ok {
+		return out, true, err
+	}
+
+	if name == "rect" && len(args) == 2 && args[0].IsNumber() && args[1].IsNumber() {
+		r := args[0].num.Float64()
+		phi := args[1].num.Float64()
+		_ = e
+		return ComplexValue(r*math.Cos(phi), r*math.Sin(phi)), true, nil
 	}
 
 	if name == "clamp" && len(args) == 3 && args[0].kind == valueArray && args[1].IsNumber() && args[2].IsNumber() {
@@ -1205,6 +1228,12 @@ func builtinCallComplex(e *env, name string, args []Value) (Value, bool, error) 
 			return Value{}, true, fmt.Errorf("%w: arg(z)", ErrEval)
 		}
 		return NumberValue(Float(cmplx.Phase(args[0].c))), true, nil
+	case "polar":
+		if args[0].kind != valueComplex {
+			return Value{}, true, fmt.Errorf("%w: polar(z)", ErrEval)
+		}
+		z := args[0].c
+		return ArrayValue([]float64{cmplx.Abs(z), cmplx.Phase(z)}), true, nil
 	}
 
 	if args[0].kind != valueComplex {

@@ -10,13 +10,29 @@ func builtinKeywords() []string {
 	set["diff"] = struct{}{}
 	set["expand"] = struct{}{}
 	set["series"] = struct{}{}
+	set["horner"] = struct{}{}
 	set["degree"] = struct{}{}
 	set["coeff"] = struct{}{}
 	set["collect"] = struct{}{}
+	set["newton"] = struct{}{}
+	set["bisection"] = struct{}{}
+	set["secant"] = struct{}{}
+	set["integrate_num"] = struct{}{}
+	set["diff_num"] = struct{}{}
+	set["interp"] = struct{}{}
 	set["solve1"] = struct{}{}
 	set["solve2"] = struct{}{}
 	set["roots"] = struct{}{}
 	set["region"] = struct{}{}
+	set["solve"] = struct{}{}
+	set["polyfit"] = struct{}{}
+	set["polyval"] = struct{}{}
+	set["convolve"] = struct{}{}
+	set["cov"] = struct{}{}
+	set["corr"] = struct{}{}
+	set["hist"] = struct{}{}
+	set["polar"] = struct{}{}
+	set["rect"] = struct{}{}
 	set["plane"] = struct{}{}
 	set["param"] = struct{}{}
 	set["expr"] = struct{}{}
@@ -64,6 +80,9 @@ func builtinKeywords() []string {
 	set["im"] = struct{}{}
 	set["conj"] = struct{}{}
 	set["arg"] = struct{}{}
+	set["median"] = struct{}{}
+	set["variance"] = struct{}{}
+	set["std"] = struct{}{}
 	for name := range scalarBuiltins {
 		set[name] = struct{}{}
 	}
@@ -82,9 +101,13 @@ func builtinKeywords() []string {
 }
 
 func isBuiltinKeyword(name string) bool {
-	if name == "range" || name == "simp" || name == "diff" || name == "expand" || name == "series" || name == "degree" ||
-		name == "coeff" || name == "collect" || name == "solve1" || name == "solve2" || name == "roots" ||
-		name == "region" || name == "plane" || name == "param" || name == "expr" || name == "eval" {
+	if name == "range" || name == "simp" || name == "diff" ||
+		name == "expand" || name == "series" || name == "horner" || name == "degree" || name == "coeff" || name == "collect" ||
+		name == "newton" || name == "bisection" || name == "secant" || name == "integrate_num" || name == "diff_num" || name == "interp" ||
+		name == "solve1" || name == "solve2" || name == "roots" || name == "region" || name == "solve" ||
+		name == "polyfit" || name == "polyval" || name == "convolve" || name == "cov" || name == "corr" || name == "hist" ||
+		name == "polar" || name == "rect" ||
+		name == "plane" || name == "param" || name == "expr" || name == "eval" {
 		return true
 	}
 	switch name {
@@ -92,7 +115,7 @@ func isBuiltinKeyword(name string) bool {
 		return true
 	case "zeros", "ones", "eye", "reshape", "T", "transpose", "det", "inv", "shape", "flatten",
 		"get", "set", "row", "col", "diag", "trace", "norm",
-		"re", "im", "conj", "arg",
+		"re", "im", "conj", "arg", "median", "variance", "std",
 		"if", "where", "and", "or", "not":
 		return true
 	}

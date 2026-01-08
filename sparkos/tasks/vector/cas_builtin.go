@@ -17,6 +17,20 @@ func builtinCallCAS(e *env, name string, args []node) (Value, bool, error) {
 		}
 		return ExprValue(expandNode(args[0]).Simplify()), true, nil
 
+	case "horner":
+		if len(args) != 2 {
+			return Value{}, true, fmt.Errorf("%w: horner(expr, x)", ErrEval)
+		}
+		varName, ok := callArgIdent(args[1])
+		if !ok {
+			return Value{}, true, fmt.Errorf("%w: horner expects second arg as identifier", ErrEval)
+		}
+		p, err := polyFromExpr(e, args[0], varName)
+		if err != nil {
+			return Value{}, true, fmt.Errorf("%w: horner: %w", ErrEval, err)
+		}
+		return ExprValue(polyToExprHorner(p, varName).Simplify()), true, nil
+
 	case "degree":
 		if len(args) != 2 {
 			return Value{}, true, fmt.Errorf("%w: degree(expr, x)", ErrEval)
