@@ -145,3 +145,93 @@ func TestCAS_PolynomialIntrospection(t *testing.T) {
 		}
 	}
 }
+
+func TestCAS_GCDLCMResultantFactor(t *testing.T) {
+	e := newEnv()
+
+	// p=x^2-1, q=x^2-x.
+	p := nodeBinary{
+		op: '-',
+		left: nodeBinary{
+			op:    '^',
+			left:  nodeIdent{name: "x"},
+			right: nodeNumber{v: RatNumber(RatInt(2))},
+		},
+		right: nodeNumber{v: RatNumber(RatInt(1))},
+	}
+	q := nodeBinary{
+		op: '-',
+		left: nodeBinary{
+			op:    '^',
+			left:  nodeIdent{name: "x"},
+			right: nodeNumber{v: RatNumber(RatInt(2))},
+		},
+		right: nodeIdent{name: "x"},
+	}
+
+	gv, err := nodeCall{name: "gcd", args: []node{p, q}}.Eval(e)
+	if err != nil {
+		t.Fatalf("gcd eval: %v", err)
+	}
+	if gv.kind != valueExpr {
+		t.Fatalf("gcd kind=%v", gv.kind)
+	}
+
+	lv, err := nodeCall{name: "lcm", args: []node{p, q}}.Eval(e)
+	if err != nil {
+		t.Fatalf("lcm eval: %v", err)
+	}
+	if lv.kind != valueExpr {
+		t.Fatalf("lcm kind=%v", lv.kind)
+	}
+
+	// Check lcm ~= x^3 - x.
+	for _, x := range []float64{-3, -1, 0, 2, 5} {
+		e.vars["x"] = NumberValue(Float(x))
+		got, err := lv.expr.Eval(e)
+		if err != nil {
+			t.Fatalf("lcm eval x=%v: %v", x, err)
+		}
+		if !got.IsNumber() {
+			t.Fatalf("lcm result kind=%v", got.kind)
+		}
+		want := x*x*x - x
+		if math.Abs(got.num.Float64()-want) > 1e-9 {
+			t.Fatalf("lcm x=%v got=%v want=%v", x, got.num.Float64(), want)
+		}
+	}
+
+	// resultant(x-2, x^2-1, x) == (2^2-1) == 3.
+	f1 := nodeBinary{op: '-', left: nodeIdent{name: "x"}, right: nodeNumber{v: RatNumber(RatInt(2))}}
+	f2 := p
+	rv, err := nodeCall{name: "resultant", args: []node{f1, f2, nodeIdent{name: "x"}}}.Eval(e)
+	if err != nil {
+		t.Fatalf("resultant eval: %v", err)
+	}
+	if !rv.IsNumber() || math.Abs(rv.num.Float64()-3) > 1e-9 {
+		t.Fatalf("resultant=%v kind=%v", rv.num.Float64(), rv.kind)
+	}
+
+	// factor(x^2-1) should match (x-1)*(x+1) up to order.
+	fv, err := nodeCall{name: "factor", args: []node{p}}.Eval(e)
+	if err != nil {
+		t.Fatalf("factor eval: %v", err)
+	}
+	if fv.kind != valueExpr {
+		t.Fatalf("factor kind=%v", fv.kind)
+	}
+	for _, x := range []float64{-2, -1, 0, 1, 3} {
+		e.vars["x"] = NumberValue(Float(x))
+		got, err := fv.expr.Eval(e)
+		if err != nil {
+			t.Fatalf("factor eval x=%v: %v", x, err)
+		}
+		if !got.IsNumber() {
+			t.Fatalf("factor result kind=%v", got.kind)
+		}
+		want := x*x - 1
+		if math.Abs(got.num.Float64()-want) > 1e-9 {
+			t.Fatalf("factor x=%v got=%v want=%v", x, got.num.Float64(), want)
+		}
+	}
+}
