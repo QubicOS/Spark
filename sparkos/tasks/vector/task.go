@@ -1,5 +1,7 @@
 package vector
 
+// This file implements the Vector app task and UI logic.
+
 import (
 	"errors"
 	"fmt"

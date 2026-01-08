@@ -1,5 +1,7 @@
 package vector
 
+// This file contains rendering utilities for the Vector UI and plotter.
+
 import (
 	"fmt"
 	"image/color"

@@ -1,5 +1,7 @@
 package vector
 
+// This file contains the expression evaluator and simplifier.
+
 import (
 	"fmt"
 	"math"
