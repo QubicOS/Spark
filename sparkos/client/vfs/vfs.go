@@ -77,12 +77,18 @@ func (c *Client) send(ctx *kernel.Context, kind proto.Kind, payload []byte) erro
 	if ctx == nil {
 		return errors.New("vfs client: nil context")
 	}
+	const retryLimit = 500
+	retries := 0
 	for {
 		res := ctx.SendToCapResult(c.vfsCap, uint16(kind), payload, c.replyCapXfer)
 		switch res {
 		case kernel.SendOK:
 			return nil
 		case kernel.SendErrQueueFull:
+			retries++
+			if retries >= retryLimit {
+				return fmt.Errorf("vfs client send %s: queue full", kind)
+			}
 			ctx.BlockOnTick()
 		default:
 			return fmt.Errorf("vfs client send %s: %s", kind, res)

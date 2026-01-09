@@ -45,12 +45,18 @@ func Sleep(ctx *kernel.Context, timeCap kernel.Capability, dt uint32) error {
 	requestID := st.nextID
 
 	payload := proto.SleepPayload(requestID, dt)
+	const retryLimit = 500
+	retries := 0
 	for {
 		res := ctx.SendToCapResult(timeCap, uint16(proto.MsgSleep), payload, replySend)
 		switch res {
 		case kernel.SendOK:
 			goto waitReply
 		case kernel.SendErrQueueFull:
+			retries++
+			if retries >= retryLimit {
+				return fmt.Errorf("time sleep send: queue full")
+			}
 			ctx.BlockOnTick()
 			continue
 		default:

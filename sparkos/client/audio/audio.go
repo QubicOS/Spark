@@ -42,12 +42,18 @@ func (c *Client) send(ctx *kernel.Context, kind proto.Kind, payload []byte, xfer
 	if !c.audioCap.Valid() {
 		return fmt.Errorf("audio client: missing capability for %s", kind)
 	}
+	const retryLimit = 500
+	retries := 0
 	for {
 		res := ctx.SendToCapResult(c.audioCap, uint16(kind), payload, xfer)
 		switch res {
 		case kernel.SendOK:
 			return nil
 		case kernel.SendErrQueueFull:
+			retries++
+			if retries >= retryLimit {
+				return fmt.Errorf("audio client send %s: queue full", kind)
+			}
 			ctx.BlockOnTick()
 		default:
 			return fmt.Errorf("audio client send %s: %s", kind, res)
