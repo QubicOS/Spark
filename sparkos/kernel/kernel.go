@@ -149,6 +149,9 @@ func New() *Kernel {
 
 // NewEndpoint allocates a new endpoint and returns a capability for it.
 func (k *Kernel) NewEndpoint(rights Rights) Capability {
+	if rights == 0 {
+		return Capability{}
+	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if k.endpointCount >= maxEndpoints {
