@@ -53,22 +53,14 @@ func (s *Service) writeBytes(ctx *kernel.Context, b []byte) error {
 }
 
 func (s *Service) sendToTerm(ctx *kernel.Context, kind proto.Kind, payload []byte) error {
-	const retryLimit = 500
-	retries := 0
-	for {
-		res := ctx.SendToCapResult(s.termCap, uint16(kind), payload, kernel.Capability{})
-		switch res {
-		case kernel.SendOK:
-			return nil
-		case kernel.SendErrQueueFull:
-			retries++
-			if retries >= retryLimit {
-				return fmt.Errorf("shell term send %s: queue full", kind)
-			}
-			ctx.BlockOnTick()
-		default:
-			return fmt.Errorf("shell term send: %s", res)
-		}
+	res := ctx.SendToCapRetry(s.termCap, uint16(kind), payload, kernel.Capability{}, 500)
+	switch res {
+	case kernel.SendOK:
+		return nil
+	case kernel.SendErrQueueFull:
+		return fmt.Errorf("shell term send %s: queue full", kind)
+	default:
+		return fmt.Errorf("shell term send: %s", res)
 	}
 }
 
@@ -76,21 +68,13 @@ func (s *Service) sendToMux(ctx *kernel.Context, kind proto.Kind, payload []byte
 	if !s.muxCap.Valid() {
 		return errors.New("no consolemux capability")
 	}
-	const retryLimit = 500
-	retries := 0
-	for {
-		res := ctx.SendToCapResult(s.muxCap, uint16(kind), payload, kernel.Capability{})
-		switch res {
-		case kernel.SendOK:
-			return nil
-		case kernel.SendErrQueueFull:
-			retries++
-			if retries >= retryLimit {
-				return fmt.Errorf("shell consolemux send %s: queue full", kind)
-			}
-			ctx.BlockOnTick()
-		default:
-			return fmt.Errorf("shell consolemux send: %s", res)
-		}
+	res := ctx.SendToCapRetry(s.muxCap, uint16(kind), payload, kernel.Capability{}, 500)
+	switch res {
+	case kernel.SendOK:
+		return nil
+	case kernel.SendErrQueueFull:
+		return fmt.Errorf("shell consolemux send %s: queue full", kind)
+	default:
+		return fmt.Errorf("shell consolemux send: %s", res)
 	}
 }
