@@ -537,17 +537,11 @@ func (s *Service) handleWriteClose(ctx *kernel.Context, msg kernel.Message) {
 }
 
 func (s *Service) send(ctx *kernel.Context, to kernel.Capability, kind proto.Kind, payload []byte) error {
-	for {
-		res := ctx.SendToCapResult(to, uint16(kind), payload, kernel.Capability{})
-		switch res {
-		case kernel.SendOK:
-			return nil
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			return fmt.Errorf("vfs send %s: %s", kind, res)
-		}
+	res := ctx.SendToCapRetry(to, uint16(kind), payload, kernel.Capability{}, 500)
+	if res == kernel.SendOK {
+		return nil
 	}
+	return fmt.Errorf("vfs send %s: %s", kind, res)
 }
 
 func (s *Service) sendErr(
