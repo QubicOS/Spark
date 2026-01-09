@@ -129,6 +129,37 @@ func (c *Context) SendToCapResult(toCap Capability, kind uint16, payload []byte,
 	return c.k.send(0, toCap.ep, kind, payload, xfer)
 }
 
+// SendToCapRetry sends a message, retrying on a full queue up to retryLimit times.
+//
+// It returns the last SendResult. If retryLimit is 0, it performs no retries.
+func (c *Context) SendToCapRetry(
+	toCap Capability,
+	kind uint16,
+	payload []byte,
+	xfer Capability,
+	retryLimit int,
+) SendResult {
+	if c == nil {
+		return SendErrNoEndpoint
+	}
+	if retryLimit < 0 {
+		retryLimit = 0
+	}
+
+	retries := 0
+	for {
+		res := c.SendToCapResult(toCap, kind, payload, xfer)
+		if res != SendErrQueueFull {
+			return res
+		}
+		if retries >= retryLimit {
+			return res
+		}
+		retries++
+		c.BlockOnTick()
+	}
+}
+
 // NewEndpoint allocates a new endpoint and returns a capability for it.
 func (c *Context) NewEndpoint(rights Rights) Capability {
 	if c.k == nil {
