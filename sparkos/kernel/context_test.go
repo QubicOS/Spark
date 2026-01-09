@@ -24,3 +24,19 @@ func TestContextRecvClosed(t *testing.T) {
 		t.Fatal("expected TryRecv to fail after channel close")
 	}
 }
+
+func TestContextSendClosed(t *testing.T) {
+	k := New()
+	cap := k.NewEndpoint(RightSend | RightRecv)
+	if !cap.Valid() {
+		t.Fatal("expected valid capability")
+	}
+
+	ctx := &Context{k: k, taskID: 1}
+	close(k.endpoints[cap.ep].ch)
+
+	res := ctx.SendToCapResult(cap.Restrict(RightSend), 1, []byte("x"), Capability{})
+	if res != SendErrNoEndpoint {
+		t.Fatalf("expected SendErrNoEndpoint, got %s", res)
+	}
+}

@@ -185,7 +185,7 @@ func (k *Kernel) AddTask(t Task) TaskID {
 	return id
 }
 
-func (k *Kernel) send(from Endpoint, to Endpoint, kind uint16, payload []byte, xfer Capability) SendResult {
+func (k *Kernel) send(from Endpoint, to Endpoint, kind uint16, payload []byte, xfer Capability) (res SendResult) {
 	if InPanicMode() {
 		return SendErrQueueFull
 	}
@@ -209,6 +209,14 @@ func (k *Kernel) send(from Endpoint, to Endpoint, kind uint16, payload []byte, x
 	msg.Len = uint16(len(payload))
 	copy(msg.Data[:], payload)
 	msg.Cap = xfer
+
+	defer func() {
+		if r := recover(); r != nil {
+			// A closed endpoint channel can panic on send.
+			// Treat it as a missing endpoint instead of crashing the sender.
+			res = SendErrNoEndpoint
+		}
+	}()
 
 	select {
 	case ch <- msg:
