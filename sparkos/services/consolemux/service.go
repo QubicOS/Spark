@@ -7,7 +7,7 @@ import (
 	"spark/sparkos/proto"
 )
 
-const interruptByte = 0x07 // Ctrl+G
+const interruptByte = 0x07 // Ctrl+G (toggle focus between shell and app).
 
 type Service struct {
 	inCap  kernel.Capability
@@ -87,18 +87,13 @@ func (s *Service) Run(ctx *kernel.Context) {
 }
 
 func (s *Service) handleInput(ctx *kernel.Context, b []byte) {
-	if s.appActive {
-		s.flushInput(ctx, b)
-		return
-	}
-
 	start := 0
 	for i := 0; i < len(b); i++ {
 		switch b[i] {
 		case interruptByte:
 			s.flushInput(ctx, b[start:i])
 			start = i + 1
-			s.setActive(ctx, true)
+			s.setActive(ctx, !s.appActive)
 		}
 	}
 	s.flushInput(ctx, b[start:])
