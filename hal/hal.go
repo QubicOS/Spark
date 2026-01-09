@@ -78,6 +78,12 @@ type Input interface {
 	Keyboard() Keyboard
 }
 
+// Serial provides a byte stream (if available).
+type Serial interface {
+	Read(p []byte) (int, error)
+	Write(p []byte) (int, error)
+}
+
 // Flash provides raw access to non-volatile memory.
 //
 // It is intentionally low-level: addresses and erase blocks only.
@@ -130,4 +136,5 @@ type HAL interface {
 	Time() Time
 	Network() Network
 	Audio() Audio
+	Serial() Serial
 }

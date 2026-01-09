@@ -27,6 +27,7 @@ func registerAppCommands(r *registry) error {
 		{Name: "rtvoxel", Usage: "rtvoxel [on|off]", Desc: "Start voxel world demo (exit with q/ESC).", Run: cmdRTVoxel},
 		{Name: "imgview", Usage: "imgview <file>", Desc: "View an image (BMP/PNG/JPEG; q/ESC to exit).", Run: cmdImgView},
 		{Name: "fbtest", Usage: "fbtest", Desc: "Framebuffer benchmark (r rerun, q quit).", Run: cmdFBTest},
+		{Name: "serial", Usage: "serial", Desc: "Serial terminal (Ctrl+Q exit, Ctrl+R clear).", Run: cmdSerial},
 	} {
 		if err := r.register(cmd); err != nil {
 			return err
@@ -129,6 +130,16 @@ func cmdFBTest(ctx *kernel.Context, s *Service, args []string, _ redirection) er
 		return errors.New("usage: fbtest")
 	}
 	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppFBTest, "")); err != nil {
+		return err
+	}
+	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))
+}
+
+func cmdSerial(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	if len(args) != 0 {
+		return errors.New("usage: serial")
+	}
+	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppSerialTerm, "")); err != nil {
 		return err
 	}
 	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))

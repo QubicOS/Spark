@@ -16,6 +16,7 @@ import (
 	mctask "spark/sparkos/tasks/mc"
 	rtdemotask "spark/sparkos/tasks/rtdemo"
 	rtvoxeltask "spark/sparkos/tasks/rtvoxel"
+	serialtermtask "spark/sparkos/tasks/serialterm"
 	snaketask "spark/sparkos/tasks/snake"
 	teaplayertask "spark/sparkos/tasks/teaplayer"
 	tetristask "spark/sparkos/tasks/tetris"
@@ -30,172 +31,183 @@ import (
 const autoUnloadAfterTicks = 30_000
 
 type Service struct {
-	disp     hal.Display
-	vfsCap   kernel.Capability
-	audioCap kernel.Capability
-	timeCap  kernel.Capability
-	gpioCap  kernel.Capability
+	disp      hal.Display
+	vfsCap    kernel.Capability
+	audioCap  kernel.Capability
+	timeCap   kernel.Capability
+	gpioCap   kernel.Capability
+	serialCap kernel.Capability
 
-	rtdemoProxyCap    kernel.Capability
-	rtvoxelProxyCap   kernel.Capability
-	imgviewProxyCap   kernel.Capability
-	hexProxyCap       kernel.Capability
-	snakeProxyCap     kernel.Capability
-	tetrisProxyCap    kernel.Capability
-	calendarProxyCap  kernel.Capability
-	todoProxyCap      kernel.Capability
-	archiveProxyCap   kernel.Capability
-	viProxyCap        kernel.Capability
-	mcProxyCap        kernel.Capability
-	vectorProxyCap    kernel.Capability
-	teaProxyCap       kernel.Capability
-	basicProxyCap     kernel.Capability
-	gpioscopeProxyCap kernel.Capability
-	fbtestProxyCap    kernel.Capability
+	rtdemoProxyCap     kernel.Capability
+	rtvoxelProxyCap    kernel.Capability
+	imgviewProxyCap    kernel.Capability
+	hexProxyCap        kernel.Capability
+	snakeProxyCap      kernel.Capability
+	tetrisProxyCap     kernel.Capability
+	calendarProxyCap   kernel.Capability
+	todoProxyCap       kernel.Capability
+	archiveProxyCap    kernel.Capability
+	viProxyCap         kernel.Capability
+	mcProxyCap         kernel.Capability
+	vectorProxyCap     kernel.Capability
+	teaProxyCap        kernel.Capability
+	basicProxyCap      kernel.Capability
+	gpioscopeProxyCap  kernel.Capability
+	fbtestProxyCap     kernel.Capability
+	serialtermProxyCap kernel.Capability
 
-	rtdemoCap    kernel.Capability
-	rtvoxelCap   kernel.Capability
-	imgviewCap   kernel.Capability
-	hexCap       kernel.Capability
-	snakeCap     kernel.Capability
-	tetrisCap    kernel.Capability
-	calendarCap  kernel.Capability
-	todoCap      kernel.Capability
-	archiveCap   kernel.Capability
-	viCap        kernel.Capability
-	mcCap        kernel.Capability
-	vectorCap    kernel.Capability
-	teaCap       kernel.Capability
-	basicCap     kernel.Capability
-	gpioscopeCap kernel.Capability
-	fbtestCap    kernel.Capability
+	rtdemoCap     kernel.Capability
+	rtvoxelCap    kernel.Capability
+	imgviewCap    kernel.Capability
+	hexCap        kernel.Capability
+	snakeCap      kernel.Capability
+	tetrisCap     kernel.Capability
+	calendarCap   kernel.Capability
+	todoCap       kernel.Capability
+	archiveCap    kernel.Capability
+	viCap         kernel.Capability
+	mcCap         kernel.Capability
+	vectorCap     kernel.Capability
+	teaCap        kernel.Capability
+	basicCap      kernel.Capability
+	gpioscopeCap  kernel.Capability
+	fbtestCap     kernel.Capability
+	serialtermCap kernel.Capability
 
-	rtdemoEP    kernel.Capability
-	rtvoxelEP   kernel.Capability
-	imgviewEP   kernel.Capability
-	hexEP       kernel.Capability
-	snakeEP     kernel.Capability
-	tetrisEP    kernel.Capability
-	calendarEP  kernel.Capability
-	todoEP      kernel.Capability
-	archiveEP   kernel.Capability
-	viEP        kernel.Capability
-	mcEP        kernel.Capability
-	vectorEP    kernel.Capability
-	teaEP       kernel.Capability
-	basicEP     kernel.Capability
-	gpioscopeEP kernel.Capability
-	fbtestEP    kernel.Capability
+	rtdemoEP     kernel.Capability
+	rtvoxelEP    kernel.Capability
+	imgviewEP    kernel.Capability
+	hexEP        kernel.Capability
+	snakeEP      kernel.Capability
+	tetrisEP     kernel.Capability
+	calendarEP   kernel.Capability
+	todoEP       kernel.Capability
+	archiveEP    kernel.Capability
+	viEP         kernel.Capability
+	mcEP         kernel.Capability
+	vectorEP     kernel.Capability
+	teaEP        kernel.Capability
+	basicEP      kernel.Capability
+	gpioscopeEP  kernel.Capability
+	fbtestEP     kernel.Capability
+	serialtermEP kernel.Capability
 
 	mu sync.Mutex
 
-	rtdemoRunning    bool
-	rtvoxelRunning   bool
-	imgviewRunning   bool
-	hexRunning       bool
-	snakeRunning     bool
-	tetrisRunning    bool
-	calendarRunning  bool
-	todoRunning      bool
-	archiveRunning   bool
-	viRunning        bool
-	mcRunning        bool
-	vectorRunning    bool
-	teaRunning       bool
-	basicRunning     bool
-	gpioscopeRunning bool
-	fbtestRunning    bool
+	rtdemoRunning     bool
+	rtvoxelRunning    bool
+	imgviewRunning    bool
+	hexRunning        bool
+	snakeRunning      bool
+	tetrisRunning     bool
+	calendarRunning   bool
+	todoRunning       bool
+	archiveRunning    bool
+	viRunning         bool
+	mcRunning         bool
+	vectorRunning     bool
+	teaRunning        bool
+	basicRunning      bool
+	gpioscopeRunning  bool
+	fbtestRunning     bool
+	serialtermRunning bool
 
-	rtdemoActive    bool
-	rtvoxelActive   bool
-	imgviewActive   bool
-	hexActive       bool
-	snakeActive     bool
-	tetrisActive    bool
-	calendarActive  bool
-	todoActive      bool
-	archiveActive   bool
-	viActive        bool
-	mcActive        bool
-	vectorActive    bool
-	teaActive       bool
-	basicActive     bool
-	gpioscopeActive bool
-	fbtestActive    bool
+	rtdemoActive     bool
+	rtvoxelActive    bool
+	imgviewActive    bool
+	hexActive        bool
+	snakeActive      bool
+	tetrisActive     bool
+	calendarActive   bool
+	todoActive       bool
+	archiveActive    bool
+	viActive         bool
+	mcActive         bool
+	vectorActive     bool
+	teaActive        bool
+	basicActive      bool
+	gpioscopeActive  bool
+	fbtestActive     bool
+	serialtermActive bool
 
-	rtdemoInactiveSince    uint64
-	rtvoxelInactiveSince   uint64
-	imgviewInactiveSince   uint64
-	hexInactiveSince       uint64
-	snakeInactiveSince     uint64
-	tetrisInactiveSince    uint64
-	calendarInactiveSince  uint64
-	todoInactiveSince      uint64
-	archiveInactiveSince   uint64
-	viInactiveSince        uint64
-	mcInactiveSince        uint64
-	vectorInactiveSince    uint64
-	teaInactiveSince       uint64
-	basicInactiveSince     uint64
-	gpioscopeInactiveSince uint64
-	fbtestInactiveSince    uint64
+	rtdemoInactiveSince     uint64
+	rtvoxelInactiveSince    uint64
+	imgviewInactiveSince    uint64
+	hexInactiveSince        uint64
+	snakeInactiveSince      uint64
+	tetrisInactiveSince     uint64
+	calendarInactiveSince   uint64
+	todoInactiveSince       uint64
+	archiveInactiveSince    uint64
+	viInactiveSince         uint64
+	mcInactiveSince         uint64
+	vectorInactiveSince     uint64
+	teaInactiveSince        uint64
+	basicInactiveSince      uint64
+	gpioscopeInactiveSince  uint64
+	fbtestInactiveSince     uint64
+	serialtermInactiveSince uint64
 }
 
-func New(disp hal.Display, vfsCap, audioCap, timeCap, gpioCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxyCap, hexProxyCap, snakeProxyCap, tetrisProxyCap, calendarProxyCap, todoProxyCap, archiveProxyCap, viProxyCap, mcProxyCap, vectorProxyCap, teaProxyCap, basicProxyCap, gpioscopeProxyCap, fbtestProxyCap, rtdemoCap, rtvoxelCap, imgviewCap, hexCap, snakeCap, tetrisCap, calendarCap, todoCap, archiveCap, viCap, mcCap, vectorCap, teaCap, basicCap, gpioscopeCap, fbtestCap, rtdemoEP, rtvoxelEP, imgviewEP, hexEP, snakeEP, tetrisEP, calendarEP, todoEP, archiveEP, viEP, mcEP, vectorEP, teaEP, basicEP, gpioscopeEP, fbtestEP kernel.Capability) *Service {
+func New(disp hal.Display, vfsCap, audioCap, timeCap, gpioCap, serialCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxyCap, hexProxyCap, snakeProxyCap, tetrisProxyCap, calendarProxyCap, todoProxyCap, archiveProxyCap, viProxyCap, mcProxyCap, vectorProxyCap, teaProxyCap, basicProxyCap, gpioscopeProxyCap, fbtestProxyCap, serialtermProxyCap, rtdemoCap, rtvoxelCap, imgviewCap, hexCap, snakeCap, tetrisCap, calendarCap, todoCap, archiveCap, viCap, mcCap, vectorCap, teaCap, basicCap, gpioscopeCap, fbtestCap, serialtermCap, rtdemoEP, rtvoxelEP, imgviewEP, hexEP, snakeEP, tetrisEP, calendarEP, todoEP, archiveEP, viEP, mcEP, vectorEP, teaEP, basicEP, gpioscopeEP, fbtestEP, serialtermEP kernel.Capability) *Service {
 	return &Service{
-		disp:              disp,
-		vfsCap:            vfsCap,
-		audioCap:          audioCap,
-		timeCap:           timeCap,
-		gpioCap:           gpioCap,
-		rtdemoProxyCap:    rtdemoProxyCap,
-		rtvoxelProxyCap:   rtvoxelProxyCap,
-		imgviewProxyCap:   imgviewProxyCap,
-		hexProxyCap:       hexProxyCap,
-		snakeProxyCap:     snakeProxyCap,
-		tetrisProxyCap:    tetrisProxyCap,
-		calendarProxyCap:  calendarProxyCap,
-		todoProxyCap:      todoProxyCap,
-		archiveProxyCap:   archiveProxyCap,
-		viProxyCap:        viProxyCap,
-		mcProxyCap:        mcProxyCap,
-		vectorProxyCap:    vectorProxyCap,
-		teaProxyCap:       teaProxyCap,
-		basicProxyCap:     basicProxyCap,
-		gpioscopeProxyCap: gpioscopeProxyCap,
-		fbtestProxyCap:    fbtestProxyCap,
-		rtdemoCap:         rtdemoCap,
-		rtvoxelCap:        rtvoxelCap,
-		imgviewCap:        imgviewCap,
-		hexCap:            hexCap,
-		snakeCap:          snakeCap,
-		tetrisCap:         tetrisCap,
-		calendarCap:       calendarCap,
-		todoCap:           todoCap,
-		archiveCap:        archiveCap,
-		viCap:             viCap,
-		mcCap:             mcCap,
-		vectorCap:         vectorCap,
-		teaCap:            teaCap,
-		basicCap:          basicCap,
-		gpioscopeCap:      gpioscopeCap,
-		fbtestCap:         fbtestCap,
-		rtdemoEP:          rtdemoEP,
-		rtvoxelEP:         rtvoxelEP,
-		imgviewEP:         imgviewEP,
-		hexEP:             hexEP,
-		snakeEP:           snakeEP,
-		tetrisEP:          tetrisEP,
-		calendarEP:        calendarEP,
-		todoEP:            todoEP,
-		archiveEP:         archiveEP,
-		viEP:              viEP,
-		mcEP:              mcEP,
-		vectorEP:          vectorEP,
-		teaEP:             teaEP,
-		basicEP:           basicEP,
-		gpioscopeEP:       gpioscopeEP,
-		fbtestEP:          fbtestEP,
+		disp:               disp,
+		vfsCap:             vfsCap,
+		audioCap:           audioCap,
+		timeCap:            timeCap,
+		gpioCap:            gpioCap,
+		serialCap:          serialCap,
+		rtdemoProxyCap:     rtdemoProxyCap,
+		rtvoxelProxyCap:    rtvoxelProxyCap,
+		imgviewProxyCap:    imgviewProxyCap,
+		hexProxyCap:        hexProxyCap,
+		snakeProxyCap:      snakeProxyCap,
+		tetrisProxyCap:     tetrisProxyCap,
+		calendarProxyCap:   calendarProxyCap,
+		todoProxyCap:       todoProxyCap,
+		archiveProxyCap:    archiveProxyCap,
+		viProxyCap:         viProxyCap,
+		mcProxyCap:         mcProxyCap,
+		vectorProxyCap:     vectorProxyCap,
+		teaProxyCap:        teaProxyCap,
+		basicProxyCap:      basicProxyCap,
+		gpioscopeProxyCap:  gpioscopeProxyCap,
+		fbtestProxyCap:     fbtestProxyCap,
+		serialtermProxyCap: serialtermProxyCap,
+		rtdemoCap:          rtdemoCap,
+		rtvoxelCap:         rtvoxelCap,
+		imgviewCap:         imgviewCap,
+		hexCap:             hexCap,
+		snakeCap:           snakeCap,
+		tetrisCap:          tetrisCap,
+		calendarCap:        calendarCap,
+		todoCap:            todoCap,
+		archiveCap:         archiveCap,
+		viCap:              viCap,
+		mcCap:              mcCap,
+		vectorCap:          vectorCap,
+		teaCap:             teaCap,
+		basicCap:           basicCap,
+		gpioscopeCap:       gpioscopeCap,
+		fbtestCap:          fbtestCap,
+		serialtermCap:      serialtermCap,
+		rtdemoEP:           rtdemoEP,
+		rtvoxelEP:          rtvoxelEP,
+		imgviewEP:          imgviewEP,
+		hexEP:              hexEP,
+		snakeEP:            snakeEP,
+		tetrisEP:           tetrisEP,
+		calendarEP:         calendarEP,
+		todoEP:             todoEP,
+		archiveEP:          archiveEP,
+		viEP:               viEP,
+		mcEP:               mcEP,
+		vectorEP:           vectorEP,
+		teaEP:              teaEP,
+		basicEP:            basicEP,
+		gpioscopeEP:        gpioscopeEP,
+		fbtestEP:           fbtestEP,
+		serialtermEP:       serialtermEP,
 	}
 }
 
@@ -217,6 +229,7 @@ func (s *Service) Run(ctx *kernel.Context) {
 	go s.runProxy(ctx, s.basicProxyCap, proto.AppBasic)
 	go s.runProxy(ctx, s.gpioscopeProxyCap, proto.AppGPIOScope)
 	go s.runProxy(ctx, s.fbtestProxyCap, proto.AppFBTest)
+	go s.runProxy(ctx, s.serialtermProxyCap, proto.AppSerialTerm)
 	select {}
 }
 
@@ -252,6 +265,7 @@ func (s *Service) shutdownIdle(ctx *kernel.Context, now uint64) {
 	stop = s.appendStopIfIdle(stop, proto.AppBasic, s.basicRunning, s.basicActive, s.basicInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppGPIOScope, s.gpioscopeRunning, s.gpioscopeActive, s.gpioscopeInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppFBTest, s.fbtestRunning, s.fbtestActive, s.fbtestInactiveSince, now)
+	stop = s.appendStopIfIdle(stop, proto.AppSerialTerm, s.serialtermRunning, s.serialtermActive, s.serialtermInactiveSince, now)
 	s.mu.Unlock()
 
 	for _, id := range stop {
@@ -429,6 +443,12 @@ func (s *Service) ensureRunning(ctx *kernel.Context, appID proto.AppID) {
 		s.mu.Lock()
 		s.fbtestRunning = true
 		s.mu.Unlock()
+
+	case proto.AppSerialTerm:
+		ctx.AddTask(serialtermtask.New(s.disp, s.serialCap, s.serialtermEP))
+		s.mu.Lock()
+		s.serialtermRunning = true
+		s.mu.Unlock()
 	}
 }
 
@@ -492,6 +512,9 @@ func (s *Service) stop(ctx *kernel.Context, appID proto.AppID) {
 
 	case proto.AppFBTest:
 		_ = ctx.SendToCapResult(s.fbtestCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
+
+	case proto.AppSerialTerm:
+		_ = ctx.SendToCapResult(s.serialtermCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
 	}
 }
 
@@ -529,6 +552,8 @@ func (s *Service) appCapByID(appID proto.AppID) kernel.Capability {
 		return s.gpioscopeCap
 	case proto.AppFBTest:
 		return s.fbtestCap
+	case proto.AppSerialTerm:
+		return s.serialtermCap
 	default:
 		return kernel.Capability{}
 	}
@@ -574,6 +599,8 @@ func (s *Service) isRunningLocked(appID proto.AppID) bool {
 		return s.gpioscopeRunning
 	case proto.AppFBTest:
 		return s.fbtestRunning
+	case proto.AppSerialTerm:
+		return s.serialtermRunning
 	default:
 		return false
 	}
@@ -613,6 +640,8 @@ func (s *Service) setRunningLocked(appID proto.AppID, running bool) {
 		s.gpioscopeRunning = running
 	case proto.AppFBTest:
 		s.fbtestRunning = running
+	case proto.AppSerialTerm:
+		s.serialtermRunning = running
 	}
 }
 
@@ -672,6 +701,9 @@ func (s *Service) setActiveLocked(appID proto.AppID, active bool, now uint64) {
 	case proto.AppFBTest:
 		s.fbtestActive = active
 		s.fbtestInactiveSince = inactiveSince(active, now, s.fbtestInactiveSince)
+	case proto.AppSerialTerm:
+		s.serialtermActive = active
+		s.serialtermInactiveSince = inactiveSince(active, now, s.serialtermInactiveSince)
 	}
 }
 

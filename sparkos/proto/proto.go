@@ -48,6 +48,9 @@ const (
 	MsgGPIOWriteResp
 	MsgGPIORead
 	MsgGPIOReadResp
+	MsgSerialSubscribe
+	MsgSerialWrite
+	MsgSerialData
 )
 
 // ErrCode is a generic error category for MsgError responses.
@@ -177,6 +180,12 @@ func (k Kind) String() string {
 		return "gpio_read"
 	case MsgGPIOReadResp:
 		return "gpio_read_resp"
+	case MsgSerialSubscribe:
+		return "serial_subscribe"
+	case MsgSerialWrite:
+		return "serial_write"
+	case MsgSerialData:
+		return "serial_data"
 	default:
 		return "unknown"
 	}

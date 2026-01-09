@@ -16,6 +16,7 @@ type tinyGoHAL struct {
 	flash  Flash
 	net    Network
 	audio  Audio
+	serial Serial
 }
 
 // New returns a Pico 2 (RP2350) HAL implementation.
@@ -43,6 +44,7 @@ func New() HAL {
 		flash:  newRP2Flash(),
 		net:    nullNetwork{},
 		audio:  newTinyGoAudio(),
+		serial: &uartSerial{uart: uart},
 	}
 }
 
@@ -55,3 +57,4 @@ func (h *tinyGoHAL) Flash() Flash     { return h.flash }
 func (h *tinyGoHAL) Time() Time       { return h.t }
 func (h *tinyGoHAL) Network() Network { return h.net }
 func (h *tinyGoHAL) Audio() Audio     { return h.audio }
+func (h *tinyGoHAL) Serial() Serial   { return h.serial }

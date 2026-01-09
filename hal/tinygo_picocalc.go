@@ -17,6 +17,7 @@ type picoCalcHAL struct {
 	flash  Flash
 	net    Network
 	audio  Audio
+	serial Serial
 }
 
 // New returns a PicoCalc HAL implementation (Pico/Pico2 on the PicoCalc carrier).
@@ -56,6 +57,7 @@ func New() HAL {
 		flash:  newRP2Flash(),
 		net:    nullNetwork{},
 		audio:  newTinyGoAudio(),
+		serial: &uartSerial{uart: uart},
 	}
 }
 
@@ -68,6 +70,7 @@ func (h *picoCalcHAL) Flash() Flash     { return h.flash }
 func (h *picoCalcHAL) Time() Time       { return h.t }
 func (h *picoCalcHAL) Network() Network { return h.net }
 func (h *picoCalcHAL) Audio() Audio     { return h.audio }
+func (h *picoCalcHAL) Serial() Serial   { return h.serial }
 
 type picoCalcFramebuffer struct {
 	w      int

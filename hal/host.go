@@ -18,6 +18,7 @@ type hostHAL struct {
 	flash  *hostFlash
 	net    Network
 	aud    Audio
+	serial Serial
 }
 
 // New returns a host HAL implementation.
@@ -40,6 +41,7 @@ func New() HAL {
 		flash:  newHostFlash(),
 		net:    nullNetwork{},
 		aud:    newHostAudio(),
+		serial: &hostSerial{r: os.Stdin, w: os.Stdout},
 	}
 }
 
@@ -52,6 +54,7 @@ func (h *hostHAL) Flash() Flash     { return h.flash }
 func (h *hostHAL) Time() Time       { return h.t }
 func (h *hostHAL) Network() Network { return h.net }
 func (h *hostHAL) Audio() Audio     { return h.aud }
+func (h *hostHAL) Serial() Serial   { return h.serial }
 
 type hostDisplay struct {
 	fb *hostFramebuffer
