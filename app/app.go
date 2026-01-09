@@ -6,6 +6,7 @@ import (
 	"spark/sparkos/services/appmgr"
 	audiosvc "spark/sparkos/services/audio"
 	"spark/sparkos/services/consolemux"
+	gpiosvc "spark/sparkos/services/gpio"
 	"spark/sparkos/services/logger"
 	"spark/sparkos/services/shell"
 	"spark/sparkos/services/term"
@@ -57,6 +58,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	shellEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	vfsEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	audioEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	gpioEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	muxEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	rtdemoEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	rtvoxelEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
@@ -72,6 +74,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	archiveEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	teaEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	basicEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	gpioscopeEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 
 	rtdemoProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	rtvoxelProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
@@ -87,10 +90,12 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	vectorProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	teaProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	basicProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	gpioscopeProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 
 	k.AddTask(logger.New(h.Logger(), logEP.Restrict(kernel.RightRecv)))
 	k.AddTask(timesvc.New(timeEP))
 	k.AddTask(vfs.New(h.Flash(), vfsEP.Restrict(kernel.RightRecv)))
+	k.AddTask(gpiosvc.New(h.GPIO(), gpioEP.Restrict(kernel.RightRecv)))
 	if ha := h.Audio(); ha != nil {
 		k.AddTask(audiosvc.New(audioEP.Restrict(kernel.RightRecv), vfsEP.Restrict(kernel.RightSend), ha.PWM()))
 	} else {
@@ -103,6 +108,8 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			h.Display(),
 			vfsEP.Restrict(kernel.RightSend),
 			audioEP.Restrict(kernel.RightSend),
+			timeEP.Restrict(kernel.RightSend),
+			gpioEP.Restrict(kernel.RightSend),
 			rtdemoProxyEP.Restrict(kernel.RightRecv),
 			rtvoxelProxyEP.Restrict(kernel.RightRecv),
 			imgviewProxyEP.Restrict(kernel.RightRecv),
@@ -117,6 +124,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			vectorProxyEP.Restrict(kernel.RightRecv),
 			teaProxyEP.Restrict(kernel.RightRecv),
 			basicProxyEP.Restrict(kernel.RightRecv),
+			gpioscopeProxyEP.Restrict(kernel.RightRecv),
 			rtdemoEP.Restrict(kernel.RightSend),
 			rtvoxelEP.Restrict(kernel.RightSend),
 			imgviewEP.Restrict(kernel.RightSend),
@@ -131,6 +139,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			vectorEP.Restrict(kernel.RightSend),
 			teaEP.Restrict(kernel.RightSend),
 			basicEP.Restrict(kernel.RightSend),
+			gpioscopeEP.Restrict(kernel.RightSend),
 			rtdemoEP.Restrict(kernel.RightRecv),
 			rtvoxelEP.Restrict(kernel.RightRecv),
 			imgviewEP.Restrict(kernel.RightRecv),
@@ -145,6 +154,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			vectorEP.Restrict(kernel.RightRecv),
 			teaEP.Restrict(kernel.RightRecv),
 			basicEP.Restrict(kernel.RightRecv),
+			gpioscopeEP.Restrict(kernel.RightRecv),
 		))
 		k.AddTask(consolemux.New(
 			muxEP.Restrict(kernel.RightRecv),
@@ -164,6 +174,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			archiveProxyEP.Restrict(kernel.RightSend),
 			teaProxyEP.Restrict(kernel.RightSend),
 			basicProxyEP.Restrict(kernel.RightSend),
+			gpioscopeProxyEP.Restrict(kernel.RightSend),
 			termEP.Restrict(kernel.RightSend),
 		))
 		k.AddTask(termkbd.NewInput(h.Input(), muxEP.Restrict(kernel.RightSend)))

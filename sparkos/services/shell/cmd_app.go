@@ -16,6 +16,7 @@ func registerAppCommands(r *registry) error {
 		{Name: "basic", Usage: "basic [file] | basic run <file>", Desc: "Tiny BASIC IDE (F1 code, F2 io, F3 vars).", Run: cmdBasic},
 		{Name: "hex", Usage: "hex <file>", Desc: "Hex viewer/editor (q/ESC to exit, w to save).", Run: cmdHex},
 		{Name: "vector", Usage: "vector [expr]", Desc: "Math calculator with graphing (g graph, H help).", Run: cmdVector},
+		{Name: "gpio", Aliases: []string{"scope", "sigview"}, Usage: "gpio", Desc: "GPIO / Signal Viewer (Tab modes, r run, q exit).", Run: cmdGPIOScope},
 		{Name: "snake", Usage: "snake", Desc: "Snake game (arrows move, p pause, r restart, q quit).", Run: cmdSnake},
 		{Name: "tetris", Usage: "tetris", Desc: "Tetris (arrows move, z/x rotate, c drop, p pause, r restart, q quit).", Run: cmdTetris},
 		{Name: "cal", Aliases: []string{"calendar"}, Usage: "cal [YYYY-MM[-DD]]", Desc: "Calendar (arrows move, Enter day view, a add, d delete, n/b month, q quit).", Run: cmdCalendar},
@@ -107,6 +108,16 @@ func cmdVector(ctx *kernel.Context, s *Service, args []string, _ redirection) er
 	}
 
 	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppVector, expr)); err != nil {
+		return err
+	}
+	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))
+}
+
+func cmdGPIOScope(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	if len(args) != 0 {
+		return errors.New("usage: gpio")
+	}
+	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppGPIOScope, "")); err != nil {
 		return err
 	}
 	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))

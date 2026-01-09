@@ -11,48 +11,50 @@ type Service struct {
 	inCap  kernel.Capability
 	ctlCap kernel.Capability
 
-	shellCap    kernel.Capability
-	rtdemoCap   kernel.Capability
-	rtvoxelCap  kernel.Capability
-	imgviewCap  kernel.Capability
-	viCap       kernel.Capability
-	mcCap       kernel.Capability
-	hexCap      kernel.Capability
-	vectorCap   kernel.Capability
-	snakeCap    kernel.Capability
-	tetrisCap   kernel.Capability
-	calendarCap kernel.Capability
-	todoCap     kernel.Capability
-	archiveCap  kernel.Capability
-	teaCap      kernel.Capability
-	basicCap    kernel.Capability
-	termCap     kernel.Capability
+	shellCap     kernel.Capability
+	rtdemoCap    kernel.Capability
+	rtvoxelCap   kernel.Capability
+	imgviewCap   kernel.Capability
+	viCap        kernel.Capability
+	mcCap        kernel.Capability
+	hexCap       kernel.Capability
+	vectorCap    kernel.Capability
+	snakeCap     kernel.Capability
+	tetrisCap    kernel.Capability
+	calendarCap  kernel.Capability
+	todoCap      kernel.Capability
+	archiveCap   kernel.Capability
+	teaCap       kernel.Capability
+	basicCap     kernel.Capability
+	gpioscopeCap kernel.Capability
+	termCap      kernel.Capability
 
 	activeApp proto.AppID
 	appActive bool
 }
 
-func New(inCap, ctlCap, shellCap, rtdemoCap, rtvoxelCap, imgviewCap, viCap, mcCap, hexCap, vectorCap, snakeCap, tetrisCap, calendarCap, todoCap, archiveCap, teaCap, basicCap, termCap kernel.Capability) *Service {
+func New(inCap, ctlCap, shellCap, rtdemoCap, rtvoxelCap, imgviewCap, viCap, mcCap, hexCap, vectorCap, snakeCap, tetrisCap, calendarCap, todoCap, archiveCap, teaCap, basicCap, gpioscopeCap, termCap kernel.Capability) *Service {
 	return &Service{
-		inCap:       inCap,
-		ctlCap:      ctlCap,
-		shellCap:    shellCap,
-		rtdemoCap:   rtdemoCap,
-		rtvoxelCap:  rtvoxelCap,
-		imgviewCap:  imgviewCap,
-		viCap:       viCap,
-		mcCap:       mcCap,
-		hexCap:      hexCap,
-		vectorCap:   vectorCap,
-		snakeCap:    snakeCap,
-		tetrisCap:   tetrisCap,
-		calendarCap: calendarCap,
-		todoCap:     todoCap,
-		archiveCap:  archiveCap,
-		teaCap:      teaCap,
-		basicCap:    basicCap,
-		termCap:     termCap,
-		activeApp:   proto.AppRTDemo,
+		inCap:        inCap,
+		ctlCap:       ctlCap,
+		shellCap:     shellCap,
+		rtdemoCap:    rtdemoCap,
+		rtvoxelCap:   rtvoxelCap,
+		imgviewCap:   imgviewCap,
+		viCap:        viCap,
+		mcCap:        mcCap,
+		hexCap:       hexCap,
+		vectorCap:    vectorCap,
+		snakeCap:     snakeCap,
+		tetrisCap:    tetrisCap,
+		calendarCap:  calendarCap,
+		todoCap:      todoCap,
+		archiveCap:   archiveCap,
+		teaCap:       teaCap,
+		basicCap:     basicCap,
+		gpioscopeCap: gpioscopeCap,
+		termCap:      termCap,
+		activeApp:    proto.AppRTDemo,
 	}
 }
 
@@ -172,6 +174,8 @@ func (s *Service) appCapByID(id proto.AppID) kernel.Capability {
 		return s.teaCap
 	case proto.AppBasic:
 		return s.basicCap
+	case proto.AppGPIOScope:
+		return s.gpioscopeCap
 	default:
 		return kernel.Capability{}
 	}
