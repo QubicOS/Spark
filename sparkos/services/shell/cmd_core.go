@@ -16,10 +16,10 @@ func registerCoreCommands(r *registry) error {
 		{Name: "help", Usage: "help [command]", Desc: "Show available commands.", Run: cmdHelp},
 		{Name: "clear", Aliases: []string{"cls"}, Usage: "clear", Desc: "Clear the terminal.", Run: cmdClear},
 		{Name: "echo", Usage: "echo [args...]", Desc: "Print arguments.", Run: cmdEcho},
-		{Name: "panic", Usage: "panic", Desc: "Panic the shell task (test).", Run: cmdPanic},
 		{Name: "log", Usage: "log <line>", Desc: "Send a log line to logger service.", Run: cmdLog},
 		{Name: "scrollback", Usage: "scrollback [n]", Desc: "Show the last N output lines.", Run: cmdScrollback},
 		{Name: "history", Usage: "history [n]", Desc: "Show recent commands.", Run: cmdHistory},
+		{Name: "tab", Usage: "tab [new|close|next|prev|name [label]|list|go <n>]", Desc: "Manage shell tabs (F1 prev, F2 next, F3 new).", Run: cmdTab},
 	} {
 		if err := r.register(cmd); err != nil {
 			return err
@@ -70,10 +70,6 @@ func cmdClear(ctx *kernel.Context, s *Service, _ []string, _ redirection) error 
 
 func cmdEcho(ctx *kernel.Context, s *Service, args []string, redir redirection) error {
 	return s.echo(ctx, args, redir)
-}
-
-func cmdPanic(_ *kernel.Context, _ *Service, _ []string, _ redirection) error {
-	panic("shell panic")
 }
 
 func cmdLog(ctx *kernel.Context, s *Service, args []string, _ redirection) error {

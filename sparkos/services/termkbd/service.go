@@ -46,10 +46,18 @@ func (s *Service) Run(ctx *kernel.Context) {
 		return
 	}
 
+	done := make(chan struct{})
+	defer close(done)
+
 	tickCh := make(chan uint64, 16)
 	go func() {
 		last := ctx.NowTick()
 		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
 			last = ctx.WaitTick(last)
 			select {
 			case tickCh <- last:
@@ -60,7 +68,10 @@ func (s *Service) Run(ctx *kernel.Context) {
 
 	for {
 		select {
-		case ev := <-s.events:
+		case ev, ok := <-s.events:
+			if !ok {
+				return
+			}
 			s.handleKeyEvent(ctx, ev)
 		case tick := <-tickCh:
 			s.handleRepeat(tick)

@@ -25,6 +25,9 @@ type ipcFile struct {
 }
 
 func newIPCFile(ctx *kernel.Context, vfsCap kernel.Capability, path string) (*ipcFile, error) {
+	if ctx == nil {
+		return nil, errors.New("audio: nil context")
+	}
 	if !vfsCap.Valid() {
 		return nil, errors.New("audio: vfs capability is missing")
 	}
@@ -88,7 +91,10 @@ func (f *ipcFile) Read(p []byte) (int, error) {
 sent:
 
 	for {
-		msg := <-f.replyCh
+		msg, ok := <-f.replyCh
+		if !ok {
+			return 0, errors.New("audio: vfs reply channel closed")
+		}
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
 			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])

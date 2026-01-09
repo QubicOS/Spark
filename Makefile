@@ -1,4 +1,4 @@
-.PHONY: help dev run headless build build-release test fmt tidy make-vfs vfs clean tinygo-uf2 tinygo-flash
+.PHONY: help dev run headless build build-release test fmt tidy make-vfs vfs clean tinygo-uf2 tinygo-flash check vet test-debug
 
 GO ?= go
 TINYGO ?= tinygo
@@ -60,6 +60,14 @@ build-release:
 
 test:
 	$(GO) test ./...
+
+test-debug:
+	$(GO) test -tags=debug ./...
+
+vet:
+	$(GO) vet ./...
+
+check: fmt vet test test-debug build
 
 fmt:
 	$(GO) fmt ./...

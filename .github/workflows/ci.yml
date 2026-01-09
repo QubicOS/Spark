@@ -17,7 +17,25 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - run: go test ./...
+      - name: gofmt check
+        run: |
+          out="$(gofmt -l .)"
+          if [ -n "$out" ]; then
+            echo "$out"
+            exit 1
+          fi
+      - name: Go test (CGO disabled)
+        run: |
+          CGO_ENABLED=0 go test ./...
+      - name: Go build (CGO disabled)
+        run: |
+          CGO_ENABLED=0 go build ./...
+      - name: Go vet (CGO disabled)
+        run: |
+          CGO_ENABLED=0 go vet ./...
+      - name: Go test (debug tag)
+        run: |
+          CGO_ENABLED=0 go test -tags=debug ./...
 
   tinygo-rp2350:
     name: TinyGo (RP2350 / Pico 2)
@@ -36,3 +54,21 @@ jobs:
         with:
           name: spark-pico2-uf2
           path: build/spark-pico2.uf2
+
+  tinygo-picocalc:
+    name: TinyGo (PicoCalc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: tinygo-org/setup-tinygo@v2
+        with:
+          tinygo-version: "0.40.1"
+      - name: Build UF2
+        run: |
+          mkdir -p build
+          tinygo version
+          tinygo build -target=pico -tags=picocalc -size=short -o build/spark-picocalc.uf2 .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spark-picocalc-uf2
+          path: build/spark-picocalc.uf2

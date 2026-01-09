@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"fmt"
 	"strings"
 	"unicode/utf8"
 
@@ -21,6 +22,9 @@ type Service struct {
 	vfs *vfsclient.Client
 	reg *registry
 
+	tabs   []tabState
+	tabIdx int
+
 	line   []rune
 	cursor int
 
@@ -38,6 +42,8 @@ type Service struct {
 	ghost string
 	cands []string
 	best  string
+
+	suppressPromptOnce bool
 
 	authed bool
 
@@ -69,9 +75,7 @@ func (s *Service) Run(ctx *kernel.Context) {
 		return
 	}
 
-	if s.cwd == "" {
-		s.cwd = "/"
-	}
+	s.initTabsIfNeeded()
 	if s.reg == nil {
 		if err := s.initRegistry(); err != nil {
 			_ = s.printString(ctx, "shell: init: "+err.Error()+"\n")
@@ -100,6 +104,195 @@ func (s *Service) Run(ctx *kernel.Context) {
 			s.handleFocus(ctx, active)
 		}
 	}
+}
+
+type tabState struct {
+	line   []rune
+	cursor int
+
+	history []string
+	histPos int
+	scratch []rune
+
+	scrollback []string
+
+	cwd string
+
+	name string
+
+	hint  string
+	ghost string
+	cands []string
+	best  string
+}
+
+func (s *Service) initTabsIfNeeded() {
+	if len(s.tabs) == 0 {
+		if s.cwd == "" {
+			s.cwd = "/"
+		}
+		s.tabs = []tabState{{
+			line:   s.line,
+			cursor: s.cursor,
+
+			history: s.history,
+			histPos: s.histPos,
+			scratch: s.scratch,
+
+			scrollback: s.scrollback,
+
+			cwd: s.cwd,
+
+			name: "",
+
+			hint:  s.hint,
+			ghost: s.ghost,
+			cands: s.cands,
+			best:  s.best,
+		}}
+		s.tabIdx = 0
+	}
+	if s.tabIdx < 0 || s.tabIdx >= len(s.tabs) {
+		s.tabIdx = 0
+	}
+}
+
+func (s *Service) stashTab(i int) {
+	if i < 0 || i >= len(s.tabs) {
+		return
+	}
+	s.tabs[i] = tabState{
+		line:   s.line,
+		cursor: s.cursor,
+
+		history: s.history,
+		histPos: s.histPos,
+		scratch: s.scratch,
+
+		scrollback: s.scrollback,
+
+		cwd: s.cwd,
+
+		name: s.tabs[i].name,
+
+		hint:  s.hint,
+		ghost: s.ghost,
+		cands: s.cands,
+		best:  s.best,
+	}
+}
+
+func (s *Service) restoreTab(i int) {
+	if i < 0 || i >= len(s.tabs) {
+		return
+	}
+	t := s.tabs[i]
+	s.line = t.line
+	s.cursor = t.cursor
+
+	s.history = t.history
+	s.histPos = t.histPos
+	s.scratch = t.scratch
+
+	s.scrollback = t.scrollback
+
+	s.cwd = t.cwd
+	s.tabs[i].name = t.name
+
+	s.hint = t.hint
+	s.ghost = t.ghost
+	s.cands = t.cands
+	s.best = t.best
+}
+
+func (s *Service) currentTab() (idx int, total int) {
+	return s.tabIdx, len(s.tabs)
+}
+
+func (s *Service) newTab(ctx *kernel.Context, suppressPrompt bool) {
+	s.initTabsIfNeeded()
+	s.stashTab(s.tabIdx)
+	s.tabs = append(s.tabs, tabState{cwd: s.cwd})
+	_ = s.switchTab(ctx, len(s.tabs)-1, suppressPrompt)
+}
+
+func (s *Service) closeTab(ctx *kernel.Context, suppressPrompt bool) {
+	s.initTabsIfNeeded()
+	if len(s.tabs) <= 1 {
+		_ = s.printString(ctx, "tab: cannot close the last tab\n")
+		return
+	}
+	s.stashTab(s.tabIdx)
+	i := s.tabIdx
+	copy(s.tabs[i:], s.tabs[i+1:])
+	s.tabs = s.tabs[:len(s.tabs)-1]
+	if i >= len(s.tabs) {
+		i = len(s.tabs) - 1
+	}
+	_ = s.switchTab(ctx, i, suppressPrompt)
+}
+
+func (s *Service) nextTab(ctx *kernel.Context, suppressPrompt bool) {
+	s.initTabsIfNeeded()
+	if len(s.tabs) <= 1 {
+		return
+	}
+	_ = s.switchTab(ctx, (s.tabIdx+1)%len(s.tabs), suppressPrompt)
+}
+
+func (s *Service) prevTab(ctx *kernel.Context, suppressPrompt bool) {
+	s.initTabsIfNeeded()
+	if len(s.tabs) <= 1 {
+		return
+	}
+	n := len(s.tabs)
+	_ = s.switchTab(ctx, (s.tabIdx+n-1)%n, suppressPrompt)
+}
+
+func (s *Service) switchTab(ctx *kernel.Context, idx int, suppressPrompt bool) bool {
+	s.initTabsIfNeeded()
+	if idx < 0 || idx >= len(s.tabs) || idx == s.tabIdx {
+		return false
+	}
+	s.stashTab(s.tabIdx)
+	s.tabIdx = idx
+	s.restoreTab(s.tabIdx)
+	s.renderTab(ctx)
+	if suppressPrompt {
+		s.suppressPromptOnce = true
+	}
+	return true
+}
+
+func (s *Service) tabStatusLine() string {
+	tab := s.tabIdx + 1
+	total := len(s.tabs)
+	label := s.cwd
+	if s.tabIdx >= 0 && s.tabIdx < len(s.tabs) {
+		if n := strings.TrimSpace(s.tabs[s.tabIdx].name); n != "" {
+			label = n
+		}
+	}
+	return fmt.Sprintf("\x1b[38;5;245m[tab %d/%d] %s\x1b[0m\n", tab, total, label)
+}
+
+func (s *Service) renderTab(ctx *kernel.Context) {
+	_ = s.sendToTerm(ctx, proto.MsgTermClear, nil)
+	_ = s.writeString(ctx, "\x1b[0m")
+
+	_ = s.writeString(ctx, s.tabStatusLine())
+
+	const maxReplay = 60
+	start := len(s.scrollback) - maxReplay
+	if start < 0 {
+		start = 0
+	}
+	for _, ln := range s.scrollback[start:] {
+		_ = s.writeString(ctx, ln+"\n")
+	}
+
+	_ = s.redrawLine(ctx)
+	_ = s.sendToTerm(ctx, proto.MsgTermRefresh, nil)
 }
 
 func (s *Service) banner() string {
@@ -131,9 +324,9 @@ func (s *Service) handleFocus(ctx *kernel.Context, active bool) {
 		return
 	}
 	s.utf8buf = s.utf8buf[:0]
-	_ = s.sendToTerm(ctx, proto.MsgTermClear, nil)
-	_ = s.writeString(ctx, "\x1b[0m")
 	if !s.authed {
+		_ = s.sendToTerm(ctx, proto.MsgTermClear, nil)
+		_ = s.writeString(ctx, "\x1b[0m")
 		if !s.authBanner {
 			_ = s.writeString(ctx, s.banner())
 			s.authBanner = true
@@ -141,10 +334,11 @@ func (s *Service) handleFocus(ctx *kernel.Context, active bool) {
 			_ = s.writeString(ctx, s.banner())
 		}
 		_ = s.redrawAuth(ctx)
+		_ = s.sendToTerm(ctx, proto.MsgTermRefresh, nil)
 	} else {
-		_ = s.redrawLine(ctx)
+		s.initTabsIfNeeded()
+		s.renderTab(ctx)
 	}
-	_ = s.sendToTerm(ctx, proto.MsgTermRefresh, nil)
 }
 
 func (s *Service) handleInput(ctx *kernel.Context, b []byte) {
@@ -175,6 +369,12 @@ func (s *Service) handleInput(ctx *kernel.Context, b []byte) {
 				s.home(ctx)
 			case escEnd:
 				s.end(ctx)
+			case escF1:
+				s.prevTab(ctx, false)
+			case escF2:
+				s.nextTab(ctx, false)
+			case escF3:
+				s.newTab(ctx, false)
 			}
 			continue
 		}
@@ -250,6 +450,11 @@ func (s *Service) submit(ctx *kernel.Context) {
 
 	if len(s.history) == 0 || s.history[len(s.history)-1] != line {
 		s.history = append(s.history, line)
+		if len(s.history) > historyMaxEntries {
+			excess := len(s.history) - historyMaxEntries
+			copy(s.history, s.history[excess:])
+			s.history = s.history[:historyMaxEntries]
+		}
 	}
 	s.histPos = len(s.history)
 
@@ -274,5 +479,9 @@ func (s *Service) submit(ctx *kernel.Context) {
 		_ = s.printString(ctx, "redirect: not supported for "+cmd.Name+"\n")
 	}
 
+	if s.suppressPromptOnce {
+		s.suppressPromptOnce = false
+		return
+	}
 	_ = s.prompt(ctx)
 }

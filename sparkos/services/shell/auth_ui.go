@@ -27,8 +27,9 @@ func (s *Service) beginAuth(ctx *kernel.Context) {
 	s.authSetup = !ok
 	s.authStage = authUser
 	s.authUser = ""
-	s.authBuf = s.authBuf[:0]
+	s.authBuf = wipeBytes(s.authBuf)
 	s.authPass1 = wipeBytes(s.authPass1)
+	s.utf8buf = s.utf8buf[:0]
 	s.authFails = 0
 	s.authBlock = 0
 
@@ -42,6 +43,7 @@ func (s *Service) beginAuth(ctx *kernel.Context) {
 func (s *Service) handleAuthInput(ctx *kernel.Context, b []byte) {
 	now := ctx.NowTick()
 	if s.authBlock != 0 && now < s.authBlock {
+		s.utf8buf = s.utf8buf[:0]
 		return
 	}
 
@@ -203,7 +205,7 @@ func (s *Service) authFail(ctx *kernel.Context) {
 	s.authFails++
 	delay := uint64(1000)
 	if s.authFails > 1 {
-		delay = uint64(1000 * s.authFails)
+		delay = uint64(s.authFails) * 1000
 		if delay > 8000 {
 			delay = 8000
 		}
@@ -213,7 +215,8 @@ func (s *Service) authFail(ctx *kernel.Context) {
 	_ = s.writeString(ctx, "login: ")
 	s.authStage = authUser
 	s.authUser = ""
-	s.authBuf = s.authBuf[:0]
+	s.authBuf = wipeBytes(s.authBuf)
+	s.utf8buf = s.utf8buf[:0]
 	s.authPass1 = wipeBytes(s.authPass1)
 }
 
@@ -222,8 +225,11 @@ func (s *Service) authSuccess(ctx *kernel.Context) {
 	s.authBuf = nil
 	s.authPass1 = wipeBytes(s.authPass1)
 	s.authBanner = false
+	s.utf8buf = s.utf8buf[:0]
 
 	_ = s.writeString(ctx, "Welcome, root.\n\n")
+	s.initTabsIfNeeded()
+	_ = s.writeString(ctx, s.tabStatusLine())
 	_ = s.prompt(ctx)
 }
 

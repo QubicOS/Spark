@@ -125,7 +125,10 @@ func (t *Task) Run(ctx *kernel.Context) {
 
 	for {
 		select {
-		case msg := <-ch:
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
 			switch proto.Kind(msg.Kind) {
 			case proto.MsgAppShutdown:
 				t.unload()
