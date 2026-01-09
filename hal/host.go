@@ -11,6 +11,7 @@ import (
 type hostHAL struct {
 	logger *hostLogger
 	led    *hostLED
+	gpio   GPIO
 	fb     *hostFramebuffer
 	kbd    *hostKeyboard
 	t      *hostTime
@@ -23,9 +24,16 @@ type hostHAL struct {
 func New() HAL {
 	logger := &hostLogger{w: os.Stdout}
 	t := newHostTime()
+	led := &hostLED{logger: logger}
+	pins := []GPIOPin{newLEDPin("LED", led)}
+	for i := 0; i < 7; i++ {
+		pins = append(pins, newVirtualPin(fmt.Sprintf("GPIO%d", i+1), GPIOCapInput|GPIOCapOutput|GPIOCapPullUp|GPIOCapPullDown))
+	}
+	gpio := newVirtualGPIO(pins)
 	return &hostHAL{
 		logger: logger,
-		led:    &hostLED{logger: logger},
+		led:    led,
+		gpio:   gpio,
 		fb:     newHostFramebuffer(320, 320),
 		kbd:    newHostKeyboard(),
 		t:      t,
@@ -37,6 +45,7 @@ func New() HAL {
 
 func (h *hostHAL) Logger() Logger   { return h.logger }
 func (h *hostHAL) LED() LED         { return h.led }
+func (h *hostHAL) GPIO() GPIO       { return h.gpio }
 func (h *hostHAL) Display() Display { return hostDisplay{fb: h.fb} }
 func (h *hostHAL) Input() Input     { return hostInput{kbd: h.kbd} }
 func (h *hostHAL) Flash() Flash     { return h.flash }

@@ -122,6 +122,8 @@ type PWMAudio interface {
 type HAL interface {
 	Logger() Logger
 	LED() LED
+	// GPIO returns a GPIO controller, or nil if unsupported.
+	GPIO() GPIO
 	Display() Display
 	Input() Input
 	Flash() Flash

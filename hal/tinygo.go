@@ -9,6 +9,7 @@ import (
 type tinyGoHAL struct {
 	logger *uartLogger
 	led    *pinLED
+	gpio   GPIO
 	fb     Framebuffer
 	kbd    Keyboard
 	t      *tinyGoTime
@@ -31,9 +32,11 @@ func New() HAL {
 	ledPin := machine.LED
 	ledPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
 
+	led := &pinLED{pin: ledPin}
 	return &tinyGoHAL{
 		logger: &uartLogger{uart: uart},
-		led:    &pinLED{pin: ledPin},
+		led:    led,
+		gpio:   newVirtualGPIO([]GPIOPin{newLEDPin("LED", led)}),
 		fb:     &stubFramebuffer{w: 320, h: 320, format: PixelFormatRGB565},
 		kbd:    &stubKeyboard{},
 		t:      newTinyGoTime(),
@@ -45,6 +48,7 @@ func New() HAL {
 
 func (h *tinyGoHAL) Logger() Logger   { return h.logger }
 func (h *tinyGoHAL) LED() LED         { return h.led }
+func (h *tinyGoHAL) GPIO() GPIO       { return h.gpio }
 func (h *tinyGoHAL) Display() Display { return tinyGoDisplay{fb: h.fb} }
 func (h *tinyGoHAL) Input() Input     { return tinyGoInput{kbd: h.kbd} }
 func (h *tinyGoHAL) Flash() Flash     { return h.flash }

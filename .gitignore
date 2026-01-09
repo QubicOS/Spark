@@ -29,3 +29,9 @@ app/rtdemo.cpp
 # Editor/OS.
 .DS_Store
 Thumbs.db
+
+# Local agent/tooling state.
+/.beads/
+/.claude/
+/mayor/
+/CLAUDE.md
