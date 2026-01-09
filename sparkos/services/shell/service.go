@@ -92,12 +92,12 @@ func (s *Service) Run(ctx *kernel.Context) {
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgTermInput:
 			if s.authed {
-				s.handleInput(ctx, msg.Data[:msg.Len])
+				s.handleInput(ctx, msg.Payload())
 			} else {
-				s.handleAuthInput(ctx, msg.Data[:msg.Len])
+				s.handleAuthInput(ctx, msg.Payload())
 			}
 		case proto.MsgAppControl:
-			active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
+			active, ok := proto.DecodeAppControlPayload(msg.Payload())
 			if !ok {
 				continue
 			}

@@ -68,7 +68,7 @@ func (s *Service) Run(ctx *kernel.Context) {
 				continue
 			}
 
-			requestID, dt, ok := proto.DecodeSleepPayload(msg.Data[:msg.Len])
+			requestID, dt, ok := proto.DecodeSleepPayload(msg.Payload())
 			if !ok {
 				payload := proto.ErrorPayload(
 					proto.ErrBadMessage,

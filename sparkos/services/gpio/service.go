@@ -72,7 +72,7 @@ func (s *Service) handleList(ctx *kernel.Context, msg kernel.Message) {
 	if !reply.Valid() {
 		return
 	}
-	requestID, ok := proto.DecodeGPIOListPayload(msg.Data[:msg.Len])
+	requestID, ok := proto.DecodeGPIOListPayload(msg.Payload())
 	if !ok {
 		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgGPIOList, 0, "decode list")
 		return
@@ -106,7 +106,7 @@ func (s *Service) handleConfig(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	requestID, pinID, mode, pull, ok := proto.DecodeGPIOConfigPayload(msg.Data[:msg.Len])
+	requestID, pinID, mode, pull, ok := proto.DecodeGPIOConfigPayload(msg.Payload())
 	if !ok {
 		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgGPIOConfig, 0, "decode config")
 		return
@@ -140,7 +140,7 @@ func (s *Service) handleWrite(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	requestID, pinID, level, ok := proto.DecodeGPIOWritePayload(msg.Data[:msg.Len])
+	requestID, pinID, level, ok := proto.DecodeGPIOWritePayload(msg.Payload())
 	if !ok {
 		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgGPIOWrite, 0, "decode write")
 		return
@@ -168,7 +168,7 @@ func (s *Service) handleRead(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	requestID, mask, ok := proto.DecodeGPIOReadPayload(msg.Data[:msg.Len])
+	requestID, mask, ok := proto.DecodeGPIOReadPayload(msg.Payload())
 	if !ok {
 		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgGPIORead, 0, "decode read")
 		return

@@ -97,7 +97,7 @@ sent:
 		}
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
-			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
+			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Payload())
 			if !ok || ref != proto.MsgVFSRead {
 				return 0, fmt.Errorf("audio: vfs read: %s", code)
 			}
@@ -107,7 +107,7 @@ sent:
 			}
 			return 0, fmt.Errorf("audio: vfs read: %s: %s", code, string(rest))
 		case proto.MsgVFSReadResp:
-			gotID, gotOff, eof, data, ok := proto.DecodeVFSReadRespPayload(msg.Data[:msg.Len])
+			gotID, gotOff, eof, data, ok := proto.DecodeVFSReadRespPayload(msg.Payload())
 			if !ok || gotID != reqID || gotOff != f.off {
 				continue
 			}

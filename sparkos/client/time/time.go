@@ -67,7 +67,7 @@ waitReply:
 
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgWake:
-			reqID, ok := proto.DecodeWakePayload(msg.Data[:msg.Len])
+			reqID, ok := proto.DecodeWakePayload(msg.Payload())
 			if !ok {
 				return fmt.Errorf("time wake: bad payload")
 			}
@@ -77,7 +77,7 @@ waitReply:
 			return nil
 
 		case proto.MsgError:
-			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
+			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Payload())
 			if !ok {
 				return fmt.Errorf("time error: bad payload")
 			}

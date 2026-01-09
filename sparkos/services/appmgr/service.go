@@ -266,10 +266,10 @@ func (s *Service) runProxy(ctx *kernel.Context, proxyCap kernel.Capability, appI
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgAppSelect:
 			s.ensureRunning(ctx, appID)
-			_ = ctx.SendToCapResult(s.appCapByID(appID), msg.Kind, msg.Data[:msg.Len], kernel.Capability{})
+			_ = ctx.SendToCapResult(s.appCapByID(appID), msg.Kind, msg.Payload(), kernel.Capability{})
 
 		case proto.MsgAppControl:
-			active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
+			active, ok := proto.DecodeAppControlPayload(msg.Payload())
 			if !ok {
 				continue
 			}
@@ -277,18 +277,18 @@ func (s *Service) runProxy(ctx *kernel.Context, proxyCap kernel.Capability, appI
 				now := ctx.NowTick()
 				s.ensureRunning(ctx, appID)
 				s.setActive(appID, true, now)
-				_ = ctx.SendToCapResult(s.appCapByID(appID), msg.Kind, msg.Data[:msg.Len], msg.Cap)
+				_ = ctx.SendToCapResult(s.appCapByID(appID), msg.Kind, msg.Payload(), msg.Cap)
 				continue
 			}
 
 			s.setActive(appID, false, ctx.NowTick())
 			if s.isRunning(appID) {
-				_ = ctx.SendToCapResult(s.appCapByID(appID), msg.Kind, msg.Data[:msg.Len], kernel.Capability{})
+				_ = ctx.SendToCapResult(s.appCapByID(appID), msg.Kind, msg.Payload(), kernel.Capability{})
 			}
 
 		case proto.MsgTermInput:
 			s.ensureRunning(ctx, appID)
-			_ = ctx.SendToCapResult(s.appCapByID(appID), msg.Kind, msg.Data[:msg.Len], kernel.Capability{})
+			_ = ctx.SendToCapResult(s.appCapByID(appID), msg.Kind, msg.Payload(), kernel.Capability{})
 		}
 	}
 }

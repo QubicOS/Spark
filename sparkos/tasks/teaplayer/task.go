@@ -129,14 +129,14 @@ func (t *Task) Run(ctx *kernel.Context) {
 				if msg.Cap.Valid() {
 					t.muxCap = msg.Cap
 				}
-				active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
+				active, ok := proto.DecodeAppControlPayload(msg.Payload())
 				if !ok {
 					continue
 				}
 				t.setActive(ctx, active)
 
 			case proto.MsgAppSelect:
-				appID, arg, ok := proto.DecodeAppSelectPayload(msg.Data[:msg.Len])
+				appID, arg, ok := proto.DecodeAppSelectPayload(msg.Payload())
 				if !ok || appID != proto.AppTEA {
 					continue
 				}
@@ -149,7 +149,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 				if !t.active {
 					continue
 				}
-				t.handleInput(ctx, msg.Data[:msg.Len])
+				t.handleInput(ctx, msg.Payload())
 				if t.active {
 					t.render()
 				}
@@ -165,7 +165,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 			}
 			switch proto.Kind(msg.Kind) {
 			case proto.MsgAudioStatus:
-				state, vol, sr, pos, total, ok := proto.DecodeAudioStatusPayload(msg.Data[:msg.Len])
+				state, vol, sr, pos, total, ok := proto.DecodeAudioStatusPayload(msg.Payload())
 				if !ok {
 					continue
 				}
@@ -176,7 +176,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 				t.nowTotal = total
 				t.render()
 			case proto.MsgAudioMeters:
-				levels, ok := proto.DecodeAudioMetersPayload(msg.Data[:msg.Len])
+				levels, ok := proto.DecodeAudioMetersPayload(msg.Payload())
 				if !ok {
 					continue
 				}

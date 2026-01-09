@@ -105,7 +105,7 @@ func (s *Service) handleSubscribe(ctx *kernel.Context, msg kernel.Message) {
 }
 
 func (s *Service) handlePlay(ctx *kernel.Context, msg kernel.Message) {
-	loop, path, ok := proto.DecodeAudioPlayPayload(msg.Data[:msg.Len])
+	loop, path, ok := proto.DecodeAudioPlayPayload(msg.Payload())
 	if !ok || path == "" {
 		return
 	}
@@ -186,7 +186,7 @@ func (s *Service) stopLocked() {
 }
 
 func (s *Service) handleSetVolume(ctx *kernel.Context, msg kernel.Message) {
-	vol, ok := proto.DecodeAudioSetVolumePayload(msg.Data[:msg.Len])
+	vol, ok := proto.DecodeAudioSetVolumePayload(msg.Payload())
 	if !ok {
 		return
 	}

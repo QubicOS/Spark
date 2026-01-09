@@ -75,7 +75,7 @@ func (s *Service) Run(ctx *kernel.Context) {
 			}
 			switch proto.Kind(msg.Kind) {
 			case proto.MsgTermWrite:
-				_, _ = s.t.Write(msg.Data[:msg.Len])
+				_, _ = s.t.Write(msg.Payload())
 				dirty = true
 			case proto.MsgTermClear:
 				s.reset()

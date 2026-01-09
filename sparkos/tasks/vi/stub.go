@@ -36,7 +36,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 			if msg.Cap.Valid() {
 				muxCap = msg.Cap
 			}
-			active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
+			active, ok := proto.DecodeAppControlPayload(msg.Payload())
 			if !ok {
 				continue
 			}

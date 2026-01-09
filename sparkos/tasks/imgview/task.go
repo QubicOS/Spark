@@ -57,14 +57,14 @@ func (t *Task) Run(ctx *kernel.Context) {
 			if msg.Cap.Valid() {
 				t.muxCap = msg.Cap
 			}
-			active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
+			active, ok := proto.DecodeAppControlPayload(msg.Payload())
 			if !ok {
 				continue
 			}
 			t.setActive(ctx, active)
 
 		case proto.MsgAppSelect:
-			appID, arg, ok := proto.DecodeAppSelectPayload(msg.Data[:msg.Len])
+			appID, arg, ok := proto.DecodeAppSelectPayload(msg.Payload())
 			if !ok || appID != proto.AppImgView {
 				continue
 			}
@@ -77,7 +77,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 			if !t.active {
 				continue
 			}
-			if t.handleInput(ctx, msg.Data[:msg.Len]) {
+			if t.handleInput(ctx, msg.Payload()) {
 				t.requestExit(ctx)
 			}
 		}

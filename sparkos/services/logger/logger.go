@@ -27,6 +27,6 @@ func (s *Service) Run(ctx *kernel.Context) {
 		if msg.Kind != uint16(proto.MsgLogLine) {
 			continue
 		}
-		s.log.WriteLineBytes(msg.Data[:msg.Len])
+		s.log.WriteLineBytes(msg.Payload())
 	}
 }

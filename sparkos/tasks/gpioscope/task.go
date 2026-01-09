@@ -293,7 +293,7 @@ func (t *Task) handleAppMsg(ctx *kernel.Context, msg kernel.Message) {
 		if msg.Cap.Valid() {
 			t.muxCap = msg.Cap
 		}
-		active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
+		active, ok := proto.DecodeAppControlPayload(msg.Payload())
 		if !ok {
 			return
 		}
@@ -303,7 +303,7 @@ func (t *Task) handleAppMsg(ctx *kernel.Context, msg kernel.Message) {
 		}
 
 	case proto.MsgAppSelect:
-		appID, _, ok := proto.DecodeAppSelectPayload(msg.Data[:msg.Len])
+		appID, _, ok := proto.DecodeAppSelectPayload(msg.Payload())
 		if !ok || appID != proto.AppGPIOScope {
 			return
 		}
@@ -316,7 +316,7 @@ func (t *Task) handleAppMsg(ctx *kernel.Context, msg kernel.Message) {
 		if !t.active {
 			return
 		}
-		t.handleInput(ctx, msg.Data[:msg.Len])
+		t.handleInput(ctx, msg.Payload())
 		if t.active {
 			t.render()
 		}
@@ -409,7 +409,7 @@ func (t *Task) sendGPIO(ctx *kernel.Context, kind proto.Kind, payload []byte, re
 func (t *Task) handleGPIOReply(ctx *kernel.Context, msg kernel.Message) {
 	switch proto.Kind(msg.Kind) {
 	case proto.MsgGPIOListResp:
-		reqID, done, pinID, caps, mode, pull, level, ok := proto.DecodeGPIOListRespPayload(msg.Data[:msg.Len])
+		reqID, done, pinID, caps, mode, pull, level, ok := proto.DecodeGPIOListRespPayload(msg.Payload())
 		if !ok || !t.listPending || reqID != t.listReqID {
 			return
 		}
@@ -428,21 +428,21 @@ func (t *Task) handleGPIOReply(ctx *kernel.Context, msg kernel.Message) {
 		t.pins = append(t.pins, pin{id: pinID, caps: caps, mode: mode, pull: pull, level: level})
 
 	case proto.MsgGPIOConfigResp:
-		_, pinID, mode, pull, level, ok := proto.DecodeGPIOConfigRespPayload(msg.Data[:msg.Len])
+		_, pinID, mode, pull, level, ok := proto.DecodeGPIOConfigRespPayload(msg.Payload())
 		if !ok {
 			return
 		}
 		t.updatePinState(pinID, mode, pull, level)
 
 	case proto.MsgGPIOWriteResp:
-		_, pinID, level, ok := proto.DecodeGPIOWriteRespPayload(msg.Data[:msg.Len])
+		_, pinID, level, ok := proto.DecodeGPIOWriteRespPayload(msg.Payload())
 		if !ok {
 			return
 		}
 		t.updatePinLevel(pinID, level)
 
 	case proto.MsgGPIOReadResp:
-		reqID, mask, levels, ok := proto.DecodeGPIOReadRespPayload(msg.Data[:msg.Len])
+		reqID, mask, levels, ok := proto.DecodeGPIOReadRespPayload(msg.Payload())
 		if !ok {
 			_ = reqID
 			return
@@ -451,7 +451,7 @@ func (t *Task) handleGPIOReply(ctx *kernel.Context, msg kernel.Message) {
 		t.onSample(levels)
 
 	case proto.MsgError:
-		code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
+		code, ref, detail, ok := proto.DecodeErrorPayload(msg.Payload())
 		if !ok {
 			return
 		}
@@ -491,7 +491,7 @@ func (t *Task) handleWake(ctx *kernel.Context, msg kernel.Message) {
 	switch proto.Kind(msg.Kind) {
 	case proto.MsgWake:
 	case proto.MsgError:
-		code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
+		code, ref, detail, ok := proto.DecodeErrorPayload(msg.Payload())
 		if !ok {
 			return
 		}
@@ -505,7 +505,7 @@ func (t *Task) handleWake(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	reqID, ok := proto.DecodeWakePayload(msg.Data[:msg.Len])
+	reqID, ok := proto.DecodeWakePayload(msg.Payload())
 	if !ok {
 		return
 	}
