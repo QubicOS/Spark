@@ -36,6 +36,9 @@ func (c *Client) SetVolume(ctx *kernel.Context, vol uint8) error {
 }
 
 func (c *Client) send(ctx *kernel.Context, kind proto.Kind, payload []byte, xfer kernel.Capability) error {
+	if ctx == nil {
+		return fmt.Errorf("audio client: nil context for %s", kind)
+	}
 	if !c.audioCap.Valid() {
 		return fmt.Errorf("audio client: missing capability for %s", kind)
 	}
