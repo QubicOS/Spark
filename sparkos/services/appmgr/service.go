@@ -266,7 +266,13 @@ func (s *Service) runProxy(ctx *kernel.Context, proxyCap kernel.Capability, appI
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgAppSelect:
 			s.ensureRunning(ctx, appID)
-			sendToCapWithRetry(ctx, s.appCapByID(appID), msg.Kind, msg.Payload(), kernel.Capability{})
+			_ = ctx.SendToCapRetry(
+				s.appCapByID(appID),
+				msg.Kind,
+				msg.Payload(),
+				kernel.Capability{},
+				proxySendRetryLimit,
+			)
 
 		case proto.MsgAppControl:
 			active, ok := proto.DecodeAppControlPayload(msg.Payload())
@@ -277,55 +283,35 @@ func (s *Service) runProxy(ctx *kernel.Context, proxyCap kernel.Capability, appI
 				now := ctx.NowTick()
 				s.ensureRunning(ctx, appID)
 				s.setActive(appID, true, now)
-				sendToCapWithRetry(ctx, s.appCapByID(appID), msg.Kind, msg.Payload(), msg.Cap)
+				_ = ctx.SendToCapRetry(s.appCapByID(appID), msg.Kind, msg.Payload(), msg.Cap, proxySendRetryLimit)
 				continue
 			}
 
 			s.setActive(appID, false, ctx.NowTick())
 			if s.isRunning(appID) {
-				sendToCapWithRetry(ctx, s.appCapByID(appID), msg.Kind, msg.Payload(), kernel.Capability{})
+				_ = ctx.SendToCapRetry(
+					s.appCapByID(appID),
+					msg.Kind,
+					msg.Payload(),
+					kernel.Capability{},
+					proxySendRetryLimit,
+				)
 			}
 
 		case proto.MsgTermInput:
 			s.ensureRunning(ctx, appID)
-			sendToCapWithRetry(ctx, s.appCapByID(appID), msg.Kind, msg.Payload(), kernel.Capability{})
+			_ = ctx.SendToCapRetry(
+				s.appCapByID(appID),
+				msg.Kind,
+				msg.Payload(),
+				kernel.Capability{},
+				proxySendRetryLimit,
+			)
 		}
 	}
 }
 
 const proxySendRetryLimit = 50
-
-func sendToCapWithRetry(
-	ctx *kernel.Context,
-	toCap kernel.Capability,
-	kind uint16,
-	payload []byte,
-	xfer kernel.Capability,
-) bool {
-	if ctx == nil {
-		return false
-	}
-	if !toCap.Valid() {
-		return false
-	}
-
-	retries := 0
-	for {
-		res := ctx.SendToCapResult(toCap, kind, payload, xfer)
-		switch res {
-		case kernel.SendOK:
-			return true
-		case kernel.SendErrQueueFull:
-			retries++
-			if retries >= proxySendRetryLimit {
-				return false
-			}
-			ctx.BlockOnTick()
-		default:
-			return false
-		}
-	}
-}
 
 func (s *Service) ensureRunning(ctx *kernel.Context, appID proto.AppID) {
 	s.mu.Lock()
