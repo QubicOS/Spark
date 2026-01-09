@@ -382,17 +382,9 @@ func (t *Task) sendGPIO(ctx *kernel.Context, kind proto.Kind, payload []byte, re
 		t.msg = "gpio: no capability"
 		return
 	}
-	for {
-		res := ctx.SendToCapResult(t.gpioCap, uint16(kind), payload, reply)
-		switch res {
-		case kernel.SendOK:
-			return
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			t.msg = fmt.Sprintf("gpio send: %s", res)
-			return
-		}
+	res := ctx.SendToCapRetry(t.gpioCap, uint16(kind), payload, reply, 500)
+	if res != kernel.SendOK {
+		t.msg = fmt.Sprintf("gpio send: %s", res)
 	}
 }
 
@@ -520,17 +512,9 @@ func (t *Task) scheduleWake(ctx *kernel.Context) {
 	}
 	t.sampleSleepReqID = t.nextID()
 	payload := proto.SleepPayload(t.sampleSleepReqID, t.periodTicks)
-	for {
-		res := ctx.SendToCapResult(t.timeCap, uint16(proto.MsgSleep), payload, t.sleepSendCap)
-		switch res {
-		case kernel.SendOK:
-			return
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			t.msg = fmt.Sprintf("time send: %s", res)
-			return
-		}
+	res := ctx.SendToCapRetry(t.timeCap, uint16(proto.MsgSleep), payload, t.sleepSendCap, 500)
+	if res != kernel.SendOK {
+		t.msg = fmt.Sprintf("time send: %s", res)
 	}
 }
 
@@ -832,18 +816,10 @@ func (t *Task) pulse(ctx *kernel.Context) {
 
 	t.pulseSleepReqID = t.nextID()
 	payload := proto.SleepPayload(t.pulseSleepReqID, t.pulseTicks)
-	for {
-		res := ctx.SendToCapResult(t.timeCap, uint16(proto.MsgSleep), payload, t.sleepSendCap)
-		switch res {
-		case kernel.SendOK:
-			return
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			t.msg = fmt.Sprintf("time send: %s", res)
-			t.pulsePending = false
-			return
-		}
+	res := ctx.SendToCapRetry(t.timeCap, uint16(proto.MsgSleep), payload, t.sleepSendCap, 500)
+	if res != kernel.SendOK {
+		t.msg = fmt.Sprintf("time send: %s", res)
+		t.pulsePending = false
 	}
 }
 
