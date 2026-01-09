@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	logclient "spark/sparkos/client/logger"
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
 )
@@ -58,8 +59,14 @@ func (s *Service) sendToTerm(ctx *kernel.Context, kind proto.Kind, payload []byt
 	case kernel.SendOK:
 		return nil
 	case kernel.SendErrQueueFull:
+		if s.logCap.Valid() {
+			_ = logclient.Log(ctx, s.logCap, fmt.Sprintf("shell: term send %s: queue full", kind))
+		}
 		return fmt.Errorf("shell term send %s: queue full", kind)
 	default:
+		if s.logCap.Valid() {
+			_ = logclient.Log(ctx, s.logCap, fmt.Sprintf("shell: term send %s: %s", kind, res))
+		}
 		return fmt.Errorf("shell term send: %s", res)
 	}
 }
@@ -73,8 +80,14 @@ func (s *Service) sendToMux(ctx *kernel.Context, kind proto.Kind, payload []byte
 	case kernel.SendOK:
 		return nil
 	case kernel.SendErrQueueFull:
+		if s.logCap.Valid() {
+			_ = logclient.Log(ctx, s.logCap, fmt.Sprintf("shell: consolemux send %s: queue full", kind))
+		}
 		return fmt.Errorf("shell consolemux send %s: queue full", kind)
 	default:
+		if s.logCap.Valid() {
+			_ = logclient.Log(ctx, s.logCap, fmt.Sprintf("shell: consolemux send %s: %s", kind, res))
+		}
 		return fmt.Errorf("shell consolemux send: %s", res)
 	}
 }
