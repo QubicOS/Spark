@@ -170,15 +170,34 @@ func (t *Task) setActive(active bool) {
 	}
 	t.active = active
 	t.lastDrawSeq = 0
-	t.frame = 0
 
 	if !t.active {
 		return
+	}
+
+	w := t.fb.Width()
+	h := t.fb.Height()
+	if w <= 0 || h <= 0 {
+		t.active = false
+		return
+	}
+
+	needsInit := w != t.width || h != t.height || t.small == nil || t.camDirs == nil
+	if !needsInit {
+		return
+	}
+	if t.small == nil || t.camDirs == nil {
+		t.frame = 0
 	}
 	t.initScene()
 }
 
 func (t *Task) initScene() {
+	savedPos := t.pos
+	savedYaw := t.yaw
+	savedPitch := t.pitch
+	restoreView := savedPos != (vec3{})
+
 	w := t.fb.Width()
 	h := t.fb.Height()
 	if w <= 0 || h <= 0 {
@@ -215,7 +234,13 @@ func (t *Task) initScene() {
 		}
 	}
 
-	t.resetView()
+	if restoreView {
+		t.pos = savedPos
+		t.yaw = savedYaw
+		t.pitch = savedPitch
+	} else {
+		t.resetView()
+	}
 	t.light = vec3{0.4, 0.9, -0.2}.normalize()
 }
 

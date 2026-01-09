@@ -142,10 +142,24 @@ func (t *Task) setActive(active bool) {
 	}
 	t.active = active
 	t.lastDrawSeq = 0
-	t.frame = 0
 
 	if !t.active {
 		return
+	}
+
+	w := t.fb.Width()
+	h := t.fb.Height()
+	if w <= 0 || h <= 0 {
+		t.active = false
+		return
+	}
+
+	needsInit := w != t.width || h != t.height || t.small == nil || t.dirs == nil || t.objs == nil
+	if !needsInit {
+		return
+	}
+	if t.small == nil || t.dirs == nil || t.objs == nil {
+		t.frame = 0
 	}
 	t.initScene()
 }
