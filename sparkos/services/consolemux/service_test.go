@@ -113,6 +113,7 @@ func TestCtrlGTogglesFocus(t *testing.T) {
 		kernel.Capability{},
 		kernel.Capability{},
 		kernel.Capability{},
+		kernel.Capability{},
 	)
 	k.AddTask(&serviceTask{svc: svc})
 

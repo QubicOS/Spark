@@ -26,6 +26,7 @@ func registerAppCommands(r *registry) error {
 		{Name: "rtdemo", Usage: "rtdemo [on|off]", Desc: "Start raytracing demo (exit with q/ESC).", Run: cmdRTDemo},
 		{Name: "rtvoxel", Usage: "rtvoxel [on|off]", Desc: "Start voxel world demo (exit with q/ESC).", Run: cmdRTVoxel},
 		{Name: "imgview", Usage: "imgview <file>", Desc: "View an image (BMP/PNG/JPEG; q/ESC to exit).", Run: cmdImgView},
+		{Name: "fbtest", Usage: "fbtest", Desc: "Framebuffer benchmark (r rerun, q quit).", Run: cmdFBTest},
 	} {
 		if err := r.register(cmd); err != nil {
 			return err
@@ -118,6 +119,16 @@ func cmdGPIOScope(ctx *kernel.Context, s *Service, args []string, _ redirection)
 		return errors.New("usage: gpio")
 	}
 	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppGPIOScope, "")); err != nil {
+		return err
+	}
+	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))
+}
+
+func cmdFBTest(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	if len(args) != 0 {
+		return errors.New("usage: fbtest")
+	}
+	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppFBTest, "")); err != nil {
 		return err
 	}
 	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))
