@@ -91,8 +91,14 @@ func (c *Client) send(ctx *kernel.Context, kind proto.Kind, payload []byte) erro
 }
 
 func (c *Client) recv(op string) (kernel.Message, error) {
+	if c.replyCh == nil {
+		return kernel.Message{}, fmt.Errorf("vfs %s: reply channel missing", op)
+	}
 	msg, ok := <-c.replyCh
 	if !ok {
+		c.replyCh = nil
+		c.replyCap = kernel.Capability{}
+		c.replyCapXfer = kernel.Capability{}
 		return kernel.Message{}, fmt.Errorf("vfs %s: reply channel closed", op)
 	}
 	return msg, nil
