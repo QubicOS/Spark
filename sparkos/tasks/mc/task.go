@@ -179,14 +179,10 @@ func (t *Task) Run(ctx *kernel.Context) {
 
 func (t *Task) setActive(ctx *kernel.Context, active bool) {
 	if active == t.active {
-		if !active {
-			t.unloadSession()
-		}
 		return
 	}
 	t.active = active
 	if !t.active {
-		t.unloadSession()
 		return
 	}
 	_ = t.refreshPanels(ctx)

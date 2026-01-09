@@ -141,14 +141,10 @@ func (t *Task) Run(ctx *kernel.Context) {
 
 func (t *Task) setActive(active bool) {
 	if active == t.active {
-		if !active {
-			t.unloadSession()
-		}
 		return
 	}
 	t.active = active
 	if !t.active {
-		t.unloadSession()
 		return
 	}
 

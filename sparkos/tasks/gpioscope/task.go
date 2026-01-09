@@ -297,7 +297,7 @@ func (t *Task) handleAppMsg(ctx *kernel.Context, msg kernel.Message) {
 		if !ok {
 			return
 		}
-		t.setActive(active)
+		t.setActive(ctx, active)
 		if t.active {
 			t.render()
 		}
@@ -323,16 +323,18 @@ func (t *Task) handleAppMsg(ctx *kernel.Context, msg kernel.Message) {
 	}
 }
 
-func (t *Task) setActive(active bool) {
+func (t *Task) setActive(ctx *kernel.Context, active bool) {
 	if active == t.active {
-		if !active {
-			t.unload()
-		}
 		return
 	}
 	t.active = active
 	if !t.active {
-		t.unload()
+		if t.pulsePending {
+			t.pulsePending = false
+			t.sendGPIO(ctx, proto.MsgGPIOWrite, proto.GPIOWritePayload(t.nextID(), t.pulsePinID, false), t.replySend)
+		}
+		t.running = false
+		t.triggerArmed = false
 		return
 	}
 	t.msg = "Tab mode | ↑↓ select | Space watch | r run | q quit"
