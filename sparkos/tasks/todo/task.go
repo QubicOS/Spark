@@ -54,6 +54,9 @@ type Task struct {
 	active bool
 	muxCap kernel.Capability
 
+	initialized bool
+	pendingArg  string
+
 	w int
 	h int
 
@@ -157,7 +160,11 @@ func (t *Task) Run(ctx *kernel.Context) {
 				if !ok || appID != proto.AppTodo {
 					continue
 				}
-				t.applyArg(arg)
+				t.pendingArg = arg
+				if t.initialized {
+					t.applyArg(arg)
+					t.pendingArg = ""
+				}
 				if t.active {
 					t.render()
 				}
@@ -200,7 +207,17 @@ func (t *Task) setActive(ctx *kernel.Context, active bool) {
 	if !t.active {
 		return
 	}
-	t.initApp(ctx)
+	if !t.initialized {
+		t.initApp(ctx)
+		if !t.active {
+			return
+		}
+		t.initialized = true
+	}
+	if t.pendingArg != "" {
+		t.applyArg(t.pendingArg)
+		t.pendingArg = ""
+	}
 	t.render()
 }
 
@@ -232,6 +249,8 @@ func (t *Task) initApp(ctx *kernel.Context) {
 
 func (t *Task) unload() {
 	t.active = false
+	t.initialized = false
+	t.pendingArg = ""
 	t.items = nil
 	t.visible = nil
 	t.inbuf = nil

@@ -140,8 +140,8 @@ func (t *Task) Run(ctx *kernel.Context) {
 				if !ok || appID != proto.AppTEA {
 					continue
 				}
+				t.applyArg(ctx, arg)
 				if t.active {
-					t.applyArg(ctx, arg)
 					t.render()
 				}
 
@@ -252,7 +252,9 @@ func (t *Task) initApp(ctx *kernel.Context) {
 		}
 	}
 
-	t.refreshList(ctx)
+	if t.items == nil {
+		t.refreshList(ctx)
+	}
 }
 
 func (t *Task) unload() {
@@ -273,6 +275,12 @@ func (t *Task) applyArg(ctx *kernel.Context, arg string) {
 	arg = strings.TrimSpace(arg)
 	if arg == "" {
 		return
+	}
+	if t.vfs == nil && t.vfsCap.Valid() {
+		t.vfs = vfsclient.New(t.vfsCap)
+	}
+	if t.audio == nil && t.audioCap.Valid() {
+		t.audio = audioclient.New(t.audioCap)
 	}
 	if strings.HasSuffix(strings.ToLower(arg), ".tea") {
 		t.nowPath = arg

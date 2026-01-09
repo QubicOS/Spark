@@ -214,7 +214,12 @@ func (t *Task) setActive(ctx *kernel.Context, active bool) {
 	if !t.active {
 		return
 	}
-	t.initGame()
+	if len(t.board) == 0 {
+		t.initGame()
+		if !t.active {
+			return
+		}
+	}
 	t.lastFall = ctx.NowTick()
 	t.render()
 }

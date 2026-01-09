@@ -194,7 +194,12 @@ func (t *Task) setActive(ctx *kernel.Context, active bool) {
 		return
 	}
 
-	t.initGame()
+	if t.snake == nil {
+		t.initGame()
+		if !t.active {
+			return
+		}
+	}
 	t.lastStep = ctx.NowTick()
 	t.render()
 }

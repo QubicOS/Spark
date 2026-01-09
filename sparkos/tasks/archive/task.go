@@ -149,8 +149,8 @@ func (t *Task) Run(ctx *kernel.Context) {
 				if !ok || appID != proto.AppArchive {
 					continue
 				}
+				t.applyArg(ctx, arg)
 				if t.active {
-					t.applyArg(ctx, arg)
 					t.render()
 				}
 
@@ -204,14 +204,7 @@ func (t *Task) setActive(ctx *kernel.Context, active bool) {
 		t.vfs = vfsclient.New(t.vfsCap)
 	}
 
-	t.status = ""
-	t.prefix = ""
-	t.entries = nil
-	t.items = nil
-	t.sel = 0
-	t.top = 0
-
-	if t.archivePath == "" {
+	if t.archivePath == "" && t.inputMode == inputNone {
 		t.beginOpen()
 	}
 
@@ -411,6 +404,9 @@ func (t *Task) beginCreate() {
 }
 
 func (t *Task) openArchive(ctx *kernel.Context, path string) {
+	if t.vfs == nil && t.vfsCap.Valid() {
+		t.vfs = vfsclient.New(t.vfsCap)
+	}
 	if t.vfs == nil {
 		t.status = "VFS unavailable."
 		return
