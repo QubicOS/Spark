@@ -209,7 +209,7 @@ func sendWithRetry(ctx *kernel.Context, toCap kernel.Capability, kind proto.Kind
 				}
 				ctx.BlockOnTick()
 			default:
-				return nil
+				return fmt.Errorf("consolemux send %s: %s", kind, res)
 			}
 		}
 	}
@@ -234,7 +234,7 @@ func sendWithRetry(ctx *kernel.Context, toCap kernel.Capability, kind proto.Kind
 				}
 				ctx.BlockOnTick()
 			default:
-				return nil
+				return fmt.Errorf("consolemux send %s: %s", kind, res)
 			}
 		}
 	nextChunk:
