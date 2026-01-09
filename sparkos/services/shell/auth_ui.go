@@ -43,6 +43,7 @@ func (s *Service) beginAuth(ctx *kernel.Context) {
 func (s *Service) handleAuthInput(ctx *kernel.Context, b []byte) {
 	now := ctx.NowTick()
 	if s.authBlock != 0 && now < s.authBlock {
+		s.utf8buf = s.utf8buf[:0]
 		return
 	}
 
