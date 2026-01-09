@@ -60,6 +60,17 @@ type Message struct {
 	Cap  Capability
 }
 
+// Payload returns the message payload slice.
+//
+// It clamps Len to the Data buffer size to avoid panics if Len is corrupted.
+func (m Message) Payload() []byte {
+	n := int(m.Len)
+	if n > len(m.Data) {
+		n = len(m.Data)
+	}
+	return m.Data[:n]
+}
+
 // MaxMessageBytes is the maximum payload size for IPC messages.
 //
 // Larger transfers should use shared buffers + notify protocols, not mailbox copies.
