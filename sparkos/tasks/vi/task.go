@@ -167,21 +167,9 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 		t.unloadSession()
 		return
 	}
-	for {
-		res := ctx.SendToCapResult(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{})
-		switch res {
-		case kernel.SendOK:
-			t.active = false
-			t.unloadSession()
-			return
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			t.active = false
-			t.unloadSession()
-			return
-		}
-	}
+	_ = ctx.SendToCapRetry(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{}, 500)
+	t.active = false
+	t.unloadSession()
 }
 
 func (t *Task) unloadSession() {

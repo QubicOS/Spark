@@ -1058,19 +1058,8 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 		t.active = false
 		return
 	}
-	for {
-		res := ctx.SendToCapResult(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{})
-		switch res {
-		case kernel.SendOK:
-			t.active = false
-			return
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			t.active = false
-			return
-		}
-	}
+	_ = ctx.SendToCapRetry(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{}, 500)
+	t.active = false
 }
 
 func splitLeadingLineNumber(line string) (lineNo int, rest string, ok bool) {

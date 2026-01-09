@@ -51,15 +51,5 @@ func requestExit(ctx *kernel.Context, muxCap kernel.Capability) {
 	if !muxCap.Valid() {
 		return
 	}
-	for {
-		res := ctx.SendToCapResult(muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{})
-		switch res {
-		case kernel.SendOK:
-			return
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			return
-		}
-	}
+	_ = ctx.SendToCapRetry(muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{}, 500)
 }

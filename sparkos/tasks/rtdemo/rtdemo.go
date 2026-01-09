@@ -130,17 +130,9 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 		t.setActive(false)
 		return
 	}
-	for {
-		res := ctx.SendToCapResult(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{})
-		switch res {
-		case kernel.SendOK:
-			return
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			t.setActive(false)
-			return
-		}
+	res := ctx.SendToCapRetry(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{}, 500)
+	if res != kernel.SendOK {
+		t.setActive(false)
 	}
 }
 
