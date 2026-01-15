@@ -52,6 +52,8 @@ const (
 	menuItemSavePreset
 	menuItemLoadPreset
 
+	menuItemToggleProtoMode
+
 	menuItemOpenHelp
 )
 
@@ -91,7 +93,7 @@ func menuItems(cat menuCategory) []menuItem {
 		}
 	case menuDecode:
 		return []menuItem{
-			{id: menuItemOpenHelp, label: "Protocol help (placeholder)"},
+			{id: menuItemToggleProtoMode, label: "Protocol View Mode"},
 		}
 	case menuDisplay:
 		return []menuItem{

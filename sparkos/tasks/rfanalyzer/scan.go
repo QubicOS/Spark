@@ -36,6 +36,7 @@ func (t *Task) onTick(tick uint64) {
 
 		v := t.sampleEnergy(ch, now)
 		t.updateChannel(ch, v)
+		t.maybeCapturePacket(ch, v, now)
 		t.invalidate(dirtySpectrum)
 
 		t.scanChan += step
@@ -179,5 +180,5 @@ func (t *Task) statusLine() string {
 	if t.capturePaused {
 		cap = "PAUSED"
 	}
-	return fmt.Sprintf("MODE:%s WF:%s CAP:%s  SEL:%03d  RNG:%03d-%03d  RATE:%s CRC:%s", mode, wf, cap, t.selectedChannel, t.channelRangeLo, t.channelRangeHi, t.dataRate, t.crcMode)
+	return fmt.Sprintf("MODE:%s WF:%s CAP:%s  SEL:%03d  RATE:%s CRC:%s  PKT/s:%d DROP:%d", mode, wf, cap, t.selectedChannel, t.dataRate, t.crcMode, t.pktsPerSec, t.pktDropped)
 }

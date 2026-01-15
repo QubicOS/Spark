@@ -84,6 +84,29 @@ type Task struct {
 
 	nextRenderTick uint64
 
+	protoMode protocolMode
+
+	packets     [maxPackets]packet
+	pktHead     int
+	pktCount    int
+	pktSeq      uint32
+	pktDropped  uint32
+	pktSecStart uint64
+	pktSecCount int
+	pktsPerSec  int
+
+	snifferSel    int
+	snifferTop    int
+	snifferSelSeq uint32
+
+	filterCRC     filterCRC
+	filterChannel filterChannel
+	filterMinLen  int
+	filterMaxLen  int
+	filterAddr    [5]byte
+	filterAddrLen int
+	filterSel     int
+
 	showMenu bool
 	menuCat  menuCategory
 	menuSel  int
@@ -119,6 +142,9 @@ func New(disp hal.Display, ep, vfsCap kernel.Capability) *Task {
 		powerLevel:      rfPwrMax,
 		wfPalette:       wfPaletteCyan,
 		rng:             0xA341316C,
+		protoMode:       protoDecoded,
+		filterCRC:       filterCRCAny,
+		filterChannel:   filterChannelAll,
 		menuCat:         menuRF,
 		dirty:           dirtyAll,
 	}
@@ -217,6 +243,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 			}
 			t.nowTick = tick
 			t.onTick(tick)
+			t.tickPacketsPerSecond(tick)
 			if t.active && t.dirty != 0 && tick >= t.nextRenderTick {
 				t.renderNow(tick)
 			}
@@ -337,16 +364,7 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 	}
 
 	if t.showFilters {
-		switch k.kind {
-		case keyEsc:
-			t.showFilters = false
-			t.invalidate(dirtyOverlay | dirtySniffer | dirtyStatus)
-		case keyRune:
-			if k.r == 'f' || k.r == 'F' {
-				t.showFilters = false
-				t.invalidate(dirtyOverlay | dirtySniffer | dirtyStatus)
-			}
-		}
+		t.handleFiltersKey(ctx, k)
 		return
 	}
 
@@ -511,7 +529,7 @@ func (t *Task) adjustUp() {
 		}
 		t.invalidate(dirtyRFControl)
 	case focusSniffer:
-		t.invalidate(dirtySniffer)
+		t.moveSnifferSelection(-1)
 	case focusProtocol:
 		t.invalidate(dirtyProtocol)
 	}
@@ -525,7 +543,7 @@ func (t *Task) adjustDown() {
 		}
 		t.invalidate(dirtyRFControl)
 	case focusSniffer:
-		t.invalidate(dirtySniffer)
+		t.moveSnifferSelection(+1)
 	case focusProtocol:
 		t.invalidate(dirtyProtocol)
 	}

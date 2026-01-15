@@ -18,6 +18,7 @@ const (
 	promptSetScanStep
 	promptSavePreset
 	promptLoadPreset
+	promptSetFilterAddr
 )
 
 func (t *Task) openPrompt(kind promptKind, title, initial string) {
@@ -222,6 +223,41 @@ func (t *Task) submitPrompt(ctx *kernel.Context) {
 		t.closePrompt()
 		return
 
+	case promptSetFilterAddr:
+		s = strings.ReplaceAll(strings.TrimSpace(s), " ", "")
+		if s == "" {
+			t.filterAddrLen = 0
+			t.reconcileSnifferSelection()
+			t.closePrompt()
+			t.invalidate(dirtySniffer | dirtyProtocol | dirtyStatus)
+			return
+		}
+		if len(s)%2 != 0 {
+			t.promptErr = "addr: hex must be even length"
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		if len(s)/2 > len(t.filterAddr) {
+			t.promptErr = fmt.Sprintf("addr: max %d bytes", len(t.filterAddr))
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		n := len(s) / 2
+		for i := 0; i < n; i++ {
+			b, ok := parseHexByte(s[i*2 : i*2+2])
+			if !ok {
+				t.promptErr = "addr: bad hex"
+				t.invalidate(dirtyOverlay)
+				return
+			}
+			t.filterAddr[i] = b
+		}
+		t.filterAddrLen = n
+		t.reconcileSnifferSelection()
+		t.closePrompt()
+		t.invalidate(dirtySniffer | dirtyProtocol | dirtyStatus)
+		return
+
 	default:
 		t.promptErr = "unsupported prompt"
 		t.invalidate(dirtyOverlay)
@@ -244,4 +280,32 @@ func parseIntStrict(s string) (int, error) {
 		}
 	}
 	return n, nil
+}
+
+func parseHexByte(s string) (byte, bool) {
+	if len(s) != 2 {
+		return 0, false
+	}
+	hi, ok := parseHexNibble(rune(s[0]))
+	if !ok {
+		return 0, false
+	}
+	lo, ok := parseHexNibble(rune(s[1]))
+	if !ok {
+		return 0, false
+	}
+	return byte(hi<<4 | lo), true
+}
+
+func parseHexNibble(r rune) (byte, bool) {
+	switch {
+	case r >= '0' && r <= '9':
+		return byte(r - '0'), true
+	case r >= 'a' && r <= 'f':
+		return byte(10 + r - 'a'), true
+	case r >= 'A' && r <= 'F':
+		return byte(10 + r - 'A'), true
+	default:
+		return 0, false
+	}
 }

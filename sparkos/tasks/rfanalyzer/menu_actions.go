@@ -165,6 +165,14 @@ func (t *Task) activateMenuItem(ctx *kernel.Context, id menuItemID) {
 		t.presetDirty = true
 		t.invalidate(dirtyWaterfall | dirtyStatus | dirtyOverlay)
 
+	case menuItemToggleProtoMode:
+		if t.protoMode == protoDecoded {
+			t.protoMode = protoRaw
+		} else {
+			t.protoMode = protoDecoded
+		}
+		t.invalidate(dirtyProtocol | dirtyOverlay | dirtyStatus)
+
 	case menuItemSavePreset:
 		initial := t.activePreset
 		if initial == "" {

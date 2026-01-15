@@ -475,25 +475,179 @@ func (t *Task) renderSniffer(l layout) {
 	t.renderPanel(l.sniffer, "Packet Sniffer", t.focus == focusSniffer)
 
 	inner := l.sniffer.inset(2, 2)
+	maxCols := int(inner.w / t.fontWidth)
+	if maxCols <= 0 {
+		return
+	}
+
 	status := "LIVE"
 	if t.capturePaused {
 		status = "PAUSED"
 	}
-	hdr := fmt.Sprintf("%s  filt:%v", status, t.showFilters)
-	t.drawStringClipped(inner.x+2, inner.y, hdr, colorFG, l.rightCols)
+	hdr := fmt.Sprintf("%s  pps:%d drop:%d  %s", status, t.pktsPerSec, t.pktDropped, t.filterSummary())
+	t.drawStringClipped(inner.x+2, inner.y, hdr, colorFG, maxCols)
 
-	body := inner.inset(1, 1)
-	y := body.y + t.fontHeight
-	msg := "(no packets yet)"
-	t.drawStringClipped(body.x+2, y, msg, colorDim, l.rightCols)
+	colHdr := "t(ms) ch r ln addr   c"
+	t.drawStringClipped(inner.x+2, inner.y+t.fontHeight, colHdr, colorDim, maxCols)
+
+	listY := inner.y + 2*t.fontHeight
+	listRows := int((inner.h - 2*t.fontHeight) / t.fontHeight)
+	if listRows <= 0 {
+		return
+	}
+
+	total := t.filteredCount()
+	if total <= 0 {
+		t.drawStringClipped(inner.x+2, listY, "(no packets)", colorDim, maxCols)
+		return
+	}
+	if t.snifferSel < 0 {
+		t.snifferSel = 0
+	}
+	if t.snifferSel >= total {
+		t.snifferSel = total - 1
+		if t.snifferSel < 0 {
+			t.snifferSel = 0
+		}
+	}
+
+	maxTop := total - listRows
+	if maxTop < 0 {
+		maxTop = 0
+	}
+	if t.snifferTop < 0 {
+		t.snifferTop = 0
+	}
+	if t.snifferTop > maxTop {
+		t.snifferTop = maxTop
+	}
+	if t.snifferSel < t.snifferTop {
+		t.snifferTop = t.snifferSel
+	}
+	if t.snifferSel >= t.snifferTop+listRows {
+		t.snifferTop = t.snifferSel - listRows + 1
+		if t.snifferTop > maxTop {
+			t.snifferTop = maxTop
+		}
+	}
+
+	for row := 0; row < listRows; row++ {
+		idx := t.snifferTop + row
+		if idx < 0 || idx >= total {
+			continue
+		}
+		p, ok := t.filteredPacketByIndex(idx)
+		if !ok || p == nil {
+			continue
+		}
+
+		ts := int(p.tick % 10000)
+		r := rateShort(p.rate)
+		line := fmt.Sprintf("%04d %03d %c %02d %s %s", ts, p.channel, r, p.length, p.addrSuffix3(), p.crcText())
+
+		y := listY + int16(row)*t.fontHeight
+		fg := colorFG
+		bg := colorPanelBG
+		if idx == t.snifferSel && t.focus == focusSniffer {
+			fg = colorSelFG
+			bg = colorSelBG
+		}
+		_ = t.d.FillRectangle(inner.x+1, y, inner.w-2, t.fontHeight, bg)
+		t.drawStringClipped(inner.x+2, y, line, fg, maxCols)
+	}
 }
 
 func (t *Task) renderProtocol(l layout) {
 	t.renderPanel(l.proto, "Protocol View", t.focus == focusProtocol)
 
 	inner := l.proto.inset(2, 2)
-	t.drawStringClipped(inner.x+2, inner.y, "raw/decoded  preamble addr payload crc", colorDim, l.rightCols)
-	t.drawStringClipped(inner.x+2, inner.y+t.fontHeight, "(select a packet)", colorDim, l.rightCols)
+	maxCols := int(inner.w / t.fontWidth)
+	if maxCols <= 0 {
+		return
+	}
+
+	p, ok := t.filteredPacketByIndex(t.snifferSel)
+	if !ok || p == nil {
+		t.drawStringClipped(inner.x+2, inner.y, "mode:"+t.protoMode.String(), colorDim, maxCols)
+		t.drawStringClipped(inner.x+2, inner.y+t.fontHeight, "(select a packet)", colorDim, maxCols)
+		return
+	}
+
+	h1 := fmt.Sprintf("mode:%s  #%d  ch:%03d  t:%04d", t.protoMode, p.seq, p.channel, int(p.tick%10000))
+	h2 := fmt.Sprintf("rate:%s len:%02d crc:%s addr:%dB", p.rate, p.length, p.crcText(), p.addrLen)
+	t.drawStringClipped(inner.x+2, inner.y, h1, colorFG, maxCols)
+	t.drawStringClipped(inner.x+2, inner.y+t.fontHeight, h2, colorDim, maxCols)
+
+	y := inner.y + 2*t.fontHeight
+	if y+t.fontHeight > inner.y+inner.h {
+		return
+	}
+
+	if t.protoMode == protoRaw {
+		var raw [1 + 5 + 32 + 2]byte
+		n := 0
+		raw[n] = 0x55
+		n++
+		for i := 0; i < int(p.addrLen) && i < len(p.addr); i++ {
+			raw[n] = p.addr[i]
+			n++
+		}
+		for i := 0; i < int(p.length) && i < len(p.payload); i++ {
+			raw[n] = p.payload[i]
+			n++
+		}
+		for i := 0; i < int(p.crcLen) && i < len(p.crc); i++ {
+			raw[n] = p.crc[i]
+			n++
+		}
+		t.renderHexDump(inner, y, raw[:n], maxCols)
+		return
+	}
+
+	addrLine := fmt.Sprintf("pre:55 addr:%02X%02X%02X%02X%02X", p.addr[0], p.addr[1], p.addr[2], p.addr[3], p.addr[4])
+	t.drawStringClipped(inner.x+2, y, addrLine, colorFG, maxCols)
+	y += t.fontHeight
+
+	if p.crcLen > 0 {
+		crcLine := fmt.Sprintf("crc:%s %02X%02X", p.crcText(), p.crc[0], p.crc[1])
+		t.drawStringClipped(inner.x+2, y, crcLine, colorFG, maxCols)
+		y += t.fontHeight
+	}
+
+	t.renderHexDump(inner, y, p.payload[:p.length], maxCols)
+}
+
+func (t *Task) renderHexDump(box rect, y int16, data []byte, maxCols int) {
+	// Format: "00: 0102030405060708"
+	if len(data) == 0 {
+		t.drawStringClipped(box.x+2, y, "(empty)", colorDim, maxCols)
+		return
+	}
+	bytesPerLine := 8
+	if bytesPerLine < 1 {
+		bytesPerLine = 1
+	}
+	for off := 0; off < len(data); off += bytesPerLine {
+		if y+t.fontHeight > box.y+box.h {
+			return
+		}
+		chunk := data[off:]
+		if len(chunk) > bytesPerLine {
+			chunk = chunk[:bytesPerLine]
+		}
+		line := fmt.Sprintf("%02X: %s", off, hexBytes(chunk))
+		t.drawStringClipped(box.x+2, y, line, colorDim, maxCols)
+		y += t.fontHeight
+	}
+}
+
+func hexBytes(b []byte) string {
+	const digits = "0123456789ABCDEF"
+	out := make([]byte, 0, len(b)*2)
+	for _, v := range b {
+		out = append(out, digits[(v>>4)&0x0F], digits[v&0x0F])
+	}
+	return string(out)
 }
 
 func (t *Task) renderOverlay(l layout) {
@@ -627,6 +781,8 @@ func (t *Task) menuItemLine(it menuItem) string {
 		return it.label + "  <" + t.powerLevel.String() + ">"
 	case menuItemCyclePalette:
 		return it.label + "  <" + t.wfPalette.String() + ">"
+	case menuItemToggleProtoMode:
+		return it.label + "  <" + t.protoMode.String() + ">"
 	default:
 		return it.label
 	}
@@ -722,20 +878,45 @@ func (t *Task) renderFiltersOverlay(l layout) {
 	_ = t.d.FillRectangle(px, py, pw, ph, colorBorder)
 	_ = t.d.FillRectangle(px+1, py+1, pw-2, ph-2, colorPanelBG)
 	_ = t.d.FillRectangle(px+1, py+1, pw-2, t.fontHeight+1, colorHeaderBG)
-	t.drawStringClipped(px+2, py, "Filters (f close)", colorFG, boxCols)
+	t.drawStringClipped(px+2, py, "Filters (Esc/f close)", colorFG, boxCols)
+	t.drawStringClipped(px+2, py+t.fontHeight, "Up/Down sel  Left/Right adj  Enter addr", colorDim, boxCols)
 
-	lines := []string{
-		"CRC: any/ok/bad",
-		"CH : all/sel/range",
-		"LEN: min/max",
-		"ADDR: match",
-		"RATE: any/250K/1M/2M",
-		"",
-		"advanced: profiles",
+	lines := make([]string, 0, filterLines)
+	lines = append(lines, fmt.Sprintf("CRC    <%s>", t.filterCRC))
+
+	chLine := fmt.Sprintf("CH     <%s>", t.filterChannel)
+	switch t.filterChannel {
+	case filterChannelSelected:
+		chLine += fmt.Sprintf("  ch=%03d", t.selectedChannel)
+	case filterChannelRange:
+		chLine += fmt.Sprintf("  %03d-%03d", t.channelRangeLo, t.channelRangeHi)
 	}
-	for i, it := range lines {
-		y := py + t.fontHeight + int16(i+1)*t.fontHeight
-		t.drawStringClipped(px+2, y, it, colorDim, boxCols)
+	lines = append(lines, chLine)
+
+	lines = append(lines, fmt.Sprintf("MINLEN [%02d]", clampInt(t.filterMinLen, 0, 32)))
+	maxText := "--"
+	if t.filterMaxLen > 0 {
+		maxText = fmt.Sprintf("%02d", clampInt(t.filterMaxLen, 0, 32))
+	}
+	lines = append(lines, fmt.Sprintf("MAXLEN [%s]", maxText))
+
+	addr := "(none)"
+	if t.filterAddrLen > 0 {
+		addr = t.filterAddrHex()
+	}
+	lines = append(lines, fmt.Sprintf("ADDR   <%s>", addr))
+
+	y0 := py + 2*t.fontHeight
+	for i := 0; i < len(lines); i++ {
+		y := y0 + int16(i)*t.fontHeight
+		fg := colorFG
+		bg := colorPanelBG
+		if i == t.filterSel {
+			fg = colorSelFG
+			bg = colorSelBG
+		}
+		_ = t.d.FillRectangle(px+1, y, pw-2, t.fontHeight, bg)
+		t.drawStringClipped(px+2, y, lines[i], fg, boxCols)
 	}
 }
 
