@@ -7,6 +7,7 @@ import (
 
 	"spark/internal/buildinfo"
 	vfsclient "spark/sparkos/client/vfs"
+	"spark/sparkos/internal/userdb"
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
 )
@@ -38,6 +39,10 @@ type Service struct {
 
 	cwd string
 
+	user     string
+	userRole userdb.Role
+	userHome string
+
 	hint  string
 	ghost string
 	cands []string
@@ -47,17 +52,23 @@ type Service struct {
 
 	authed bool
 
-	authHaveShadow bool
-	authRec        shadowRecord
-	authSetup      bool
-	authStage      authStage
-	authUser       string
+	authHaveUsers bool
+	authUsers     []userdb.Record
+	authSetup     bool
+	authStage     authStage
+	authUser      string
 
 	authBuf    []byte
 	authPass1  []byte
 	authFails  int
 	authBlock  uint64
 	authBanner bool
+
+	suActive bool
+	suTarget string
+	suBuf    []byte
+	suFails  int
+	suBlock  uint64
 }
 
 func New(inCap kernel.Capability, termCap kernel.Capability, logCap kernel.Capability, vfsCap kernel.Capability, timeCap kernel.Capability, muxCap kernel.Capability) *Service {
@@ -118,6 +129,10 @@ type tabState struct {
 
 	cwd string
 
+	user     string
+	userRole userdb.Role
+	userHome string
+
 	name string
 
 	hint  string
@@ -142,6 +157,10 @@ func (s *Service) initTabsIfNeeded() {
 			scrollback: s.scrollback,
 
 			cwd: s.cwd,
+
+			user:     s.user,
+			userRole: s.userRole,
+			userHome: s.userHome,
 
 			name: "",
 
@@ -173,6 +192,10 @@ func (s *Service) stashTab(i int) {
 
 		cwd: s.cwd,
 
+		user:     s.user,
+		userRole: s.userRole,
+		userHome: s.userHome,
+
 		name: s.tabs[i].name,
 
 		hint:  s.hint,
@@ -197,6 +220,11 @@ func (s *Service) restoreTab(i int) {
 	s.scrollback = t.scrollback
 
 	s.cwd = t.cwd
+
+	s.user = t.user
+	s.userRole = t.userRole
+	s.userHome = t.userHome
+
 	s.tabs[i].name = t.name
 
 	s.hint = t.hint
@@ -212,7 +240,7 @@ func (s *Service) currentTab() (idx int, total int) {
 func (s *Service) newTab(ctx *kernel.Context, suppressPrompt bool) {
 	s.initTabsIfNeeded()
 	s.stashTab(s.tabIdx)
-	s.tabs = append(s.tabs, tabState{cwd: s.cwd})
+	s.tabs = append(s.tabs, tabState{cwd: s.cwd, user: s.user, userRole: s.userRole, userHome: s.userHome})
 	_ = s.switchTab(ctx, len(s.tabs)-1, suppressPrompt)
 }
 
@@ -272,6 +300,9 @@ func (s *Service) tabStatusLine() string {
 		if n := strings.TrimSpace(s.tabs[s.tabIdx].name); n != "" {
 			label = n
 		}
+	}
+	if s.user != "" {
+		label = s.user + ":" + label
 	}
 	return fmt.Sprintf("\x1b[38;5;245m[tab %d/%d] %s\x1b[0m\n", tab, total, label)
 }
@@ -342,6 +373,11 @@ func (s *Service) handleFocus(ctx *kernel.Context, active bool) {
 }
 
 func (s *Service) handleInput(ctx *kernel.Context, b []byte) {
+	if s.suActive {
+		s.handleSuInput(ctx, b)
+		return
+	}
+
 	s.utf8buf = append(s.utf8buf, b...)
 	b = s.utf8buf
 
