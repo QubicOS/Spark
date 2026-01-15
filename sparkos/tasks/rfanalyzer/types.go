@@ -168,6 +168,7 @@ func (t *Task) adjustSetting(delta int) {
 	case rfSettingPower:
 		t.powerLevel = rfPowerLevel(wrapEnum(int(t.powerLevel)+delta, 4))
 	}
+	t.presetDirty = true
 }
 
 func wrapEnum(v, n int) int {

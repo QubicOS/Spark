@@ -75,6 +75,9 @@ type Task struct {
 	wfHead       int
 	wfBuf        []uint8
 
+	activePreset string
+	presetDirty  bool
+
 	rng uint32
 
 	nextRenderTick uint64
