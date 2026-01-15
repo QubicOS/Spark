@@ -22,6 +22,7 @@ const (
 	AppGPIOScope  AppID = 15
 	AppFBTest     AppID = 16
 	AppSerialTerm AppID = 17
+	AppUsers      AppID = 18
 )
 
 // AppSelectPayload encodes an app selection request.
