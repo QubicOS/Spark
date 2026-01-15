@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 
+	"spark/sparkos/internal/userdb"
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
 	vitask "spark/sparkos/tasks/vi"
@@ -28,6 +29,7 @@ func registerAppCommands(r *registry) error {
 		{Name: "imgview", Usage: "imgview <file>", Desc: "View an image (BMP/PNG/JPEG; q/ESC to exit).", Run: cmdImgView},
 		{Name: "fbtest", Usage: "fbtest", Desc: "Framebuffer benchmark (r rerun, q quit).", Run: cmdFBTest},
 		{Name: "serial", Usage: "serial", Desc: "Serial terminal (Ctrl+Q exit, Ctrl+R clear).", Run: cmdSerial},
+		{Name: "users", Usage: "users", Desc: "User manager (admin only; n new, p password, r role, h home).", Run: cmdUsers},
 	} {
 		if err := r.register(cmd); err != nil {
 			return err
@@ -140,6 +142,19 @@ func cmdSerial(ctx *kernel.Context, s *Service, args []string, _ redirection) er
 		return errors.New("usage: serial")
 	}
 	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppSerialTerm, "")); err != nil {
+		return err
+	}
+	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))
+}
+
+func cmdUsers(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	if len(args) != 0 {
+		return errors.New("usage: users")
+	}
+	if s.userRole != userdb.RoleAdmin {
+		return errors.New("users: requires admin")
+	}
+	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppUsers, "")); err != nil {
 		return err
 	}
 	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))

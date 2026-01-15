@@ -79,6 +79,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	gpioscopeEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	fbtestEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	serialtermEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	usersEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 
 	rtdemoProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	rtvoxelProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
@@ -97,6 +98,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	gpioscopeProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	fbtestProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	serialtermProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	usersProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 
 	k.AddTask(logger.New(h.Logger(), logEP.Restrict(kernel.RightRecv)))
 	k.AddTask(timesvc.New(timeEP))
@@ -135,6 +137,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			gpioscopeProxyEP.Restrict(kernel.RightRecv),
 			fbtestProxyEP.Restrict(kernel.RightRecv),
 			serialtermProxyEP.Restrict(kernel.RightRecv),
+			usersProxyEP.Restrict(kernel.RightRecv),
 			rtdemoEP.Restrict(kernel.RightSend),
 			rtvoxelEP.Restrict(kernel.RightSend),
 			imgviewEP.Restrict(kernel.RightSend),
@@ -152,6 +155,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			gpioscopeEP.Restrict(kernel.RightSend),
 			fbtestEP.Restrict(kernel.RightSend),
 			serialtermEP.Restrict(kernel.RightSend),
+			usersEP.Restrict(kernel.RightSend),
 			rtdemoEP.Restrict(kernel.RightRecv),
 			rtvoxelEP.Restrict(kernel.RightRecv),
 			imgviewEP.Restrict(kernel.RightRecv),
@@ -169,6 +173,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			gpioscopeEP.Restrict(kernel.RightRecv),
 			fbtestEP.Restrict(kernel.RightRecv),
 			serialtermEP.Restrict(kernel.RightRecv),
+			usersEP.Restrict(kernel.RightRecv),
 		))
 		k.AddTask(consolemux.New(
 			muxEP.Restrict(kernel.RightRecv),
@@ -191,6 +196,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			gpioscopeProxyEP.Restrict(kernel.RightSend),
 			fbtestProxyEP.Restrict(kernel.RightSend),
 			serialtermProxyEP.Restrict(kernel.RightSend),
+			usersProxyEP.Restrict(kernel.RightSend),
 			termEP.Restrict(kernel.RightSend),
 		))
 		k.AddTask(termkbd.NewInput(h.Input(), muxEP.Restrict(kernel.RightSend)))

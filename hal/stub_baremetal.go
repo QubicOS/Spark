@@ -23,4 +23,3 @@ func (f *stubFramebuffer) Present() error { return ErrNotImplemented }
 type stubKeyboard struct{}
 
 func (k *stubKeyboard) Events() <-chan KeyEvent { return nil }
-

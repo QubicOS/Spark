@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"spark/sparkos/internal/userdb"
 	"spark/sparkos/kernel"
 )
 
@@ -18,12 +19,28 @@ const (
 )
 
 func (s *Service) beginAuth(ctx *kernel.Context) {
-	rec, ok, err := s.loadShadow(ctx)
+	users, ok, err := s.loadUsers(ctx)
 	if err != nil {
 		_ = s.writeString(ctx, "auth: "+err.Error()+"\n")
 	}
-	s.authHaveShadow = ok
-	s.authRec = rec
+
+	if !ok {
+		rec, legacyOK, legacyErr := s.loadLegacyShadow(ctx)
+		if legacyErr != nil {
+			_ = s.writeString(ctx, "auth: "+legacyErr.Error()+"\n")
+		}
+		if legacyOK {
+			if err := s.writeUsers(ctx, []userdb.Record{rec}); err != nil {
+				_ = s.writeString(ctx, "auth: migrate shadow: "+err.Error()+"\n")
+			} else {
+				users = []userdb.Record{rec}
+				ok = true
+			}
+		}
+	}
+
+	s.authHaveUsers = ok
+	s.authUsers = users
 	s.authSetup = !ok
 	s.authStage = authUser
 	s.authUser = ""
@@ -135,7 +152,7 @@ func (s *Service) authSubmit(ctx *kernel.Context) {
 		return
 
 	case authPass:
-		if s.authUser != "root" {
+		if s.authSetup && s.authUser != "root" {
 			s.authBuf = wipeBytes(s.authBuf)
 			s.authBuf = s.authBuf[:0]
 			s.authFail(ctx)
@@ -152,21 +169,22 @@ func (s *Service) authSubmit(ctx *kernel.Context) {
 			return
 		}
 
-		if !s.authHaveShadow {
+		if !s.authHaveUsers {
 			s.authBuf = wipeBytes(s.authBuf)
 			s.authBuf = s.authBuf[:0]
 			s.authFail(ctx)
 			return
 		}
 
-		ok := verifyPassword(s.authRec, s.authBuf)
+		rec, found := userdb.Find(s.authUsers, s.authUser)
+		ok := found && rec.VerifyPassword(s.authBuf)
 		s.authBuf = wipeBytes(s.authBuf)
 		s.authBuf = s.authBuf[:0]
 		if !ok {
 			s.authFail(ctx)
 			return
 		}
-		s.authSuccess(ctx)
+		s.authSuccess(ctx, rec)
 		return
 
 	case authPassConfirm:
@@ -182,21 +200,21 @@ func (s *Service) authSubmit(ctx *kernel.Context) {
 			return
 		}
 
-		rec := shadowRecord{user: "root", scheme: shadowSchemePBKDF2SHA256, iter: defaultPBKDF2Iters}
-		rec.salt = s.makeSalt(ctx)
-		rec.hash = hashPasswordPBKDF2SHA256(rec.iter, rec.salt, s.authPass1)
+		rec := userdb.Record{Name: "root", Role: userdb.RoleAdmin, Home: "/", Scheme: userdb.SchemePBKDF2SHA256, Iter: defaultPBKDF2Iters}
+		rec.Salt = s.makeSalt(ctx)
+		rec.Hash = userdb.HashPasswordPBKDF2SHA256(rec.Iter, rec.Salt, s.authPass1)
 		s.authPass1 = wipeBytes(s.authPass1)
 
-		if err := s.writeShadow(ctx, rec); err != nil {
-			_ = s.writeString(ctx, "auth: write shadow: "+err.Error()+"\n")
+		if err := s.writeUsers(ctx, []userdb.Record{rec}); err != nil {
+			_ = s.writeString(ctx, "auth: write users: "+err.Error()+"\n")
 			s.authFail(ctx)
 			return
 		}
 
-		s.authRec = rec
-		s.authHaveShadow = true
+		s.authUsers = []userdb.Record{rec}
+		s.authHaveUsers = true
 		s.authSetup = false
-		s.authSuccess(ctx)
+		s.authSuccess(ctx, rec)
 		return
 	}
 }
@@ -220,15 +238,31 @@ func (s *Service) authFail(ctx *kernel.Context) {
 	s.authPass1 = wipeBytes(s.authPass1)
 }
 
-func (s *Service) authSuccess(ctx *kernel.Context) {
+func (s *Service) authSuccess(ctx *kernel.Context, rec userdb.Record) {
 	s.authed = true
 	s.authBuf = nil
 	s.authPass1 = wipeBytes(s.authPass1)
 	s.authBanner = false
 	s.utf8buf = s.utf8buf[:0]
 
-	_ = s.writeString(ctx, "Welcome, root.\n\n")
+	s.user = rec.Name
+	s.userRole = rec.Role
+	s.userHome = rec.Home
+	if s.userHome != "" {
+		s.cwd = s.userHome
+	}
+	if s.cwd == "" {
+		s.cwd = "/"
+	}
+
+	_ = s.writeString(ctx, "Welcome, "+rec.Name+".\n\n")
 	s.initTabsIfNeeded()
+	if s.tabIdx >= 0 && s.tabIdx < len(s.tabs) {
+		s.tabs[s.tabIdx].user = s.user
+		s.tabs[s.tabIdx].userRole = s.userRole
+		s.tabs[s.tabIdx].userHome = s.userHome
+		s.tabs[s.tabIdx].cwd = s.cwd
+	}
 	_ = s.writeString(ctx, s.tabStatusLine())
 	_ = s.prompt(ctx)
 }

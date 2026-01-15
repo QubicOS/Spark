@@ -1,41 +1,22 @@
 package shell
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"crypto/subtle"
-	"encoding/binary"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"strings"
 
 	vfsclient "spark/sparkos/client/vfs"
+	"spark/sparkos/internal/userdb"
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
 )
 
 const (
-	shadowPath   = "/etc/shadow"
-	shadowMaxLen = 512
+	legacyShadowPath   = "/etc/shadow"
+	legacyShadowMaxLen = 512
 
 	defaultPBKDF2Iters = 20000
 )
-
-type shadowScheme uint8
-
-const (
-	shadowSchemeLegacySHAIter shadowScheme = iota + 1
-	shadowSchemePBKDF2SHA256
-)
-
-type shadowRecord struct {
-	user   string
-	scheme shadowScheme
-	iter   int
-	salt   [16]byte
-	hash   [32]byte
-}
 
 func (s *Service) ensureAuthVFS(ctx *kernel.Context) error {
 	if s.vfs == nil && s.vfsCap.Valid() {
@@ -47,34 +28,34 @@ func (s *Service) ensureAuthVFS(ctx *kernel.Context) error {
 	return nil
 }
 
-func (s *Service) loadShadow(ctx *kernel.Context) (shadowRecord, bool, error) {
+func (s *Service) loadUsers(ctx *kernel.Context) ([]userdb.Record, bool, error) {
 	if err := s.ensureAuthVFS(ctx); err != nil {
-		return shadowRecord{}, false, err
+		return nil, false, err
 	}
 
-	typ, size, err := s.vfs.Stat(ctx, shadowPath)
+	typ, size, err := s.vfs.Stat(ctx, userdb.UsersPath)
 	if err != nil || typ != proto.VFSEntryFile {
-		return shadowRecord{}, false, nil
+		return nil, false, nil
 	}
 	if size == 0 {
-		return shadowRecord{}, false, errors.New("auth: empty shadow")
+		return nil, false, errors.New("auth: empty users db")
 	}
-	if size > shadowMaxLen {
-		return shadowRecord{}, false, errors.New("auth: shadow too large")
+	if size > userdb.MaxFileBytes {
+		return nil, false, errors.New("auth: users db too large")
 	}
 
-	b, err := s.readFileLimited(ctx, shadowPath, shadowMaxLen)
+	b, err := s.readFileLimited(ctx, userdb.UsersPath, userdb.MaxFileBytes)
 	if err != nil {
-		return shadowRecord{}, false, err
+		return nil, false, err
 	}
-	rec, err := parseShadow(string(b))
+	users, err := userdb.ParseUsersFile(b)
 	if err != nil {
-		return shadowRecord{}, false, err
+		return nil, false, err
 	}
-	return rec, true, nil
+	return users, true, nil
 }
 
-func (s *Service) writeShadow(ctx *kernel.Context, rec shadowRecord) error {
+func (s *Service) writeUsers(ctx *kernel.Context, users []userdb.Record) error {
 	if err := s.ensureAuthVFS(ctx); err != nil {
 		return err
 	}
@@ -82,15 +63,12 @@ func (s *Service) writeShadow(ctx *kernel.Context, rec shadowRecord) error {
 		_ = err
 	}
 
-	line, err := formatShadow(rec)
+	b, err := userdb.FormatUsersFile(users)
 	if err != nil {
 		return err
 	}
-	_, err = s.vfs.Write(ctx, shadowPath, proto.VFSWriteTruncate, []byte(line))
-	if err != nil {
-		return err
-	}
-	return nil
+	_, err = s.vfs.Write(ctx, userdb.UsersPath, proto.VFSWriteTruncate, b)
+	return err
 }
 
 func (s *Service) readFileLimited(ctx *kernel.Context, path string, max int) ([]byte, error) {
@@ -128,161 +106,100 @@ func (s *Service) readFileLimited(ctx *kernel.Context, path string, max int) ([]
 	return out, nil
 }
 
-func parseShadow(s string) (shadowRecord, error) {
-	s = strings.TrimSpace(s)
-	parts := strings.Split(s, ":")
+func (s *Service) loadLegacyShadow(ctx *kernel.Context) (userdb.Record, bool, error) {
+	if err := s.ensureAuthVFS(ctx); err != nil {
+		return userdb.Record{}, false, err
+	}
 
-	var rec shadowRecord
+	typ, size, err := s.vfs.Stat(ctx, legacyShadowPath)
+	if err != nil || typ != proto.VFSEntryFile {
+		return userdb.Record{}, false, nil
+	}
+	if size == 0 {
+		return userdb.Record{}, false, errors.New("auth: empty shadow")
+	}
+	if size > legacyShadowMaxLen {
+		return userdb.Record{}, false, errors.New("auth: shadow too large")
+	}
+
+	b, err := s.readFileLimited(ctx, legacyShadowPath, legacyShadowMaxLen)
+	if err != nil {
+		return userdb.Record{}, false, err
+	}
+	rec, err := parseLegacyShadow(strings.TrimSpace(string(b)))
+	if err != nil {
+		return userdb.Record{}, false, err
+	}
+	return rec, true, nil
+}
+
+func parseLegacyShadow(line string) (userdb.Record, error) {
+	parts := strings.Split(strings.TrimSpace(line), ":")
+
 	switch len(parts) {
 	case 4:
 		user := parts[0]
 		if user != "root" {
-			return shadowRecord{}, errors.New("auth: unknown user")
+			return userdb.Record{}, errors.New("auth: unknown user")
 		}
 		iter, err := parseInt(parts[1])
 		if err != nil || iter <= 0 || iter > 1_000_000 {
-			return shadowRecord{}, errors.New("auth: bad iter")
+			return userdb.Record{}, errors.New("auth: bad iter")
 		}
 		saltB, err := hex.DecodeString(parts[2])
 		if err != nil || len(saltB) != 16 {
-			return shadowRecord{}, errors.New("auth: bad salt")
+			return userdb.Record{}, errors.New("auth: bad salt")
 		}
 		hashB, err := hex.DecodeString(parts[3])
 		if err != nil || len(hashB) != 32 {
-			return shadowRecord{}, errors.New("auth: bad hash")
+			return userdb.Record{}, errors.New("auth: bad hash")
 		}
-		rec.user = user
-		rec.scheme = shadowSchemeLegacySHAIter
-		rec.iter = iter
-		copy(rec.salt[:], saltB)
-		copy(rec.hash[:], hashB)
+
+		var rec userdb.Record
+		rec.Name = user
+		rec.Role = userdb.RoleAdmin
+		rec.Home = "/"
+		rec.Scheme = userdb.SchemeLegacySHA256Iter
+		rec.Iter = iter
+		copy(rec.Salt[:], saltB)
+		copy(rec.Hash[:], hashB)
 		return rec, nil
 
 	case 5:
 		user := parts[0]
 		if user != "root" {
-			return shadowRecord{}, errors.New("auth: unknown user")
+			return userdb.Record{}, errors.New("auth: unknown user")
 		}
-		scheme, ok := parseShadowScheme(parts[1])
+		scheme, ok := userdb.ParsePasswordScheme(parts[1])
 		if !ok {
-			return shadowRecord{}, errors.New("auth: unknown scheme")
+			return userdb.Record{}, errors.New("auth: unknown scheme")
 		}
 		iter, err := parseInt(parts[2])
 		if err != nil || iter <= 0 || iter > 1_000_000 {
-			return shadowRecord{}, errors.New("auth: bad iter")
+			return userdb.Record{}, errors.New("auth: bad iter")
 		}
 		saltB, err := hex.DecodeString(parts[3])
 		if err != nil || len(saltB) != 16 {
-			return shadowRecord{}, errors.New("auth: bad salt")
+			return userdb.Record{}, errors.New("auth: bad salt")
 		}
 		hashB, err := hex.DecodeString(parts[4])
 		if err != nil || len(hashB) != 32 {
-			return shadowRecord{}, errors.New("auth: bad hash")
+			return userdb.Record{}, errors.New("auth: bad hash")
 		}
-		rec.user = user
-		rec.scheme = scheme
-		rec.iter = iter
-		copy(rec.salt[:], saltB)
-		copy(rec.hash[:], hashB)
+
+		var rec userdb.Record
+		rec.Name = user
+		rec.Role = userdb.RoleAdmin
+		rec.Home = "/"
+		rec.Scheme = scheme
+		rec.Iter = iter
+		copy(rec.Salt[:], saltB)
+		copy(rec.Hash[:], hashB)
 		return rec, nil
 
 	default:
-		return shadowRecord{}, errors.New("auth: bad shadow format")
+		return userdb.Record{}, errors.New("auth: bad shadow format")
 	}
-}
-
-func formatShadow(rec shadowRecord) (string, error) {
-	if rec.user != "root" {
-		return "", errors.New("auth: only root supported")
-	}
-	if rec.scheme == 0 {
-		return "", errors.New("auth: invalid scheme")
-	}
-	if rec.iter <= 0 {
-		return "", errors.New("auth: invalid iter")
-	}
-	return fmt.Sprintf(
-		"%s:%s:%d:%s:%s\n",
-		rec.user,
-		rec.scheme.String(),
-		rec.iter,
-		hex.EncodeToString(rec.salt[:]),
-		hex.EncodeToString(rec.hash[:]),
-	), nil
-}
-
-func parseShadowScheme(s string) (shadowScheme, bool) {
-	switch s {
-	case "pbkdf2-sha256":
-		return shadowSchemePBKDF2SHA256, true
-	case "sha256-iter":
-		return shadowSchemeLegacySHAIter, true
-	default:
-		return 0, false
-	}
-}
-
-func (s shadowScheme) String() string {
-	switch s {
-	case shadowSchemePBKDF2SHA256:
-		return "pbkdf2-sha256"
-	case shadowSchemeLegacySHAIter:
-		return "sha256-iter"
-	default:
-		return "unknown"
-	}
-}
-
-func hashPasswordLegacySHA256Iter(iter int, salt [16]byte, pass []byte) [32]byte {
-	h := sha256.New()
-	_, _ = h.Write(salt[:])
-	_, _ = h.Write(pass)
-	var sum [32]byte
-	_ = h.Sum(sum[:0])
-	for i := 1; i < iter; i++ {
-		sum = sha256.Sum256(sum[:])
-	}
-	return sum
-}
-
-func hashPasswordPBKDF2SHA256(iter int, salt [16]byte, pass []byte) [32]byte {
-	if iter <= 0 {
-		iter = 1
-	}
-	var block [4]byte
-	binary.BigEndian.PutUint32(block[:], 1)
-
-	var u [32]byte
-	var t [32]byte
-	mac := hmac.New(sha256.New, pass)
-	_, _ = mac.Write(salt[:])
-	_, _ = mac.Write(block[:])
-	_ = mac.Sum(u[:0])
-	t = u
-
-	for i := 1; i < iter; i++ {
-		mac.Reset()
-		_, _ = mac.Write(u[:])
-		_ = mac.Sum(u[:0])
-		for j := range t {
-			t[j] ^= u[j]
-		}
-	}
-	return t
-}
-
-func verifyPassword(rec shadowRecord, pass []byte) bool {
-	want := rec.hash
-	var got [32]byte
-	switch rec.scheme {
-	case shadowSchemePBKDF2SHA256:
-		got = hashPasswordPBKDF2SHA256(rec.iter, rec.salt, pass)
-	case shadowSchemeLegacySHAIter:
-		got = hashPasswordLegacySHA256Iter(rec.iter, rec.salt, pass)
-	default:
-		return false
-	}
-	return subtle.ConstantTimeCompare(want[:], got[:]) == 1
 }
 
 func parseInt(s string) (int, error) {

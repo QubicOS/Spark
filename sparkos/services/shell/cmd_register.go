@@ -10,6 +10,7 @@ func (s *Service) initRegistry() error {
 		registerFSCommands,
 		registerTextCommands,
 		registerAppCommands,
+		registerUserCommands,
 	} {
 		if err := register(r); err != nil {
 			return err

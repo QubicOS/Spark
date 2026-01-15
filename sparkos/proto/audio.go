@@ -34,6 +34,9 @@ func DecodeAudioPlayPayload(b []byte) (loop bool, path string, ok bool) {
 	if len(b) < 1 {
 		return false, "", false
 	}
+	if b[0]&^byte(1) != 0 {
+		return false, "", false
+	}
 	loop = (b[0] & 1) != 0
 	return loop, string(b[1:]), true
 }
