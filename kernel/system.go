@@ -65,4 +65,3 @@ func (s *System) Recv(to Endpoint) Message {
 func (s *System) Yield() {
 	runtime.Gosched()
 }
-

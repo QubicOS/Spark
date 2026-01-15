@@ -26,30 +26,65 @@ const (
 
 const mailboxSlots = 8
 
-// Mailbox is a fixed-size single-producer/multi-producer, single-consumer queue.
+type mailboxSlot struct {
+	seq atomic.Uint32
+	msg Message
+}
+
+// Mailbox is a fixed-size multi-producer, single-consumer queue.
 // It is designed for bare-metal use: no allocations, busy-wait with Gosched().
+//
+// The zero value is ready to use.
 type Mailbox struct {
 	_     [0]func() // prevent accidental copying.
 	head  atomic.Uint32
 	tail  atomic.Uint32
-	slots [mailboxSlots]Message
+	init  atomic.Uint32
+	slots [mailboxSlots]mailboxSlot
+}
+
+func (mb *Mailbox) ensureInit() {
+	if mb.init.Load() == 2 {
+		return
+	}
+
+	if mb.init.CompareAndSwap(0, 1) {
+		for i := range mb.slots {
+			mb.slots[i].seq.Store(uint32(i))
+		}
+		mb.init.Store(2)
+		return
+	}
+
+	for mb.init.Load() != 2 {
+		runtime.Gosched()
+	}
 }
 
 // TrySend attempts to enqueue a message, returning false if the mailbox is full.
 func (mb *Mailbox) TrySend(msg Message) bool {
-	head := mb.head.Load()
-	tail := mb.tail.Load()
-	if head-tail >= mailboxSlots {
-		return false
-	}
+	mb.ensureInit()
 
-	// Reserve a slot.
-	if !mb.head.CompareAndSwap(head, head+1) {
-		return false
-	}
+	for {
+		head := mb.head.Load()
+		slot := &mb.slots[head%mailboxSlots]
+		seq := slot.seq.Load()
+		diff := int32(seq) - int32(head)
 
-	mb.slots[head%mailboxSlots] = msg
-	return true
+		switch {
+		case diff == 0:
+			if !mb.head.CompareAndSwap(head, head+1) {
+				continue
+			}
+			slot.msg = msg
+			slot.seq.Store(head + 1)
+			return true
+		case diff < 0:
+			return false
+		default:
+			continue
+		}
+	}
 }
 
 // Send enqueues a message, blocking until it succeeds.
@@ -61,15 +96,28 @@ func (mb *Mailbox) Send(msg Message) {
 
 // TryRecv attempts to dequeue one message, returning false if empty.
 func (mb *Mailbox) TryRecv() (Message, bool) {
-	tail := mb.tail.Load()
-	head := mb.head.Load()
-	if tail == head {
-		return Message{}, false
-	}
+	mb.ensureInit()
 
-	msg := mb.slots[tail%mailboxSlots]
-	mb.tail.Store(tail + 1)
-	return msg, true
+	for {
+		tail := mb.tail.Load()
+		slot := &mb.slots[tail%mailboxSlots]
+		seq := slot.seq.Load()
+		diff := int32(seq) - int32(tail+1)
+
+		switch {
+		case diff == 0:
+			if !mb.tail.CompareAndSwap(tail, tail+1) {
+				continue
+			}
+			msg := slot.msg
+			slot.seq.Store(tail + mailboxSlots)
+			return msg, true
+		case diff < 0:
+			return Message{}, false
+		default:
+			continue
+		}
+	}
 }
 
 // Recv blocks until one message is available.
@@ -82,4 +130,3 @@ func (mb *Mailbox) Recv() Message {
 		runtime.Gosched()
 	}
 }
-

@@ -22,4 +22,3 @@ func (stubFlash) Erase(off, size uint32) error {
 	_ = size
 	return ErrNotImplemented
 }
-
