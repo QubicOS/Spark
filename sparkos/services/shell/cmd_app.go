@@ -25,12 +25,23 @@ func registerAppCommands(r *registry) error {
 		{Name: "rtdemo", Usage: "rtdemo [on|off]", Desc: "Start raytracing demo (exit with q/ESC).", Run: cmdRTDemo},
 		{Name: "rtvoxel", Usage: "rtvoxel [on|off]", Desc: "Start voxel world demo (exit with q/ESC).", Run: cmdRTVoxel},
 		{Name: "imgview", Usage: "imgview <file>", Desc: "View an image (BMP/PNG/JPEG; q/ESC to exit).", Run: cmdImgView},
+		{Name: "rf", Usage: "rf", Desc: "2.4 GHz RF Analyzer (nRF24 scan + waterfall + sniffer).", Run: cmdRFAnalyzer},
 	} {
 		if err := r.register(cmd); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func cmdRFAnalyzer(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	if len(args) != 0 {
+		return errors.New("usage: rf")
+	}
+	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppRFAnalyzer, "")); err != nil {
+		return err
+	}
+	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))
 }
 
 func cmdVi(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
