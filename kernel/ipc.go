@@ -82,4 +82,3 @@ func (mb *Mailbox) Recv() Message {
 		runtime.Gosched()
 	}
 }
-

@@ -3,4 +3,3 @@
 // The package is intentionally self-contained and avoids external dependencies so it can be used on
 // constrained targets (including TinyGo builds).
 package vector
-

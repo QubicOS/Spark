@@ -33,4 +33,3 @@ func (b *SharedBuffer) Read(dst []byte) (seq uint32, count int) {
 	copy(dst[:n], b.buf[:n])
 	return seq, int(n)
 }
-
