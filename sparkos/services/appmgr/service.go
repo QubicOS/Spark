@@ -12,6 +12,7 @@ import (
 	hexedittask "spark/sparkos/tasks/hexedit"
 	imgviewtask "spark/sparkos/tasks/imgview"
 	mctask "spark/sparkos/tasks/mc"
+	rfanalyzertask "spark/sparkos/tasks/rfanalyzer"
 	rtdemotask "spark/sparkos/tasks/rtdemo"
 	rtvoxeltask "spark/sparkos/tasks/rtvoxel"
 	snaketask "spark/sparkos/tasks/snake"
@@ -32,146 +33,155 @@ type Service struct {
 	vfsCap   kernel.Capability
 	audioCap kernel.Capability
 
-	rtdemoProxyCap   kernel.Capability
-	rtvoxelProxyCap  kernel.Capability
-	imgviewProxyCap  kernel.Capability
-	hexProxyCap      kernel.Capability
-	snakeProxyCap    kernel.Capability
-	tetrisProxyCap   kernel.Capability
-	calendarProxyCap kernel.Capability
-	todoProxyCap     kernel.Capability
-	archiveProxyCap  kernel.Capability
-	viProxyCap       kernel.Capability
-	mcProxyCap       kernel.Capability
-	vectorProxyCap   kernel.Capability
-	teaProxyCap      kernel.Capability
-	basicProxyCap    kernel.Capability
+	rtdemoProxyCap     kernel.Capability
+	rtvoxelProxyCap    kernel.Capability
+	imgviewProxyCap    kernel.Capability
+	hexProxyCap        kernel.Capability
+	snakeProxyCap      kernel.Capability
+	tetrisProxyCap     kernel.Capability
+	calendarProxyCap   kernel.Capability
+	todoProxyCap       kernel.Capability
+	archiveProxyCap    kernel.Capability
+	viProxyCap         kernel.Capability
+	mcProxyCap         kernel.Capability
+	vectorProxyCap     kernel.Capability
+	teaProxyCap        kernel.Capability
+	basicProxyCap      kernel.Capability
+	rfAnalyzerProxyCap kernel.Capability
 
-	rtdemoCap   kernel.Capability
-	rtvoxelCap  kernel.Capability
-	imgviewCap  kernel.Capability
-	hexCap      kernel.Capability
-	snakeCap    kernel.Capability
-	tetrisCap   kernel.Capability
-	calendarCap kernel.Capability
-	todoCap     kernel.Capability
-	archiveCap  kernel.Capability
-	viCap       kernel.Capability
-	mcCap       kernel.Capability
-	vectorCap   kernel.Capability
-	teaCap      kernel.Capability
-	basicCap    kernel.Capability
+	rtdemoCap     kernel.Capability
+	rtvoxelCap    kernel.Capability
+	imgviewCap    kernel.Capability
+	hexCap        kernel.Capability
+	snakeCap      kernel.Capability
+	tetrisCap     kernel.Capability
+	calendarCap   kernel.Capability
+	todoCap       kernel.Capability
+	archiveCap    kernel.Capability
+	viCap         kernel.Capability
+	mcCap         kernel.Capability
+	vectorCap     kernel.Capability
+	teaCap        kernel.Capability
+	basicCap      kernel.Capability
+	rfAnalyzerCap kernel.Capability
 
-	rtdemoEP   kernel.Capability
-	rtvoxelEP  kernel.Capability
-	imgviewEP  kernel.Capability
-	hexEP      kernel.Capability
-	snakeEP    kernel.Capability
-	tetrisEP   kernel.Capability
-	calendarEP kernel.Capability
-	todoEP     kernel.Capability
-	archiveEP  kernel.Capability
-	viEP       kernel.Capability
-	mcEP       kernel.Capability
-	vectorEP   kernel.Capability
-	teaEP      kernel.Capability
-	basicEP    kernel.Capability
+	rtdemoEP     kernel.Capability
+	rtvoxelEP    kernel.Capability
+	imgviewEP    kernel.Capability
+	hexEP        kernel.Capability
+	snakeEP      kernel.Capability
+	tetrisEP     kernel.Capability
+	calendarEP   kernel.Capability
+	todoEP       kernel.Capability
+	archiveEP    kernel.Capability
+	viEP         kernel.Capability
+	mcEP         kernel.Capability
+	vectorEP     kernel.Capability
+	teaEP        kernel.Capability
+	basicEP      kernel.Capability
+	rfAnalyzerEP kernel.Capability
 
 	mu sync.Mutex
 
-	rtdemoRunning   bool
-	rtvoxelRunning  bool
-	imgviewRunning  bool
-	hexRunning      bool
-	snakeRunning    bool
-	tetrisRunning   bool
-	calendarRunning bool
-	todoRunning     bool
-	archiveRunning  bool
-	viRunning       bool
-	mcRunning       bool
-	vectorRunning   bool
-	teaRunning      bool
-	basicRunning    bool
+	rtdemoRunning     bool
+	rtvoxelRunning    bool
+	imgviewRunning    bool
+	hexRunning        bool
+	snakeRunning      bool
+	tetrisRunning     bool
+	calendarRunning   bool
+	todoRunning       bool
+	archiveRunning    bool
+	viRunning         bool
+	mcRunning         bool
+	vectorRunning     bool
+	teaRunning        bool
+	basicRunning      bool
+	rfAnalyzerRunning bool
 
-	rtdemoActive   bool
-	rtvoxelActive  bool
-	imgviewActive  bool
-	hexActive      bool
-	snakeActive    bool
-	tetrisActive   bool
-	calendarActive bool
-	todoActive     bool
-	archiveActive  bool
-	viActive       bool
-	mcActive       bool
-	vectorActive   bool
-	teaActive      bool
-	basicActive    bool
+	rtdemoActive     bool
+	rtvoxelActive    bool
+	imgviewActive    bool
+	hexActive        bool
+	snakeActive      bool
+	tetrisActive     bool
+	calendarActive   bool
+	todoActive       bool
+	archiveActive    bool
+	viActive         bool
+	mcActive         bool
+	vectorActive     bool
+	teaActive        bool
+	basicActive      bool
+	rfAnalyzerActive bool
 
-	rtdemoInactiveSince   uint64
-	rtvoxelInactiveSince  uint64
-	imgviewInactiveSince  uint64
-	hexInactiveSince      uint64
-	snakeInactiveSince    uint64
-	tetrisInactiveSince   uint64
-	calendarInactiveSince uint64
-	todoInactiveSince     uint64
-	archiveInactiveSince  uint64
-	viInactiveSince       uint64
-	mcInactiveSince       uint64
-	vectorInactiveSince   uint64
-	teaInactiveSince      uint64
-	basicInactiveSince    uint64
+	rtdemoInactiveSince     uint64
+	rtvoxelInactiveSince    uint64
+	imgviewInactiveSince    uint64
+	hexInactiveSince        uint64
+	snakeInactiveSince      uint64
+	tetrisInactiveSince     uint64
+	calendarInactiveSince   uint64
+	todoInactiveSince       uint64
+	archiveInactiveSince    uint64
+	viInactiveSince         uint64
+	mcInactiveSince         uint64
+	vectorInactiveSince     uint64
+	teaInactiveSince        uint64
+	basicInactiveSince      uint64
+	rfAnalyzerInactiveSince uint64
 }
 
-func New(disp hal.Display, vfsCap, audioCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxyCap, hexProxyCap, snakeProxyCap, tetrisProxyCap, calendarProxyCap, todoProxyCap, archiveProxyCap, viProxyCap, mcProxyCap, vectorProxyCap, teaProxyCap, basicProxyCap, rtdemoCap, rtvoxelCap, imgviewCap, hexCap, snakeCap, tetrisCap, calendarCap, todoCap, archiveCap, viCap, mcCap, vectorCap, teaCap, basicCap, rtdemoEP, rtvoxelEP, imgviewEP, hexEP, snakeEP, tetrisEP, calendarEP, todoEP, archiveEP, viEP, mcEP, vectorEP, teaEP, basicEP kernel.Capability) *Service {
+func New(disp hal.Display, vfsCap, audioCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxyCap, hexProxyCap, snakeProxyCap, tetrisProxyCap, calendarProxyCap, todoProxyCap, archiveProxyCap, viProxyCap, mcProxyCap, vectorProxyCap, teaProxyCap, basicProxyCap, rfAnalyzerProxyCap, rtdemoCap, rtvoxelCap, imgviewCap, hexCap, snakeCap, tetrisCap, calendarCap, todoCap, archiveCap, viCap, mcCap, vectorCap, teaCap, basicCap, rfAnalyzerCap, rtdemoEP, rtvoxelEP, imgviewEP, hexEP, snakeEP, tetrisEP, calendarEP, todoEP, archiveEP, viEP, mcEP, vectorEP, teaEP, basicEP, rfAnalyzerEP kernel.Capability) *Service {
 	return &Service{
-		disp:             disp,
-		vfsCap:           vfsCap,
-		audioCap:         audioCap,
-		rtdemoProxyCap:   rtdemoProxyCap,
-		rtvoxelProxyCap:  rtvoxelProxyCap,
-		imgviewProxyCap:  imgviewProxyCap,
-		hexProxyCap:      hexProxyCap,
-		snakeProxyCap:    snakeProxyCap,
-		tetrisProxyCap:   tetrisProxyCap,
-		calendarProxyCap: calendarProxyCap,
-		todoProxyCap:     todoProxyCap,
-		archiveProxyCap:  archiveProxyCap,
-		viProxyCap:       viProxyCap,
-		mcProxyCap:       mcProxyCap,
-		vectorProxyCap:   vectorProxyCap,
-		teaProxyCap:      teaProxyCap,
-		basicProxyCap:    basicProxyCap,
-		rtdemoCap:        rtdemoCap,
-		rtvoxelCap:       rtvoxelCap,
-		imgviewCap:       imgviewCap,
-		hexCap:           hexCap,
-		snakeCap:         snakeCap,
-		tetrisCap:        tetrisCap,
-		calendarCap:      calendarCap,
-		todoCap:          todoCap,
-		archiveCap:       archiveCap,
-		viCap:            viCap,
-		mcCap:            mcCap,
-		vectorCap:        vectorCap,
-		teaCap:           teaCap,
-		basicCap:         basicCap,
-		rtdemoEP:         rtdemoEP,
-		rtvoxelEP:        rtvoxelEP,
-		imgviewEP:        imgviewEP,
-		hexEP:            hexEP,
-		snakeEP:          snakeEP,
-		tetrisEP:         tetrisEP,
-		calendarEP:       calendarEP,
-		todoEP:           todoEP,
-		archiveEP:        archiveEP,
-		viEP:             viEP,
-		mcEP:             mcEP,
-		vectorEP:         vectorEP,
-		teaEP:            teaEP,
-		basicEP:          basicEP,
+		disp:               disp,
+		vfsCap:             vfsCap,
+		audioCap:           audioCap,
+		rtdemoProxyCap:     rtdemoProxyCap,
+		rtvoxelProxyCap:    rtvoxelProxyCap,
+		imgviewProxyCap:    imgviewProxyCap,
+		hexProxyCap:        hexProxyCap,
+		snakeProxyCap:      snakeProxyCap,
+		tetrisProxyCap:     tetrisProxyCap,
+		calendarProxyCap:   calendarProxyCap,
+		todoProxyCap:       todoProxyCap,
+		archiveProxyCap:    archiveProxyCap,
+		viProxyCap:         viProxyCap,
+		mcProxyCap:         mcProxyCap,
+		vectorProxyCap:     vectorProxyCap,
+		teaProxyCap:        teaProxyCap,
+		basicProxyCap:      basicProxyCap,
+		rfAnalyzerProxyCap: rfAnalyzerProxyCap,
+		rtdemoCap:          rtdemoCap,
+		rtvoxelCap:         rtvoxelCap,
+		imgviewCap:         imgviewCap,
+		hexCap:             hexCap,
+		snakeCap:           snakeCap,
+		tetrisCap:          tetrisCap,
+		calendarCap:        calendarCap,
+		todoCap:            todoCap,
+		archiveCap:         archiveCap,
+		viCap:              viCap,
+		mcCap:              mcCap,
+		vectorCap:          vectorCap,
+		teaCap:             teaCap,
+		basicCap:           basicCap,
+		rfAnalyzerCap:      rfAnalyzerCap,
+		rtdemoEP:           rtdemoEP,
+		rtvoxelEP:          rtvoxelEP,
+		imgviewEP:          imgviewEP,
+		hexEP:              hexEP,
+		snakeEP:            snakeEP,
+		tetrisEP:           tetrisEP,
+		calendarEP:         calendarEP,
+		todoEP:             todoEP,
+		archiveEP:          archiveEP,
+		viEP:               viEP,
+		mcEP:               mcEP,
+		vectorEP:           vectorEP,
+		teaEP:              teaEP,
+		basicEP:            basicEP,
+		rfAnalyzerEP:       rfAnalyzerEP,
 	}
 }
 
@@ -191,6 +201,7 @@ func (s *Service) Run(ctx *kernel.Context) {
 	go s.runProxy(ctx, s.vectorProxyCap, proto.AppVector)
 	go s.runProxy(ctx, s.teaProxyCap, proto.AppTEA)
 	go s.runProxy(ctx, s.basicProxyCap, proto.AppBasic)
+	go s.runProxy(ctx, s.rfAnalyzerProxyCap, proto.AppRFAnalyzer)
 	select {}
 }
 
@@ -224,6 +235,7 @@ func (s *Service) shutdownIdle(ctx *kernel.Context, now uint64) {
 	stop = s.appendStopIfIdle(stop, proto.AppVector, s.vectorRunning, s.vectorActive, s.vectorInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppTEA, s.teaRunning, s.teaActive, s.teaInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppBasic, s.basicRunning, s.basicActive, s.basicInactiveSince, now)
+	stop = s.appendStopIfIdle(stop, proto.AppRFAnalyzer, s.rfAnalyzerRunning, s.rfAnalyzerActive, s.rfAnalyzerInactiveSince, now)
 	s.mu.Unlock()
 
 	for _, id := range stop {
@@ -369,6 +381,12 @@ func (s *Service) ensureRunning(ctx *kernel.Context, appID proto.AppID) {
 		s.mu.Lock()
 		s.basicRunning = true
 		s.mu.Unlock()
+
+	case proto.AppRFAnalyzer:
+		ctx.AddTask(rfanalyzertask.New(s.disp, s.rfAnalyzerEP, s.vfsCap))
+		s.mu.Lock()
+		s.rfAnalyzerRunning = true
+		s.mu.Unlock()
 	}
 }
 
@@ -426,6 +444,9 @@ func (s *Service) stop(ctx *kernel.Context, appID proto.AppID) {
 
 	case proto.AppBasic:
 		_ = ctx.SendToCapResult(s.basicCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
+
+	case proto.AppRFAnalyzer:
+		_ = ctx.SendToCapResult(s.rfAnalyzerCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
 	}
 }
 
@@ -459,6 +480,8 @@ func (s *Service) appCapByID(appID proto.AppID) kernel.Capability {
 		return s.teaCap
 	case proto.AppBasic:
 		return s.basicCap
+	case proto.AppRFAnalyzer:
+		return s.rfAnalyzerCap
 	default:
 		return kernel.Capability{}
 	}
@@ -500,6 +523,8 @@ func (s *Service) isRunningLocked(appID proto.AppID) bool {
 		return s.teaRunning
 	case proto.AppBasic:
 		return s.basicRunning
+	case proto.AppRFAnalyzer:
+		return s.rfAnalyzerRunning
 	default:
 		return false
 	}
@@ -535,6 +560,8 @@ func (s *Service) setRunningLocked(appID proto.AppID, running bool) {
 		s.teaRunning = running
 	case proto.AppBasic:
 		s.basicRunning = running
+	case proto.AppRFAnalyzer:
+		s.rfAnalyzerRunning = running
 	}
 }
 
@@ -588,6 +615,9 @@ func (s *Service) setActiveLocked(appID proto.AppID, active bool, now uint64) {
 	case proto.AppBasic:
 		s.basicActive = active
 		s.basicInactiveSince = inactiveSince(active, now, s.basicInactiveSince)
+	case proto.AppRFAnalyzer:
+		s.rfAnalyzerActive = active
+		s.rfAnalyzerInactiveSince = inactiveSince(active, now, s.rfAnalyzerInactiveSince)
 	}
 }
 
