@@ -317,12 +317,10 @@ func (t *Task) renderStatus(l layout) {
 	_ = t.d.FillRectangle(l.status1.x, l.status1.y, l.status1.w, l.status1.h, colorStatusBG)
 	_ = t.d.FillRectangle(l.status2.x, l.status2.y, l.status2.w, l.status2.h, colorStatusBG)
 
-	mode := "IDLE"
-	if t.scanActive {
-		mode = "SCAN"
+	s1 := t.statusLine()
+	if t.sweepCount != 0 {
+		s1 = fmt.Sprintf("%s  SWP:%d", s1, t.sweepCount)
 	}
-	rfState := "RF:SIM"
-	s1 := fmt.Sprintf("MODE:%s  CH:%03d  RATE:%s  PKT/s:%4d  DROP:%3d  %s", mode, t.selectedChannel, t.dataRate, 0, 0, rfState)
 	t.drawStringClipped(l.status1.x+2, l.status1.y, s1, colorFG, t.cols)
 
 	s2 := "keys: s scan  w wf  p cap  r reset  m menu  t focus  c chan  f filt  h help  q quit"
@@ -333,49 +331,96 @@ func (t *Task) renderSpectrum(l layout) {
 	t.renderPanel(l.spectrum, "Spectrum", t.focus == focusSpectrum)
 
 	inner := l.spectrum.inset(2, 2)
-	y0 := inner.y + t.fontHeight
-	h := inner.h - t.fontHeight - 2
-	if h <= 0 {
+	headerY := inner.y
+	labelsY := inner.y + inner.h - t.fontHeight
+	plot := rect{
+		x: inner.x,
+		y: inner.y + t.fontHeight + 1,
+		w: inner.w,
+		h: inner.h - 2*t.fontHeight - 2,
+	}
+	if plot.h <= 0 || plot.w <= 0 {
 		return
 	}
 
-	// Placeholder "spectrum": a quiet gradient plus a channel marker.
-	for x := int16(0); x < inner.w; x++ {
-		level := uint8((x * 255) / (inner.w + 1))
-		c := color.RGBA{R: 0x10, G: 0x10 + level/8, B: 0x10 + level/4, A: 0xFF}
-		_ = t.d.FillRectangle(inner.x+x, y0, 1, h, c)
+	_ = t.d.FillRectangle(plot.x, plot.y, plot.w, plot.h, colorBG)
+
+	for ch := 0; ch < numChannels; ch++ {
+		x0 := plot.x + int16(ch)*plot.w/numChannels
+		x1 := plot.x + int16(ch+1)*plot.w/numChannels
+		if x1 <= x0 {
+			x1 = x0 + 1
+		}
+		if x0 >= plot.x+plot.w {
+			continue
+		}
+		if x1 > plot.x+plot.w {
+			x1 = plot.x + plot.w
+		}
+
+		hAvg := int16(t.energyAvg[ch]) * plot.h / 255
+		if hAvg > 0 {
+			_ = t.d.FillRectangle(x0, plot.y+plot.h-hAvg, x1-x0, hAvg, colorAccent)
+		}
+
+		yPeak := plot.y + plot.h - 1 - int16(t.energyPeak[ch])*plot.h/255
+		if yPeak >= plot.y && yPeak < plot.y+plot.h {
+			_ = t.d.FillRectangle(x0, yPeak, x1-x0, 1, colorWarn)
+		}
 	}
 
-	markerX := inner.x + int16((t.selectedChannel*int(inner.w))/126)
-	_ = t.d.FillRectangle(markerX, y0, 1, h, colorAccent)
+	chLoX := plot.x + int16(t.channelRangeLo)*plot.w/numChannels
+	chHiX := plot.x + int16(t.channelRangeHi+1)*plot.w/numChannels
+	_ = t.d.FillRectangle(chLoX, plot.y, 1, plot.h, colorBorder)
+	_ = t.d.FillRectangle(chHiX, plot.y, 1, plot.h, colorBorder)
 
-	info := fmt.Sprintf("ch %d  peak hold  avg", t.selectedChannel)
-	t.drawStringClipped(inner.x+2, inner.y, info, colorFG, l.leftCols)
+	markerX := plot.x + int16(t.selectedChannel)*plot.w/numChannels
+	_ = t.d.FillRectangle(markerX, plot.y, 1, plot.h, colorFG)
+
+	for _, ch := range []int{0, 25, 50, 75, 100, 125} {
+		x := plot.x + int16(ch)*plot.w/numChannels
+		_ = t.d.FillRectangle(x, plot.y+plot.h-2, 1, 2, colorDim)
+		label := fmt.Sprintf("%d", ch)
+		t.drawStringClipped(x, labelsY, label, colorDim, l.leftCols)
+	}
+
+	info := fmt.Sprintf("ch %03d  avg+peak  rng %d-%d  dwell %dms  step %d", t.selectedChannel, t.channelRangeLo, t.channelRangeHi, t.dwellTimeMs, clampInt(t.scanSpeedScalar, 1, 10))
+	t.drawStringClipped(inner.x+2, headerY, info, colorFG, l.leftCols)
 }
 
 func (t *Task) renderWaterfall(l layout) {
 	t.renderPanel(l.waterfall, "Waterfall", t.focus == focusWaterfall)
 
 	inner := l.waterfall.inset(2, 2)
-	y0 := inner.y + t.fontHeight
-	h := inner.h - t.fontHeight - 2
-	if h <= 0 {
+	headerY := inner.y
+	plot := rect{
+		x: inner.x,
+		y: inner.y + t.fontHeight + 1,
+		w: inner.w,
+		h: inner.h - t.fontHeight - 2,
+	}
+	if plot.h <= 0 || plot.w <= 0 {
 		return
 	}
 
-	// Placeholder waterfall: static bands.
-	for y := int16(0); y < h; y++ {
-		level := uint8((y * 255) / (h + 1))
-		c := color.RGBA{R: level / 3, G: level / 2, B: level, A: 0xFF}
-		_ = t.d.FillRectangle(inner.x, y0+y, inner.w, 1, c)
+	_ = t.d.FillRectangle(plot.x, plot.y, plot.w, plot.h, colorBG)
+	if t.wfBuf != nil && t.wfW == int(plot.w) && t.wfH == int(plot.h) {
+		t.blitWaterfall(plot)
 	}
+
+	markerX := plot.x + int16(t.selectedChannel)*plot.w/numChannels
+	_ = t.d.FillRectangle(markerX, plot.y, 1, plot.h, colorFG)
+	chLoX := plot.x + int16(t.channelRangeLo)*plot.w/numChannels
+	chHiX := plot.x + int16(t.channelRangeHi+1)*plot.w/numChannels
+	_ = t.d.FillRectangle(chLoX, plot.y, 1, plot.h, colorBorder)
+	_ = t.d.FillRectangle(chHiX, plot.y, 1, plot.h, colorBorder)
 
 	state := "RUN"
 	if t.waterfallFrozen {
 		state = "FROZEN"
 	}
-	info := fmt.Sprintf("%s  speed:%d  sync:spectrum", state, t.scanSpeedScalar)
-	t.drawStringClipped(inner.x+2, inner.y, info, colorFG, l.leftCols)
+	info := fmt.Sprintf("%s  pal:%s  step:%d  sync:spectrum", state, t.wfPalette, clampInt(t.scanSpeedScalar, 1, 10))
+	t.drawStringClipped(inner.x+2, headerY, info, colorFG, l.leftCols)
 }
 
 func (t *Task) renderRFControl(l layout) {
@@ -582,5 +627,56 @@ func (t *Task) drawStringClipped(x, y int16, s string, fg color.RGBA, cols int) 
 		}
 		tinyfont.DrawChar(t.d, t.font, x+col*t.fontWidth, y+t.fontOffset, r, fg)
 		col++
+	}
+}
+
+func (t *Task) blitWaterfall(plot rect) {
+	if t.fb == nil || t.fb.Format() != hal.PixelFormatRGB565 {
+		return
+	}
+	buf := t.fb.Buffer()
+	if buf == nil {
+		return
+	}
+	if t.wfBuf == nil || t.wfW <= 0 || t.wfH <= 0 {
+		return
+	}
+
+	fbW := t.fb.Width()
+	fbH := t.fb.Height()
+	stride := t.fb.StrideBytes()
+
+	px0 := int(plot.x)
+	py0 := int(plot.y)
+	pw := int(plot.w)
+	ph := int(plot.h)
+	if pw <= 0 || ph <= 0 {
+		return
+	}
+	if px0 < 0 || py0 < 0 || px0+pw > fbW || py0+ph > fbH {
+		return
+	}
+
+	for y := 0; y < ph; y++ {
+		row := t.wfHead - 1 - y
+		for row < 0 {
+			row += t.wfH
+		}
+		if row >= t.wfH {
+			row %= t.wfH
+		}
+
+		srcBase := row * t.wfW
+		dstOff := (py0+y)*stride + px0*2
+		for x := 0; x < pw; x++ {
+			level := t.wfBuf[srcBase+x]
+			pixel := t.wfPalette565[level]
+			off := dstOff + x*2
+			if off < 0 || off+1 >= len(buf) {
+				continue
+			}
+			buf[off] = byte(pixel)
+			buf[off+1] = byte(pixel >> 8)
+		}
 	}
 }

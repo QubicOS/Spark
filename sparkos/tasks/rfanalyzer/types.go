@@ -104,6 +104,32 @@ const (
 	rfSettingMax
 )
 
+const (
+	maxChannel  = 125
+	numChannels = 126
+)
+
+type wfPalette uint8
+
+const (
+	wfPaletteCyan wfPalette = iota
+	wfPaletteFire
+	wfPaletteGray
+)
+
+func (p wfPalette) String() string {
+	switch p {
+	case wfPaletteCyan:
+		return "CYAN"
+	case wfPaletteFire:
+		return "FIRE"
+	case wfPaletteGray:
+		return "GRAY"
+	default:
+		return "?"
+	}
+}
+
 func clampInt(v, lo, hi int) int {
 	if v < lo {
 		return lo
@@ -120,12 +146,12 @@ func (t *Task) adjustSetting(delta int) {
 	}
 	switch rfSetting(t.selectedSetting) {
 	case rfSettingChanLo:
-		t.channelRangeLo = clampInt(t.channelRangeLo+delta, 0, 125)
+		t.channelRangeLo = clampInt(t.channelRangeLo+delta, 0, maxChannel)
 		if t.channelRangeLo > t.channelRangeHi {
 			t.channelRangeHi = t.channelRangeLo
 		}
 	case rfSettingChanHi:
-		t.channelRangeHi = clampInt(t.channelRangeHi+delta, 0, 125)
+		t.channelRangeHi = clampInt(t.channelRangeHi+delta, 0, maxChannel)
 		if t.channelRangeHi < t.channelRangeLo {
 			t.channelRangeLo = t.channelRangeHi
 		}

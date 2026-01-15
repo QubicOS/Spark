@@ -43,6 +43,8 @@ type Task struct {
 
 	inbuf []byte
 
+	nowTick uint64
+
 	scanActive      bool
 	waterfallFrozen bool
 	capturePaused   bool
@@ -56,10 +58,31 @@ type Task struct {
 	autoAck         bool
 	powerLevel      rfPowerLevel
 	selectedSetting int
-	showMenu        bool
-	showHelp        bool
-	showFilters     bool
-	dirty           dirtyFlags
+
+	scanChan      int
+	scanNextTick  uint64
+	sweepCount    uint64
+	lastSweepTick uint64
+
+	energyCur  [numChannels]uint8
+	energyAvg  [numChannels]uint8
+	energyPeak [numChannels]uint8
+
+	wfPalette    wfPalette
+	wfPalette565 [256]uint16
+	wfW          int
+	wfH          int
+	wfHead       int
+	wfBuf        []uint8
+
+	rng uint32
+
+	nextRenderTick uint64
+
+	showMenu    bool
+	showHelp    bool
+	showFilters bool
+	dirty       dirtyFlags
 }
 
 func New(disp hal.Display, ep, vfsCap kernel.Capability) *Task {
@@ -70,13 +93,15 @@ func New(disp hal.Display, ep, vfsCap kernel.Capability) *Task {
 		focus:           focusSpectrum,
 		selectedChannel: 37,
 		channelRangeLo:  0,
-		channelRangeHi:  125,
+		channelRangeHi:  maxChannel,
 		dwellTimeMs:     5,
-		scanSpeedScalar: 5,
+		scanSpeedScalar: 1,
 		dataRate:        rfRate2M,
 		crcMode:         rfCRC2B,
 		autoAck:         false,
 		powerLevel:      rfPwrMax,
+		wfPalette:       wfPaletteCyan,
+		rng:             0xA341316C,
 		dirty:           dirtyAll,
 	}
 }
@@ -107,39 +132,75 @@ func (t *Task) Run(ctx *kernel.Context) {
 		return
 	}
 
-	for msg := range ch {
-		switch proto.Kind(msg.Kind) {
-		case proto.MsgAppShutdown:
-			t.unload()
-			return
+	done := make(chan struct{})
+	defer close(done)
 
-		case proto.MsgAppControl:
-			if msg.Cap.Valid() {
-				t.muxCap = msg.Cap
+	tickCh := make(chan uint64, 16)
+	go func() {
+		last := ctx.NowTick()
+		for {
+			select {
+			case <-done:
+				return
+			default:
 			}
-			active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
+			last = ctx.WaitTick(last)
+			select {
+			case tickCh <- last:
+			default:
+			}
+		}
+	}()
+
+	for {
+		select {
+		case msg, ok := <-ch:
 			if !ok {
-				continue
+				return
 			}
-			t.setActive(ctx, active)
+			switch proto.Kind(msg.Kind) {
+			case proto.MsgAppShutdown:
+				t.unload()
+				return
 
-		case proto.MsgAppSelect:
-			appID, _, ok := proto.DecodeAppSelectPayload(msg.Data[:msg.Len])
-			if !ok || appID != proto.AppRFAnalyzer {
-				continue
-			}
-			if t.active {
-				t.invalidate(dirtyAll)
-				t.renderDirty()
+			case proto.MsgAppControl:
+				if msg.Cap.Valid() {
+					t.muxCap = msg.Cap
+				}
+				active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
+				if !ok {
+					continue
+				}
+				t.setActive(ctx, active)
+
+			case proto.MsgAppSelect:
+				appID, _, ok := proto.DecodeAppSelectPayload(msg.Data[:msg.Len])
+				if !ok || appID != proto.AppRFAnalyzer {
+					continue
+				}
+				if t.active {
+					t.invalidate(dirtyAll)
+					t.renderNow(ctx.NowTick())
+				}
+
+			case proto.MsgTermInput:
+				if !t.active {
+					continue
+				}
+				t.handleInput(ctx, msg.Data[:msg.Len])
+				if t.active {
+					t.renderNow(ctx.NowTick())
+				}
 			}
 
-		case proto.MsgTermInput:
+		case tick := <-tickCh:
 			if !t.active {
 				continue
 			}
-			t.handleInput(ctx, msg.Data[:msg.Len])
-			if t.active {
-				t.renderDirty()
+			t.nowTick = tick
+			t.onTick(tick)
+			if t.active && t.dirty != 0 && tick >= t.nextRenderTick {
+				t.renderNow(tick)
 			}
 		}
 	}
@@ -161,12 +222,18 @@ func (t *Task) setActive(ctx *kernel.Context, active bool) {
 		t.vfs = vfsclient.New(t.vfsCap)
 	}
 	t.invalidate(dirtyAll)
-	t.renderDirty()
+	t.ensureWaterfallAlloc()
+	t.renderNow(ctx.NowTick())
 }
 
 func (t *Task) unload() {
 	t.active = false
 	t.inbuf = nil
+	t.scanActive = false
+	t.scanNextTick = 0
+	t.showMenu = false
+	t.showHelp = false
+	t.showFilters = false
 }
 
 func (t *Task) requestExit(ctx *kernel.Context) {
@@ -195,6 +262,11 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 
 func (t *Task) invalidate(flags dirtyFlags) {
 	t.dirty |= flags
+}
+
+func (t *Task) renderNow(now uint64) {
+	t.renderDirty()
+	t.nextRenderTick = now + renderIntervalTicks
 }
 
 func (t *Task) handleInput(ctx *kernel.Context, b []byte) {
@@ -261,8 +333,12 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		case 'q':
 			t.requestExit(ctx)
 		case 's':
-			t.scanActive = !t.scanActive
-			t.invalidate(dirtyStatus | dirtySpectrum | dirtyWaterfall)
+			now := ctx.NowTick()
+			if t.scanActive {
+				t.stopScan()
+			} else {
+				t.startScan(now)
+			}
 		case 'w':
 			t.waterfallFrozen = !t.waterfallFrozen
 			t.invalidate(dirtyStatus | dirtyWaterfall)
@@ -278,7 +354,7 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 			t.cycleFocus()
 		case 'c':
 			t.selectedChannel++
-			if t.selectedChannel > 125 {
+			if t.selectedChannel > maxChannel {
 				t.selectedChannel = 0
 			}
 			t.invalidate(dirtySpectrum | dirtyWaterfall | dirtyStatus)
@@ -303,6 +379,25 @@ func (t *Task) cycleFocus() {
 func (t *Task) resetView() {
 	t.focus = focusSpectrum
 	t.selectedChannel = 37
+	t.selectedSetting = 0
+	t.showMenu = false
+	t.showHelp = false
+	t.showFilters = false
+
+	t.scanChan = t.channelRangeLo
+	t.scanNextTick = 0
+	t.sweepCount = 0
+	t.lastSweepTick = 0
+
+	for i := range t.energyCur {
+		t.energyCur[i] = 0
+		t.energyAvg[i] = 0
+		t.energyPeak[i] = 0
+	}
+	for i := range t.wfBuf {
+		t.wfBuf[i] = 0
+	}
+	t.wfHead = 0
 	t.invalidate(dirtyAll)
 }
 
@@ -311,7 +406,7 @@ func (t *Task) adjustLeft() {
 	case focusSpectrum, focusWaterfall:
 		t.selectedChannel--
 		if t.selectedChannel < 0 {
-			t.selectedChannel = 125
+			t.selectedChannel = maxChannel
 		}
 		t.invalidate(dirtySpectrum | dirtyWaterfall | dirtyStatus)
 	case focusRFControl:
@@ -324,7 +419,7 @@ func (t *Task) adjustRight() {
 	switch t.focus {
 	case focusSpectrum, focusWaterfall:
 		t.selectedChannel++
-		if t.selectedChannel > 125 {
+		if t.selectedChannel > maxChannel {
 			t.selectedChannel = 0
 		}
 		t.invalidate(dirtySpectrum | dirtyWaterfall | dirtyStatus)
