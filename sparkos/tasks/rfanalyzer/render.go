@@ -3,6 +3,7 @@ package rfanalyzer
 import (
 	"fmt"
 	"image/color"
+	"strings"
 
 	"spark/hal"
 	"spark/sparkos/fonts/const2bitcolor"
@@ -427,38 +428,46 @@ func (t *Task) renderRFControl(l layout) {
 	t.renderPanel(l.rf, "RF Control", t.focus == focusRFControl)
 
 	inner := l.rf.inset(2, 2)
-	x := inner.x + 2
-	y := inner.y
-
-	lines := []string{
-		fmt.Sprintf("CH LO : %3d", t.channelRangeLo),
-		fmt.Sprintf("CH HI : %3d", t.channelRangeHi),
-		fmt.Sprintf("DWELL : %3dms", t.dwellTimeMs),
-		fmt.Sprintf("SPEED : %3d", t.scanSpeedScalar),
-		fmt.Sprintf("RATE  : %s", t.dataRate),
-		fmt.Sprintf("CRC   : %s", t.crcMode),
-		fmt.Sprintf("ACK   : %v", t.autoAck),
-		fmt.Sprintf("PWR   : %s", t.powerLevel),
-	}
-
-	maxRows := int((inner.h - t.fontHeight) / t.fontHeight)
-	if maxRows < 1 {
+	maxCols := int(inner.w / t.fontWidth)
+	if maxCols <= 0 {
 		return
 	}
-	if len(lines) > maxRows {
-		lines = lines[:maxRows]
+
+	y := inner.y + t.fontHeight
+	preset := "PRESET: (none)"
+	if t.activePreset != "" {
+		preset = "PRESET: " + t.activePreset
+		if t.presetDirty {
+			preset += "*"
+		}
+	}
+	t.drawStringClipped(inner.x+2, y, preset, colorDim, maxCols)
+	y += t.fontHeight
+
+	lines := []string{
+		fmt.Sprintf("LO    [%03d]", t.channelRangeLo),
+		fmt.Sprintf("HI    [%03d]", t.channelRangeHi),
+		fmt.Sprintf("DWELL %s %02dms", sliderASCII(t.dwellTimeMs, 1, 50, 8), t.dwellTimeMs),
+		fmt.Sprintf("STEP  %s %02d", sliderASCII(clampInt(t.scanSpeedScalar, 1, 10), 1, 10, 8), clampInt(t.scanSpeedScalar, 1, 10)),
+		fmt.Sprintf("RATE  <%s>", t.dataRate),
+		fmt.Sprintf("CRC   <%s>", t.crcMode),
+		fmt.Sprintf("ACK   %s", checkboxASCII(t.autoAck)),
+		fmt.Sprintf("PWR   <%s>", t.powerLevel),
 	}
 
-	y += t.fontHeight
 	for i, line := range lines {
+		rowY := y + int16(i)*t.fontHeight
+		if rowY+t.fontHeight > inner.y+inner.h {
+			return
+		}
 		fg := colorFG
 		bg := colorPanelBG
 		if i == t.selectedSetting && t.focus == focusRFControl {
 			fg = colorSelFG
 			bg = colorSelBG
 		}
-		_ = t.d.FillRectangle(inner.x+1, y+int16(i)*t.fontHeight, inner.w-2, t.fontHeight, bg)
-		t.drawStringClipped(x, y+int16(i)*t.fontHeight, line, fg, l.rightCols-1)
+		_ = t.d.FillRectangle(inner.x+1, rowY, inner.w-2, t.fontHeight, bg)
+		t.drawStringClipped(inner.x+2, rowY, line, fg, maxCols)
 	}
 }
 
@@ -488,6 +497,10 @@ func (t *Task) renderProtocol(l layout) {
 }
 
 func (t *Task) renderOverlay(l layout) {
+	if t.showPrompt {
+		t.renderPromptOverlay(l)
+		return
+	}
 	if t.showMenu {
 		t.renderMenuOverlay(l)
 		return
@@ -504,10 +517,13 @@ func (t *Task) renderOverlay(l layout) {
 
 func (t *Task) renderMenuOverlay(l layout) {
 	boxCols := t.cols - 4
-	if boxCols > 52 {
-		boxCols = 52
+	if boxCols > 56 {
+		boxCols = 56
 	}
-	boxRows := 18
+	boxRows := 22
+	if boxRows > t.mainRows {
+		boxRows = t.mainRows
+	}
 	px := int16(2) * t.fontWidth
 	py := int16(headerRows) * t.fontHeight
 	pw := int16(boxCols) * t.fontWidth
@@ -516,20 +532,140 @@ func (t *Task) renderMenuOverlay(l layout) {
 	_ = t.d.FillRectangle(px, py, pw, ph, colorBorder)
 	_ = t.d.FillRectangle(px+1, py+1, pw-2, ph-2, colorPanelBG)
 	_ = t.d.FillRectangle(px+1, py+1, pw-2, t.fontHeight+1, colorHeaderBG)
-	t.drawStringClipped(px+2, py, "Menu  (Esc/m close)", colorFG, boxCols)
 
-	items := []string{
-		"View     : spectrum/waterfall/sync",
-		"RF       : range,dwell,speed,rate,crc,ack,pwr",
-		"Capture  : start/stop,pause,drop policy",
-		"Decode   : raw/decoded, addr len, esb",
-		"Display  : wf palette, speed, theme",
-		"Advanced : expert options, profiles",
-		"Help     : hotkeys, about",
+	catLine := t.menuCategoryLine()
+	t.drawStringClipped(px+2, py, catLine, colorFG, boxCols)
+
+	items := menuItems(t.menuCat)
+	contentRows := boxRows - 3
+	if contentRows < 1 {
+		return
 	}
-	for i, it := range items {
-		y := py + t.fontHeight + int16(i+1)*t.fontHeight
-		t.drawStringClipped(px+2, y, it, colorDim, boxCols)
+	if t.menuSel < 0 {
+		t.menuSel = 0
+	}
+	if t.menuSel >= len(items) {
+		t.menuSel = len(items) - 1
+		if t.menuSel < 0 {
+			t.menuSel = 0
+		}
+	}
+	top := t.menuSel - contentRows/2
+	if top < 0 {
+		top = 0
+	}
+	if top > len(items)-contentRows {
+		top = len(items) - contentRows
+	}
+	if top < 0 {
+		top = 0
+	}
+
+	for row := 0; row < contentRows; row++ {
+		i := top + row
+		if i < 0 || i >= len(items) {
+			continue
+		}
+		y := py + t.fontHeight + int16(row+1)*t.fontHeight
+		fg := colorFG
+		bg := colorPanelBG
+		if i == t.menuSel {
+			fg = colorSelFG
+			bg = colorSelBG
+		}
+		_ = t.d.FillRectangle(px+1, y, pw-2, t.fontHeight, bg)
+		t.drawStringClipped(px+2, y, t.menuItemLine(items[i]), fg, boxCols)
+	}
+}
+
+func (t *Task) menuCategoryLine() string {
+	var b strings.Builder
+	b.WriteString("Menu: ")
+	for i, name := range menuCategoryLabels {
+		if i > 0 {
+			b.WriteString("  ")
+		}
+		if menuCategory(i) == t.menuCat {
+			b.WriteByte('[')
+			b.WriteString(name)
+			b.WriteByte(']')
+		} else {
+			b.WriteString(name)
+		}
+	}
+	b.WriteString("  (Esc)")
+	return b.String()
+}
+
+func (t *Task) menuItemLine(it menuItem) string {
+	switch it.id {
+	case menuItemToggleScan:
+		if t.scanActive {
+			return it.label + "  [ON]"
+		}
+		return it.label + "  [OFF]"
+	case menuItemToggleWaterfall:
+		if t.waterfallFrozen {
+			return it.label + "  [FROZEN]"
+		}
+		return it.label + "  [RUN]"
+	case menuItemToggleCapture:
+		if t.capturePaused {
+			return it.label + "  [PAUSED]"
+		}
+		return it.label + "  [LIVE]"
+	case menuItemCycleRate:
+		return it.label + "  <" + t.dataRate.String() + ">"
+	case menuItemCycleCRC:
+		return it.label + "  <" + t.crcMode.String() + ">"
+	case menuItemToggleAutoAck:
+		if t.autoAck {
+			return it.label + "  [x]"
+		}
+		return it.label + "  [ ]"
+	case menuItemCyclePower:
+		return it.label + "  <" + t.powerLevel.String() + ">"
+	case menuItemCyclePalette:
+		return it.label + "  <" + t.wfPalette.String() + ">"
+	default:
+		return it.label
+	}
+}
+
+func (t *Task) renderPromptOverlay(l layout) {
+	boxCols := t.cols - 6
+	if boxCols > 54 {
+		boxCols = 54
+	}
+	boxRows := 10
+	px := int16(3) * t.fontWidth
+	py := int16(headerRows+3) * t.fontHeight
+	pw := int16(boxCols) * t.fontWidth
+	ph := int16(boxRows) * t.fontHeight
+
+	_ = t.d.FillRectangle(px, py, pw, ph, colorBorder)
+	_ = t.d.FillRectangle(px+1, py+1, pw-2, ph-2, colorPanelBG)
+	_ = t.d.FillRectangle(px+1, py+1, pw-2, t.fontHeight+1, colorHeaderBG)
+
+	title := t.promptTitle
+	if title == "" {
+		title = "Input"
+	}
+	t.drawStringClipped(px+2, py, title+"  (Enter apply, Esc cancel)", colorFG, boxCols)
+
+	fieldY := py + 2*t.fontHeight
+	_ = t.d.FillRectangle(px+2, fieldY, pw-4, t.fontHeight+2, colorHeaderBG)
+
+	text := string(t.promptBuf)
+	t.drawStringClipped(px+4, fieldY+1, text, colorFG, boxCols-2)
+
+	// Cursor
+	cx := px + 4 + int16(t.promptCursor)*t.fontWidth
+	_ = t.d.FillRectangle(cx, fieldY+1, 1, t.fontHeight, colorAccent)
+
+	if t.promptErr != "" {
+		errY := fieldY + 2*t.fontHeight
+		t.drawStringClipped(px+2, errY, "ERR: "+t.promptErr, colorWarn, boxCols)
 	}
 }
 
@@ -628,6 +764,51 @@ func (t *Task) drawStringClipped(x, y int16, s string, fg color.RGBA, cols int) 
 		tinyfont.DrawChar(t.d, t.font, x+col*t.fontWidth, y+t.fontOffset, r, fg)
 		col++
 	}
+}
+
+func sliderASCII(value, min, max, width int) string {
+	if width <= 0 {
+		return "[]"
+	}
+	if max <= min {
+		var b strings.Builder
+		b.Grow(width + 2)
+		b.WriteByte('[')
+		for i := 0; i < width; i++ {
+			b.WriteByte('-')
+		}
+		b.WriteByte(']')
+		return b.String()
+	}
+
+	value = clampInt(value, min, max)
+	fill := (value - min) * width / (max - min)
+	if fill < 0 {
+		fill = 0
+	}
+	if fill > width {
+		fill = width
+	}
+
+	var b strings.Builder
+	b.Grow(width + 2)
+	b.WriteByte('[')
+	for i := 0; i < width; i++ {
+		if i < fill {
+			b.WriteByte('#')
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	b.WriteByte(']')
+	return b.String()
+}
+
+func checkboxASCII(on bool) string {
+	if on {
+		return "[x]"
+	}
+	return "[ ]"
 }
 
 func (t *Task) blitWaterfall(plot rect) {

@@ -1,6 +1,8 @@
 package rfanalyzer
 
 import (
+	"fmt"
+
 	"spark/hal"
 	vfsclient "spark/sparkos/client/vfs"
 	"spark/sparkos/kernel"
@@ -82,10 +84,22 @@ type Task struct {
 
 	nextRenderTick uint64
 
-	showMenu    bool
-	showHelp    bool
+	showMenu bool
+	menuCat  menuCategory
+	menuSel  int
+
+	showHelp bool
+
 	showFilters bool
-	dirty       dirtyFlags
+
+	showPrompt   bool
+	promptKind   promptKind
+	promptTitle  string
+	promptBuf    []rune
+	promptCursor int
+	promptErr    string
+
+	dirty dirtyFlags
 }
 
 func New(disp hal.Display, ep, vfsCap kernel.Capability) *Task {
@@ -105,6 +119,7 @@ func New(disp hal.Display, ep, vfsCap kernel.Capability) *Task {
 		powerLevel:      rfPwrMax,
 		wfPalette:       wfPaletteCyan,
 		rng:             0xA341316C,
+		menuCat:         menuRF,
 		dirty:           dirtyAll,
 	}
 }
@@ -237,6 +252,11 @@ func (t *Task) unload() {
 	t.showMenu = false
 	t.showHelp = false
 	t.showFilters = false
+	t.showPrompt = false
+	t.promptTitle = ""
+	t.promptErr = ""
+	t.promptBuf = nil
+	t.promptCursor = 0
 }
 
 func (t *Task) requestExit(ctx *kernel.Context) {
@@ -292,6 +312,11 @@ func (t *Task) handleInput(ctx *kernel.Context, b []byte) {
 }
 
 func (t *Task) handleKey(ctx *kernel.Context, k key) {
+	if t.showPrompt {
+		t.handlePromptKey(ctx, k)
+		return
+	}
+
 	if t.showHelp {
 		switch k.kind {
 		case keyEsc:
@@ -307,14 +332,19 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 	}
 
 	if t.showMenu {
+		t.handleMenuKey(ctx, k)
+		return
+	}
+
+	if t.showFilters {
 		switch k.kind {
 		case keyEsc:
-			t.showMenu = false
-			t.invalidate(dirtyOverlay | dirtyHeader)
+			t.showFilters = false
+			t.invalidate(dirtyOverlay | dirtySniffer | dirtyStatus)
 		case keyRune:
-			if k.r == 'm' || k.r == 'M' {
-				t.showMenu = false
-				t.invalidate(dirtyOverlay | dirtyHeader)
+			if k.r == 'f' || k.r == 'F' {
+				t.showFilters = false
+				t.invalidate(dirtyOverlay | dirtySniffer | dirtyStatus)
 			}
 		}
 		return
@@ -323,6 +353,8 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 	switch k.kind {
 	case keyEsc:
 		t.requestExit(ctx)
+	case keyEnter:
+		t.handleEnter(ctx)
 	case keyLeft:
 		t.adjustLeft()
 	case keyRight:
@@ -351,16 +383,11 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		case 'r':
 			t.resetView()
 		case 'm':
-			t.showMenu = true
-			t.invalidate(dirtyOverlay | dirtyHeader)
+			t.openMenu()
 		case 't':
 			t.cycleFocus()
 		case 'c':
-			t.selectedChannel++
-			if t.selectedChannel > maxChannel {
-				t.selectedChannel = 0
-			}
-			t.invalidate(dirtySpectrum | dirtyWaterfall | dirtyStatus)
+			t.openPrompt(promptSetChannel, "Set selected channel", fmt.Sprintf("%d", t.selectedChannel))
 		case 'f':
 			t.showFilters = !t.showFilters
 			t.invalidate(dirtyOverlay | dirtySniffer)
@@ -379,6 +406,45 @@ func (t *Task) cycleFocus() {
 	t.invalidate(dirtyHeader)
 }
 
+func (t *Task) handleEnter(ctx *kernel.Context) {
+	switch t.focus {
+	case focusRFControl:
+		switch rfSetting(t.selectedSetting) {
+		case rfSettingChanLo:
+			t.openPrompt(promptSetRangeLo, "Set range LO", fmt.Sprintf("%d", t.channelRangeLo))
+		case rfSettingChanHi:
+			t.openPrompt(promptSetRangeHi, "Set range HI", fmt.Sprintf("%d", t.channelRangeHi))
+		case rfSettingDwell:
+			t.openPrompt(promptSetDwell, "Set dwell time (ms)", fmt.Sprintf("%d", t.dwellTimeMs))
+		case rfSettingSpeed:
+			t.openPrompt(promptSetScanStep, "Set scan step (1..10)", fmt.Sprintf("%d", clampInt(t.scanSpeedScalar, 1, 10)))
+		case rfSettingRate:
+			t.dataRate = rfDataRate(wrapEnum(int(t.dataRate)+1, 3))
+			t.presetDirty = true
+			t.invalidate(dirtyRFControl | dirtyStatus)
+		case rfSettingCRC:
+			t.crcMode = rfCRCMode(wrapEnum(int(t.crcMode)+1, 3))
+			t.presetDirty = true
+			t.invalidate(dirtyRFControl | dirtyStatus)
+		case rfSettingAutoAck:
+			t.autoAck = !t.autoAck
+			t.presetDirty = true
+			t.invalidate(dirtyRFControl | dirtyStatus)
+		case rfSettingPower:
+			t.powerLevel = rfPowerLevel(wrapEnum(int(t.powerLevel)+1, 4))
+			t.presetDirty = true
+			t.invalidate(dirtyRFControl | dirtyStatus)
+		}
+		return
+	case focusSpectrum, focusWaterfall:
+		t.openPrompt(promptSetChannel, fmt.Sprintf("Set channel (0..%d)", maxChannel), fmt.Sprintf("%d", t.selectedChannel))
+		return
+	default:
+		_ = ctx
+		return
+	}
+}
+
 func (t *Task) resetView() {
 	t.focus = focusSpectrum
 	t.selectedChannel = 37
@@ -386,6 +452,11 @@ func (t *Task) resetView() {
 	t.showMenu = false
 	t.showHelp = false
 	t.showFilters = false
+	t.showPrompt = false
+	t.promptTitle = ""
+	t.promptErr = ""
+	t.promptBuf = nil
+	t.promptCursor = 0
 
 	t.scanChan = t.channelRangeLo
 	t.scanNextTick = 0
