@@ -165,6 +165,7 @@ func (t *Task) ensureScene() {
 	}
 
 	t.r = quarkgl.NewRenderer(t.w, t.h, true)
+	t.r.SetWorkers(2)
 	t.r.ClearColor = quarkgl.RGB(0x05, 0x08, 0x12)
 	t.r.Mode = quarkgl.RenderSolidFlat
 
@@ -182,7 +183,7 @@ func (t *Task) ensureScene() {
 	t.s.Light.Dir = quarkgl.Normalize(quarkgl.V3(quarkgl.ScalarFromFloat32(-0.4), quarkgl.ScalarFromFloat32(0.9), quarkgl.ScalarFromFloat32(0.3)))
 	t.s.Light.DirAmount = quarkgl.ScalarFromFloat32(0.85)
 
-	mesh := newTorusMesh(1.0, 0.38, 64, 32)
+	mesh := newTorusMesh(1.0, 0.38, 32, 16)
 	mesh.Material.BaseColor = quarkgl.RGB(0xFF, 0x99, 0x33)
 	t.meshID = t.s.AddMesh(mesh)
 }
