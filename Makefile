@@ -84,7 +84,7 @@ vfs: make-vfs
 
 tinygo-uf2:
 	mkdir -p $(DIST_DIR)
-	$(TINYGO) build -target=pico2 -size=full -o $(UF2) .
+	$(TINYGO) build -target=pico2 -size=full -tags=shell -o $(UF2) .
 
 tinygo-flash:
 	$(TINYGO) flash -target=pico2 .
