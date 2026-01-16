@@ -1,0 +1,347 @@
+package rfanalyzer
+
+import (
+	"fmt"
+
+	"spark/sparkos/kernel"
+)
+
+func (t *Task) openMenu() {
+	t.showMenu = true
+	t.menuSel = 0
+	t.invalidate(dirtyOverlay | dirtyHeader | dirtyStatus)
+}
+
+func (t *Task) closeMenu() {
+	if !t.showMenu {
+		return
+	}
+	t.showMenu = false
+	t.invalidate(dirtyOverlay | dirtyHeader | dirtyStatus)
+}
+
+func (t *Task) handleMenuKey(ctx *kernel.Context, k key) {
+	switch k.kind {
+	case keyEsc:
+		t.closeMenu()
+		return
+	case keyRune:
+		if k.r == 'm' || k.r == 'M' {
+			t.closeMenu()
+			return
+		}
+	case keyLeft:
+		if t.menuCat == 0 {
+			t.menuCat = menuHelp
+		} else {
+			t.menuCat--
+		}
+		t.menuSel = 0
+		t.invalidate(dirtyOverlay)
+		return
+	case keyRight:
+		if t.menuCat >= menuHelp {
+			t.menuCat = 0
+		} else {
+			t.menuCat++
+		}
+		t.menuSel = 0
+		t.invalidate(dirtyOverlay)
+		return
+	case keyUp, keyDown:
+		items := menuItems(t.menuCat)
+		if len(items) == 0 {
+			return
+		}
+		if k.kind == keyUp {
+			if t.menuSel <= 0 {
+				t.menuSel = len(items) - 1
+			} else {
+				t.menuSel--
+			}
+		} else {
+			if t.menuSel >= len(items)-1 {
+				t.menuSel = 0
+			} else {
+				t.menuSel++
+			}
+		}
+		t.invalidate(dirtyOverlay)
+		return
+	case keyEnter:
+		items := menuItems(t.menuCat)
+		if len(items) == 0 || t.menuSel < 0 || t.menuSel >= len(items) {
+			return
+		}
+		t.activateMenuItem(ctx, items[t.menuSel].id)
+		return
+	}
+}
+
+func (t *Task) activateMenuItem(ctx *kernel.Context, id menuItemID) {
+	switch id {
+	case menuItemFocusSpectrum:
+		t.focus = focusSpectrum
+		t.closeMenu()
+		t.invalidate(dirtyHeader)
+	case menuItemFocusWaterfall:
+		t.focus = focusWaterfall
+		t.closeMenu()
+		t.invalidate(dirtyHeader)
+	case menuItemFocusRFControl:
+		t.focus = focusRFControl
+		t.closeMenu()
+		t.invalidate(dirtyHeader)
+	case menuItemFocusSniffer:
+		t.focus = focusSniffer
+		t.closeMenu()
+		t.invalidate(dirtyHeader)
+	case menuItemFocusProtocol:
+		t.focus = focusProtocol
+		t.closeMenu()
+		t.invalidate(dirtyHeader)
+	case menuItemFocusAnalysis:
+		t.focus = focusAnalysis
+		t.closeMenu()
+		t.invalidate(dirtyHeader)
+
+	case menuItemToggleScan:
+		now := ctx.NowTick()
+		if t.scanActive {
+			t.stopScan()
+		} else {
+			t.startScan(now)
+		}
+		t.invalidate(dirtyOverlay)
+
+	case menuItemToggleWaterfall:
+		t.waterfallFrozen = !t.waterfallFrozen
+		t.invalidate(dirtyStatus | dirtyWaterfall | dirtyOverlay)
+
+	case menuItemToggleCapture:
+		t.capturePaused = !t.capturePaused
+		t.invalidate(dirtyStatus | dirtySniffer | dirtyOverlay)
+
+	case menuItemToggleRecording:
+		if t.recording {
+			_ = t.stopRecording(ctx)
+			t.invalidate(dirtyStatus | dirtyRFControl | dirtyOverlay)
+			return
+		}
+		initial := t.recordName
+		if initial == "" {
+			initial = "session"
+		}
+		t.openPrompt(promptStartRecording, "Start recording session name", initial)
+		t.closeMenu()
+
+	case menuItemAddAnnotationNow:
+		tick := ctx.NowTick()
+		if t.replayActive {
+			tick = t.replayNowTick
+		}
+		t.beginAnnotationAt(tick)
+		t.closeMenu()
+
+	case menuItemAddAnnotationSelected:
+		tick := ctx.NowTick()
+		if t.replayActive {
+			tick = t.replayNowTick
+		}
+		if pt, ok := t.selectedPacketTick(); ok {
+			tick = pt
+		}
+		t.beginAnnotationAt(tick)
+		t.closeMenu()
+
+	case menuItemAutomationArm:
+		t.toggleAutomationArm(ctx)
+		t.closeMenu()
+		t.invalidate(dirtyStatus | dirtyRFControl | dirtyOverlay)
+
+	case menuItemLoadSession:
+		initial := ""
+		if t.replay != nil {
+			initial = t.replay.name
+		}
+		if initial == "" {
+			initial = "session"
+		}
+		t.openPrompt(promptLoadSession, "Load session name (from /rf/sessions)", initial)
+		t.closeMenu()
+
+	case menuItemLoadCompareSession:
+		initial := ""
+		if t.compare != nil {
+			initial = t.compare.name
+		}
+		if initial == "" {
+			initial = "session"
+		}
+		t.openPrompt(promptLoadCompareSession, "Load compare session name (from /rf/sessions)", initial)
+		t.closeMenu()
+
+	case menuItemClearCompare:
+		t.compare = nil
+		t.compareErr = ""
+		t.invalidate(dirtyAnalysis | dirtySpectrum | dirtyOverlay | dirtyStatus)
+
+	case menuItemExitReplay:
+		t.exitReplay(ctx)
+		t.closeMenu()
+
+	case menuItemReplayPlayPause:
+		if t.replayActive {
+			t.replayPlaying = !t.replayPlaying
+			t.invalidate(dirtyStatus | dirtyOverlay)
+		}
+
+	case menuItemReplaySeek:
+		if !t.replayActive || t.replay == nil {
+			return
+		}
+		offsetMs := 0
+		if t.replayNowTick >= t.replay.startTick {
+			offsetMs = int(t.replayNowTick - t.replay.startTick)
+		}
+		t.openPrompt(promptReplaySeek, "Seek to t(ms) from session start", fmt.Sprintf("%d", offsetMs))
+		t.closeMenu()
+
+	case menuItemReplaySpeed:
+		if !t.replayActive {
+			return
+		}
+		switch t.replaySpeed {
+		case 1:
+			t.replaySpeed = 2
+		case 2:
+			t.replaySpeed = 4
+		case 4:
+			t.replaySpeed = 8
+		case 8:
+			t.replaySpeed = 16
+		default:
+			t.replaySpeed = 1
+		}
+		t.invalidate(dirtyStatus | dirtyOverlay)
+
+	case menuItemExportCSV:
+		initial := "export"
+		if t.replay != nil {
+			initial = t.replay.name
+		}
+		t.openPrompt(promptExportCSV, "Export CSV name (to /rf/exports)", initial)
+		t.closeMenu()
+
+	case menuItemExportPCAP:
+		initial := "export"
+		if t.replay != nil {
+			initial = t.replay.name
+		}
+		t.openPrompt(promptExportPCAP, "Export PCAP name (to /rf/exports)", initial)
+		t.closeMenu()
+
+	case menuItemExportRFPKT:
+		initial := "export"
+		if t.replay != nil {
+			initial = t.replay.name
+		}
+		t.openPrompt(promptExportRFPKT, "Export raw packet dump name (to /rf/exports)", initial)
+		t.closeMenu()
+
+	case menuItemResetView:
+		t.resetView()
+		t.invalidate(dirtyOverlay)
+
+	case menuItemSetChannel:
+		t.openPrompt(promptSetChannel, fmt.Sprintf("Set channel (0..%d)", maxChannel), fmt.Sprintf("%d", t.selectedChannel))
+		t.closeMenu()
+	case menuItemSetRangeLo:
+		t.openPrompt(promptSetRangeLo, "Set range LO", fmt.Sprintf("%d", t.channelRangeLo))
+		t.closeMenu()
+	case menuItemSetRangeHi:
+		t.openPrompt(promptSetRangeHi, "Set range HI", fmt.Sprintf("%d", t.channelRangeHi))
+		t.closeMenu()
+	case menuItemSetDwell:
+		t.openPrompt(promptSetDwell, "Set dwell time (ms)", fmt.Sprintf("%d", t.dwellTimeMs))
+		t.closeMenu()
+	case menuItemSetScanStep:
+		t.openPrompt(promptSetScanStep, "Set scan step (1..10)", fmt.Sprintf("%d", clampInt(t.scanSpeedScalar, 1, 10)))
+		t.closeMenu()
+
+	case menuItemCycleRate:
+		t.dataRate = rfDataRate(wrapEnum(int(t.dataRate)+1, 3))
+		t.presetDirty = true
+		t.scanNextTick = 0
+		t.recordConfig(ctx.NowTick())
+		t.invalidate(dirtyRFControl | dirtySpectrum | dirtyStatus | dirtyOverlay)
+
+	case menuItemCycleCRC:
+		t.crcMode = rfCRCMode(wrapEnum(int(t.crcMode)+1, 3))
+		t.presetDirty = true
+		t.recordConfig(ctx.NowTick())
+		t.invalidate(dirtyRFControl | dirtyStatus | dirtyOverlay)
+
+	case menuItemToggleAutoAck:
+		t.autoAck = !t.autoAck
+		t.presetDirty = true
+		t.recordConfig(ctx.NowTick())
+		t.invalidate(dirtyRFControl | dirtyStatus | dirtyOverlay)
+
+	case menuItemCyclePower:
+		t.powerLevel = rfPowerLevel(wrapEnum(int(t.powerLevel)+1, 4))
+		t.presetDirty = true
+		t.recordConfig(ctx.NowTick())
+		t.invalidate(dirtyRFControl | dirtyStatus | dirtyOverlay)
+
+	case menuItemCyclePalette:
+		t.wfPalette = wfPalette(wrapEnum(int(t.wfPalette)+1, 3))
+		t.rebuildWaterfallPalette()
+		t.presetDirty = true
+		t.recordConfig(ctx.NowTick())
+		t.invalidate(dirtyWaterfall | dirtyStatus | dirtyOverlay)
+
+	case menuItemToggleProtoMode:
+		if t.protoMode == protoDecoded {
+			t.protoMode = protoRaw
+		} else {
+			t.protoMode = protoDecoded
+		}
+		t.invalidate(dirtyProtocol | dirtyOverlay | dirtyStatus)
+
+	case menuItemSavePreset:
+		initial := t.activePreset
+		if initial == "" {
+			initial = "scan"
+		}
+		t.openPrompt(promptSavePreset, "Save preset name", initial)
+		t.closeMenu()
+
+	case menuItemLoadPreset:
+		initial := t.activePreset
+		if initial == "" {
+			initial = "scan"
+		}
+		t.openPrompt(promptLoadPreset, "Load preset name", initial)
+		t.closeMenu()
+
+	case menuItemAutomationConfig:
+		t.showAutomation = true
+		t.autoSel = 0
+		t.closeMenu()
+		t.invalidate(dirtyOverlay | dirtyStatus)
+
+	case menuItemPresetProfiles:
+		t.showPresets = true
+		t.presetSel = 0
+		t.presetTop = 0
+		t.refreshPresetList(ctx)
+		t.closeMenu()
+		t.invalidate(dirtyOverlay | dirtyStatus)
+
+	case menuItemOpenHelp:
+		t.showHelp = true
+		t.closeMenu()
+		t.invalidate(dirtyOverlay | dirtyStatus)
+	}
+}

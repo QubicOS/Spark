@@ -1,0 +1,600 @@
+package rfanalyzer
+
+import (
+	"fmt"
+)
+
+const maxPackets = 256
+const payloadPrefixBytes = 8
+
+const (
+	pktFlagRetry uint8 = 1 << 0
+	pktFlagBurst uint8 = 1 << 1
+)
+
+type packet struct {
+	seq  uint32
+	tick uint64
+
+	deltaMs uint16
+	flags   uint8
+
+	channel uint8
+	rate    rfDataRate
+
+	addrLen uint8
+	addr    [5]byte
+
+	length  uint8
+	payload [32]byte
+
+	payloadHash uint32
+
+	crcLen uint8
+	crc    [2]byte
+	crcOK  bool
+}
+
+type packetSummary struct {
+	seq  uint32
+	tick uint64
+
+	deltaMs uint16
+	flags   uint8
+
+	channel uint8
+	rate    rfDataRate
+
+	addrLen uint8
+	addr    [5]byte
+
+	length uint8
+
+	payloadHash   uint32
+	payloadPrefix [payloadPrefixBytes]byte
+
+	crcLen uint8
+	crcOK  bool
+}
+
+func summaryFromPacket(p *packet) packetSummary {
+	if p == nil {
+		return packetSummary{}
+	}
+	var prefix [payloadPrefixBytes]byte
+	n := int(p.length)
+	if n > len(prefix) {
+		n = len(prefix)
+	}
+	copy(prefix[:], p.payload[:n])
+	return packetSummary{
+		seq:           p.seq,
+		tick:          p.tick,
+		deltaMs:       p.deltaMs,
+		flags:         p.flags,
+		channel:       p.channel,
+		rate:          p.rate,
+		addrLen:       p.addrLen,
+		addr:          p.addr,
+		length:        p.length,
+		payloadHash:   p.payloadHash,
+		payloadPrefix: prefix,
+		crcLen:        p.crcLen,
+		crcOK:         p.crcOK,
+	}
+}
+
+func summaryFromMeta(m *packetMeta) packetSummary {
+	if m == nil {
+		return packetSummary{}
+	}
+	return packetSummary{
+		seq:           m.seq,
+		tick:          m.tick,
+		deltaMs:       m.deltaMs,
+		flags:         m.flags,
+		channel:       m.channel,
+		rate:          m.rate,
+		addrLen:       m.addrLen,
+		addr:          m.addr,
+		length:        m.length,
+		payloadHash:   m.payloadHash,
+		payloadPrefix: m.payloadPrefix,
+		crcLen:        m.crcLen,
+		crcOK:         m.crcOK,
+	}
+}
+
+func rateShort(r rfDataRate) byte {
+	switch r {
+	case rfRate2M:
+		return '2'
+	case rfRate1M:
+		return '1'
+	case rfRate250K:
+		return '0'
+	default:
+		return '?'
+	}
+}
+
+func addrSuffix3(addrLen uint8, addr [5]byte) string {
+	if addrLen == 0 {
+		return "------"
+	}
+	start := int(addrLen) - 3
+	if start < 0 {
+		start = 0
+	}
+	for start+3 > int(addrLen) {
+		start--
+		if start < 0 {
+			start = 0
+			break
+		}
+	}
+	b0 := byte(0)
+	b1 := byte(0)
+	b2 := byte(0)
+	if start < int(addrLen) {
+		b0 = addr[start]
+	}
+	if start+1 < int(addrLen) {
+		b1 = addr[start+1]
+	}
+	if start+2 < int(addrLen) {
+		b2 = addr[start+2]
+	}
+	return fmt.Sprintf("%02X%02X%02X", b0, b1, b2)
+}
+
+func crcText(crcLen uint8, crcOK bool) string {
+	if crcLen == 0 {
+		return "--"
+	}
+	if crcOK {
+		return "OK"
+	}
+	return "!!"
+}
+
+func (p *packet) addrSuffix3() string { return addrSuffix3(p.addrLen, p.addr) }
+func (p *packet) crcText() string     { return crcText(p.crcLen, p.crcOK) }
+
+func (p packetSummary) addrSuffix3() string { return addrSuffix3(p.addrLen, p.addr) }
+func (p packetSummary) crcText() string     { return crcText(p.crcLen, p.crcOK) }
+
+func (t *Task) appendPacket(p packet) {
+	if t.pktSeq == 0 {
+		t.pktSeq = 1
+	}
+	p.seq = t.pktSeq
+	t.pktSeq++
+
+	p.payloadHash = fnv1a32(p.payload[:p.length])
+	p.deltaMs = 0
+	p.flags = 0
+	if d := t.findDevice(p.addrLen, p.addr); d != nil {
+		if d.lastTick != 0 && p.tick > d.lastTick {
+			dt := p.tick - d.lastTick
+			if dt > 0xFFFF {
+				dt = 0xFFFF
+			}
+			p.deltaMs = uint16(dt)
+			if dt <= 12 {
+				p.flags |= pktFlagBurst
+			}
+		}
+		if d.lastPayloadHash != 0 &&
+			d.lastPayloadHash == p.payloadHash &&
+			p.tick > d.lastPayloadTick &&
+			(p.tick-d.lastPayloadTick) <= anaRetryWindowTicks {
+			p.flags |= pktFlagRetry
+		}
+	}
+
+	t.recordPacket(p)
+	t.analyticsOnPacket(&p)
+
+	if t.pktCount < maxPackets {
+		t.packets[t.pktHead] = p
+		t.pktHead++
+		if t.pktHead >= maxPackets {
+			t.pktHead = 0
+		}
+		t.pktCount++
+	} else {
+		t.packets[t.pktHead] = p
+		t.pktHead++
+		if t.pktHead >= maxPackets {
+			t.pktHead = 0
+		}
+		t.pktDropped++
+	}
+
+	t.pktSecCount++
+	t.invalidate(dirtySniffer | dirtyProtocol | dirtyStatus)
+	t.reconcileSnifferSelection()
+}
+
+func (t *Task) tickPacketsPerSecond(now uint64) {
+	if t.pktSecStart == 0 {
+		t.pktSecStart = now
+		return
+	}
+	if now-t.pktSecStart < 1000 {
+		return
+	}
+	t.pktsPerSec = t.pktSecCount
+	t.pktSecCount = 0
+	t.pktSecStart = now
+	t.invalidate(dirtyStatus)
+}
+
+func (t *Task) packetByDisplayIndex(i int) (*packet, bool) {
+	if i < 0 || i >= t.pktCount {
+		return nil, false
+	}
+	idx := t.pktHead - 1 - i
+	for idx < 0 {
+		idx += maxPackets
+	}
+	if idx >= maxPackets {
+		idx %= maxPackets
+	}
+	return &t.packets[idx], true
+}
+
+func (t *Task) packetVisibleCount() int {
+	if t.replayActive && t.replay != nil {
+		return t.replayPktLimit
+	}
+	return t.pktCount
+}
+
+func (t *Task) packetSummaryByDisplayIndex(i int) (packetSummary, bool) {
+	if i < 0 {
+		return packetSummary{}, false
+	}
+	if t.replayActive && t.replay != nil {
+		limit := t.replayPktLimit
+		if limit > len(t.replay.packets) {
+			limit = len(t.replay.packets)
+		}
+		if i >= limit {
+			return packetSummary{}, false
+		}
+		metaIdx := limit - 1 - i
+		if metaIdx < 0 || metaIdx >= len(t.replay.packets) {
+			return packetSummary{}, false
+		}
+		return summaryFromMeta(&t.replay.packets[metaIdx]), true
+	}
+	p, ok := t.packetByDisplayIndex(i)
+	if !ok || p == nil {
+		return packetSummary{}, false
+	}
+	return summaryFromPacket(p), true
+}
+
+func (t *Task) packetSummaryPassesFilters(p packetSummary) bool {
+	switch t.filterCRC {
+	case filterCRCOK:
+		if !p.crcOK {
+			return false
+		}
+	case filterCRCBad:
+		if p.crcOK {
+			return false
+		}
+	}
+
+	switch t.filterChannel {
+	case filterChannelSelected:
+		if int(p.channel) != t.selectedChannel {
+			return false
+		}
+	case filterChannelRange:
+		if int(p.channel) < t.channelRangeLo || int(p.channel) > t.channelRangeHi {
+			return false
+		}
+	}
+
+	if t.filterMinLen > 0 && int(p.length) < t.filterMinLen {
+		return false
+	}
+	if t.filterMaxLen > 0 && int(p.length) > t.filterMaxLen {
+		return false
+	}
+
+	if t.filterAddrLen > 0 {
+		if int(p.addrLen) < t.filterAddrLen {
+			return false
+		}
+		for i := 0; i < t.filterAddrLen; i++ {
+			mask := t.filterAddrMask[i]
+			if mask == 0 {
+				continue
+			}
+			if (p.addr[i] & mask) != (t.filterAddr[i] & mask) {
+				return false
+			}
+		}
+	}
+
+	if t.filterPayloadLen > 0 {
+		if int(p.length) < t.filterPayloadLen {
+			return false
+		}
+		for i := 0; i < t.filterPayloadLen && i < len(p.payloadPrefix); i++ {
+			mask := t.filterPayloadMask[i]
+			if mask == 0 {
+				continue
+			}
+			if (p.payloadPrefix[i] & mask) != (t.filterPayload[i] & mask) {
+				return false
+			}
+		}
+	}
+
+	if t.filterAgeMs > 0 {
+		now := t.nowTick
+		if t.replayActive {
+			now = t.replayNowTick
+		}
+		if now > p.tick && (now-p.tick) > uint64(t.filterAgeMs) {
+			return false
+		}
+	}
+
+	if t.filterBurstMaxMs > 0 {
+		if p.deltaMs == 0 || int(p.deltaMs) > t.filterBurstMaxMs {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (t *Task) filteredCount() int {
+	n := 0
+	total := t.packetVisibleCount()
+	for i := 0; i < total; i++ {
+		p, ok := t.packetSummaryByDisplayIndex(i)
+		if !ok {
+			continue
+		}
+		if t.packetSummaryPassesFilters(p) {
+			n++
+		}
+	}
+	return n
+}
+
+func (t *Task) filteredPacketSummaryByIndex(idx int) (packetSummary, bool) {
+	if idx < 0 {
+		return packetSummary{}, false
+	}
+	seen := 0
+	total := t.packetVisibleCount()
+	for i := 0; i < total; i++ {
+		p, ok := t.packetSummaryByDisplayIndex(i)
+		if !ok || !t.packetSummaryPassesFilters(p) {
+			continue
+		}
+		if seen == idx {
+			return p, true
+		}
+		seen++
+	}
+	return packetSummary{}, false
+}
+
+func (t *Task) filteredReplayPacketMetaByIndex(idx int) (packetMeta, bool) {
+	if !t.replayActive || t.replay == nil || idx < 0 {
+		return packetMeta{}, false
+	}
+	seen := 0
+	limit := t.replayPktLimit
+	if limit > len(t.replay.packets) {
+		limit = len(t.replay.packets)
+	}
+	for i := 0; i < limit; i++ {
+		metaIdx := limit - 1 - i
+		if metaIdx < 0 || metaIdx >= len(t.replay.packets) {
+			continue
+		}
+		meta := t.replay.packets[metaIdx]
+		if !t.packetSummaryPassesFilters(summaryFromMeta(&meta)) {
+			continue
+		}
+		if seen == idx {
+			return meta, true
+		}
+		seen++
+	}
+	return packetMeta{}, false
+}
+
+func (t *Task) filteredLivePacketByIndex(idx int) (*packet, bool) {
+	if idx < 0 {
+		return nil, false
+	}
+	seen := 0
+	for i := 0; i < t.pktCount; i++ {
+		p, ok := t.packetByDisplayIndex(i)
+		if !ok || p == nil {
+			continue
+		}
+		if !t.packetSummaryPassesFilters(summaryFromPacket(p)) {
+			continue
+		}
+		if seen == idx {
+			return p, true
+		}
+		seen++
+	}
+	return nil, false
+}
+
+func (t *Task) reconcileSnifferSelection() {
+	if t.snifferSelSeq == 0 {
+		if p, ok := t.filteredPacketSummaryByIndex(0); ok && p.seq != 0 {
+			t.snifferSel = 0
+			t.snifferSelSeq = p.seq
+		}
+		return
+	}
+
+	seen := 0
+	total := t.packetVisibleCount()
+	for i := 0; i < total; i++ {
+		p, ok := t.packetSummaryByDisplayIndex(i)
+		if !ok || !t.packetSummaryPassesFilters(p) {
+			continue
+		}
+		if p.seq == t.snifferSelSeq {
+			t.snifferSel = seen
+			return
+		}
+		seen++
+	}
+
+	if p, ok := t.filteredPacketSummaryByIndex(0); ok && p.seq != 0 {
+		t.snifferSel = 0
+		t.snifferSelSeq = p.seq
+	} else {
+		t.snifferSel = 0
+		t.snifferSelSeq = 0
+	}
+	if t.replayActive {
+		t.replayPktCacheOK = false
+	}
+}
+
+func (t *Task) maybeCapturePacket(ch int, energy uint8, tick uint64) {
+	if t.capturePaused {
+		return
+	}
+	if energy < 180 {
+		return
+	}
+
+	// Avoid flooding: energy-gated probabilistic capture.
+	if (t.rng & 0xFF) > uint32(energy) {
+		return
+	}
+
+	// Bias towards "nRF24-like" narrow carriers.
+	if ch != 76 && ch != 91 && ch != t.selectedChannel {
+		if (t.rng & 0x03) != 0 {
+			return
+		}
+	}
+
+	p := packet{
+		tick:    tick,
+		channel: uint8(ch),
+		rate:    t.dataRate,
+		addrLen: 5,
+	}
+
+	switch {
+	case ch == 76:
+		p.addr = [5]byte{0xE7, 0xE7, 0xE7, 0xE7, 0xE7}
+	case ch == 91:
+		p.addr = [5]byte{0xAA, 0xBB, 0xCC, 0xDD, 0xEE}
+	default:
+		p.addr = [5]byte{0x11, 0x22, 0x33, 0x44, 0x55}
+	}
+
+	ln := int((t.rng>>8)%25) + 8
+	if ln > 32 {
+		ln = 32
+	}
+	p.length = uint8(ln)
+
+	x := t.rng
+	for i := 0; i < ln; i++ {
+		// xorshift32
+		x ^= x << 13
+		x ^= x >> 17
+		x ^= x << 5
+		p.payload[i] = byte(x)
+	}
+	t.rng = x
+
+	switch t.crcMode {
+	case rfCRC1B:
+		p.crcLen = 1
+	case rfCRC2B:
+		p.crcLen = 2
+	default:
+		p.crcLen = 0
+	}
+	if p.crcLen > 0 {
+		p.crc[0] = byte(x >> 8)
+		p.crc[1] = byte(x >> 16)
+		// Mostly OK, occasionally bad.
+		p.crcOK = (x & 0x0F) != 0
+	}
+
+	t.appendPacket(p)
+}
+
+func (t *Task) snifferListRows() int {
+	l := t.computeLayout()
+	inner := l.sniffer.inset(2, 2)
+	rows := int((inner.h - 2*t.fontHeight) / t.fontHeight)
+	if rows < 1 {
+		return 1
+	}
+	return rows
+}
+
+func (t *Task) moveSnifferSelection(delta int) {
+	total := t.filteredCount()
+	if total <= 0 {
+		return
+	}
+	sel := t.snifferSel + delta
+	if sel < 0 {
+		sel = 0
+	}
+	if sel >= total {
+		sel = total - 1
+	}
+	if sel == t.snifferSel {
+		return
+	}
+	t.snifferSel = sel
+	if p, ok := t.filteredPacketSummaryByIndex(t.snifferSel); ok && p.seq != 0 {
+		t.snifferSelSeq = p.seq
+	}
+	if t.replayActive {
+		t.replayPktCacheOK = false
+	}
+
+	rows := t.snifferListRows()
+	maxTop := total - rows
+	if maxTop < 0 {
+		maxTop = 0
+	}
+	if t.snifferTop < 0 {
+		t.snifferTop = 0
+	}
+	if t.snifferTop > maxTop {
+		t.snifferTop = maxTop
+	}
+	if t.snifferSel < t.snifferTop {
+		t.snifferTop = t.snifferSel
+	}
+	if t.snifferSel >= t.snifferTop+rows {
+		t.snifferTop = t.snifferSel - rows + 1
+		if t.snifferTop > maxTop {
+			t.snifferTop = maxTop
+		}
+	}
+
+	t.invalidate(dirtySniffer | dirtyProtocol | dirtyStatus)
+}
