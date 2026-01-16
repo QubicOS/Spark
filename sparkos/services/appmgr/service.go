@@ -9,16 +9,20 @@ import (
 	archivetask "spark/sparkos/tasks/archive"
 	basictask "spark/sparkos/tasks/basic"
 	calendartask "spark/sparkos/tasks/calendar"
+	fbtesttask "spark/sparkos/tasks/fbtest"
+	gpioscopetask "spark/sparkos/tasks/gpioscope"
 	hexedittask "spark/sparkos/tasks/hexedit"
 	imgviewtask "spark/sparkos/tasks/imgview"
 	mctask "spark/sparkos/tasks/mc"
 	rfanalyzertask "spark/sparkos/tasks/rfanalyzer"
 	rtdemotask "spark/sparkos/tasks/rtdemo"
 	rtvoxeltask "spark/sparkos/tasks/rtvoxel"
+	serialtermtask "spark/sparkos/tasks/serialterm"
 	snaketask "spark/sparkos/tasks/snake"
 	teaplayertask "spark/sparkos/tasks/teaplayer"
 	tetristask "spark/sparkos/tasks/tetris"
 	todotask "spark/sparkos/tasks/todo"
+	userstask "spark/sparkos/tasks/users"
 	vectortask "spark/sparkos/tasks/vector"
 	vitask "spark/sparkos/tasks/vi"
 )
@@ -29,9 +33,12 @@ import (
 const autoUnloadAfterTicks = 30_000
 
 type Service struct {
-	disp     hal.Display
-	vfsCap   kernel.Capability
-	audioCap kernel.Capability
+	disp      hal.Display
+	vfsCap    kernel.Capability
+	audioCap  kernel.Capability
+	timeCap   kernel.Capability
+	gpioCap   kernel.Capability
+	serialCap kernel.Capability
 
 	rtdemoProxyCap     kernel.Capability
 	rtvoxelProxyCap    kernel.Capability
@@ -48,6 +55,10 @@ type Service struct {
 	teaProxyCap        kernel.Capability
 	basicProxyCap      kernel.Capability
 	rfAnalyzerProxyCap kernel.Capability
+	gpioscopeProxyCap  kernel.Capability
+	fbtestProxyCap     kernel.Capability
+	serialtermProxyCap kernel.Capability
+	usersProxyCap      kernel.Capability
 
 	rtdemoCap     kernel.Capability
 	rtvoxelCap    kernel.Capability
@@ -64,6 +75,10 @@ type Service struct {
 	teaCap        kernel.Capability
 	basicCap      kernel.Capability
 	rfAnalyzerCap kernel.Capability
+	gpioscopeCap  kernel.Capability
+	fbtestCap     kernel.Capability
+	serialtermCap kernel.Capability
+	usersCap      kernel.Capability
 
 	rtdemoEP     kernel.Capability
 	rtvoxelEP    kernel.Capability
@@ -80,6 +95,10 @@ type Service struct {
 	teaEP        kernel.Capability
 	basicEP      kernel.Capability
 	rfAnalyzerEP kernel.Capability
+	gpioscopeEP  kernel.Capability
+	fbtestEP     kernel.Capability
+	serialtermEP kernel.Capability
+	usersEP      kernel.Capability
 
 	mu sync.Mutex
 
@@ -98,6 +117,10 @@ type Service struct {
 	teaRunning        bool
 	basicRunning      bool
 	rfAnalyzerRunning bool
+	gpioscopeRunning  bool
+	fbtestRunning     bool
+	serialtermRunning bool
+	usersRunning      bool
 
 	rtdemoActive     bool
 	rtvoxelActive    bool
@@ -114,6 +137,10 @@ type Service struct {
 	teaActive        bool
 	basicActive      bool
 	rfAnalyzerActive bool
+	gpioscopeActive  bool
+	fbtestActive     bool
+	serialtermActive bool
+	usersActive      bool
 
 	rtdemoInactiveSince     uint64
 	rtvoxelInactiveSince    uint64
@@ -130,13 +157,20 @@ type Service struct {
 	teaInactiveSince        uint64
 	basicInactiveSince      uint64
 	rfAnalyzerInactiveSince uint64
+	gpioscopeInactiveSince  uint64
+	fbtestInactiveSince     uint64
+	serialtermInactiveSince uint64
+	usersInactiveSince      uint64
 }
 
-func New(disp hal.Display, vfsCap, audioCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxyCap, hexProxyCap, snakeProxyCap, tetrisProxyCap, calendarProxyCap, todoProxyCap, archiveProxyCap, viProxyCap, mcProxyCap, vectorProxyCap, teaProxyCap, basicProxyCap, rfAnalyzerProxyCap, rtdemoCap, rtvoxelCap, imgviewCap, hexCap, snakeCap, tetrisCap, calendarCap, todoCap, archiveCap, viCap, mcCap, vectorCap, teaCap, basicCap, rfAnalyzerCap, rtdemoEP, rtvoxelEP, imgviewEP, hexEP, snakeEP, tetrisEP, calendarEP, todoEP, archiveEP, viEP, mcEP, vectorEP, teaEP, basicEP, rfAnalyzerEP kernel.Capability) *Service {
+func New(disp hal.Display, vfsCap, audioCap, timeCap, gpioCap, serialCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxyCap, hexProxyCap, snakeProxyCap, tetrisProxyCap, calendarProxyCap, todoProxyCap, archiveProxyCap, viProxyCap, mcProxyCap, vectorProxyCap, teaProxyCap, basicProxyCap, rfAnalyzerProxyCap, gpioscopeProxyCap, fbtestProxyCap, serialtermProxyCap, usersProxyCap, rtdemoCap, rtvoxelCap, imgviewCap, hexCap, snakeCap, tetrisCap, calendarCap, todoCap, archiveCap, viCap, mcCap, vectorCap, teaCap, basicCap, rfAnalyzerCap, gpioscopeCap, fbtestCap, serialtermCap, usersCap, rtdemoEP, rtvoxelEP, imgviewEP, hexEP, snakeEP, tetrisEP, calendarEP, todoEP, archiveEP, viEP, mcEP, vectorEP, teaEP, basicEP, rfAnalyzerEP, gpioscopeEP, fbtestEP, serialtermEP, usersEP kernel.Capability) *Service {
 	return &Service{
 		disp:               disp,
 		vfsCap:             vfsCap,
 		audioCap:           audioCap,
+		timeCap:            timeCap,
+		gpioCap:            gpioCap,
+		serialCap:          serialCap,
 		rtdemoProxyCap:     rtdemoProxyCap,
 		rtvoxelProxyCap:    rtvoxelProxyCap,
 		imgviewProxyCap:    imgviewProxyCap,
@@ -152,6 +186,10 @@ func New(disp hal.Display, vfsCap, audioCap, rtdemoProxyCap, rtvoxelProxyCap, im
 		teaProxyCap:        teaProxyCap,
 		basicProxyCap:      basicProxyCap,
 		rfAnalyzerProxyCap: rfAnalyzerProxyCap,
+		gpioscopeProxyCap:  gpioscopeProxyCap,
+		fbtestProxyCap:     fbtestProxyCap,
+		serialtermProxyCap: serialtermProxyCap,
+		usersProxyCap:      usersProxyCap,
 		rtdemoCap:          rtdemoCap,
 		rtvoxelCap:         rtvoxelCap,
 		imgviewCap:         imgviewCap,
@@ -167,6 +205,10 @@ func New(disp hal.Display, vfsCap, audioCap, rtdemoProxyCap, rtvoxelProxyCap, im
 		teaCap:             teaCap,
 		basicCap:           basicCap,
 		rfAnalyzerCap:      rfAnalyzerCap,
+		gpioscopeCap:       gpioscopeCap,
+		fbtestCap:          fbtestCap,
+		serialtermCap:      serialtermCap,
+		usersCap:           usersCap,
 		rtdemoEP:           rtdemoEP,
 		rtvoxelEP:          rtvoxelEP,
 		imgviewEP:          imgviewEP,
@@ -182,6 +224,10 @@ func New(disp hal.Display, vfsCap, audioCap, rtdemoProxyCap, rtvoxelProxyCap, im
 		teaEP:              teaEP,
 		basicEP:            basicEP,
 		rfAnalyzerEP:       rfAnalyzerEP,
+		gpioscopeEP:        gpioscopeEP,
+		fbtestEP:           fbtestEP,
+		serialtermEP:       serialtermEP,
+		usersEP:            usersEP,
 	}
 }
 
@@ -202,6 +248,10 @@ func (s *Service) Run(ctx *kernel.Context) {
 	go s.runProxy(ctx, s.teaProxyCap, proto.AppTEA)
 	go s.runProxy(ctx, s.basicProxyCap, proto.AppBasic)
 	go s.runProxy(ctx, s.rfAnalyzerProxyCap, proto.AppRFAnalyzer)
+	go s.runProxy(ctx, s.gpioscopeProxyCap, proto.AppGPIOScope)
+	go s.runProxy(ctx, s.fbtestProxyCap, proto.AppFBTest)
+	go s.runProxy(ctx, s.serialtermProxyCap, proto.AppSerialTerm)
+	go s.runProxy(ctx, s.usersProxyCap, proto.AppUsers)
 	select {}
 }
 
@@ -236,6 +286,10 @@ func (s *Service) shutdownIdle(ctx *kernel.Context, now uint64) {
 	stop = s.appendStopIfIdle(stop, proto.AppTEA, s.teaRunning, s.teaActive, s.teaInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppBasic, s.basicRunning, s.basicActive, s.basicInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppRFAnalyzer, s.rfAnalyzerRunning, s.rfAnalyzerActive, s.rfAnalyzerInactiveSince, now)
+	stop = s.appendStopIfIdle(stop, proto.AppGPIOScope, s.gpioscopeRunning, s.gpioscopeActive, s.gpioscopeInactiveSince, now)
+	stop = s.appendStopIfIdle(stop, proto.AppFBTest, s.fbtestRunning, s.fbtestActive, s.fbtestInactiveSince, now)
+	stop = s.appendStopIfIdle(stop, proto.AppSerialTerm, s.serialtermRunning, s.serialtermActive, s.serialtermInactiveSince, now)
+	stop = s.appendStopIfIdle(stop, proto.AppUsers, s.usersRunning, s.usersActive, s.usersInactiveSince, now)
 	s.mu.Unlock()
 
 	for _, id := range stop {
@@ -262,10 +316,16 @@ func (s *Service) runProxy(ctx *kernel.Context, proxyCap kernel.Capability, appI
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgAppSelect:
 			s.ensureRunning(ctx, appID)
-			_ = ctx.SendToCapResult(s.appCapByID(appID), msg.Kind, msg.Data[:msg.Len], kernel.Capability{})
+			_ = ctx.SendToCapRetry(
+				s.appCapByID(appID),
+				msg.Kind,
+				msg.Payload(),
+				kernel.Capability{},
+				proxySendRetryLimit,
+			)
 
 		case proto.MsgAppControl:
-			active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
+			active, ok := proto.DecodeAppControlPayload(msg.Payload())
 			if !ok {
 				continue
 			}
@@ -273,21 +333,35 @@ func (s *Service) runProxy(ctx *kernel.Context, proxyCap kernel.Capability, appI
 				now := ctx.NowTick()
 				s.ensureRunning(ctx, appID)
 				s.setActive(appID, true, now)
-				_ = ctx.SendToCapResult(s.appCapByID(appID), msg.Kind, msg.Data[:msg.Len], msg.Cap)
+				_ = ctx.SendToCapRetry(s.appCapByID(appID), msg.Kind, msg.Payload(), msg.Cap, proxySendRetryLimit)
 				continue
 			}
 
 			s.setActive(appID, false, ctx.NowTick())
 			if s.isRunning(appID) {
-				_ = ctx.SendToCapResult(s.appCapByID(appID), msg.Kind, msg.Data[:msg.Len], kernel.Capability{})
+				_ = ctx.SendToCapRetry(
+					s.appCapByID(appID),
+					msg.Kind,
+					msg.Payload(),
+					kernel.Capability{},
+					proxySendRetryLimit,
+				)
 			}
 
 		case proto.MsgTermInput:
 			s.ensureRunning(ctx, appID)
-			_ = ctx.SendToCapResult(s.appCapByID(appID), msg.Kind, msg.Data[:msg.Len], kernel.Capability{})
+			_ = ctx.SendToCapRetry(
+				s.appCapByID(appID),
+				msg.Kind,
+				msg.Payload(),
+				kernel.Capability{},
+				proxySendRetryLimit,
+			)
 		}
 	}
 }
+
+const proxySendRetryLimit = 50
 
 func (s *Service) ensureRunning(ctx *kernel.Context, appID proto.AppID) {
 	s.mu.Lock()
@@ -387,6 +461,30 @@ func (s *Service) ensureRunning(ctx *kernel.Context, appID proto.AppID) {
 		s.mu.Lock()
 		s.rfAnalyzerRunning = true
 		s.mu.Unlock()
+
+	case proto.AppGPIOScope:
+		ctx.AddTask(gpioscopetask.New(s.disp, s.gpioscopeEP, s.timeCap, s.gpioCap))
+		s.mu.Lock()
+		s.gpioscopeRunning = true
+		s.mu.Unlock()
+
+	case proto.AppFBTest:
+		ctx.AddTask(fbtesttask.New(s.disp, s.fbtestEP))
+		s.mu.Lock()
+		s.fbtestRunning = true
+		s.mu.Unlock()
+
+	case proto.AppSerialTerm:
+		ctx.AddTask(serialtermtask.New(s.disp, s.serialCap, s.serialtermEP))
+		s.mu.Lock()
+		s.serialtermRunning = true
+		s.mu.Unlock()
+
+	case proto.AppUsers:
+		ctx.AddTask(userstask.New(s.disp, s.usersEP, s.vfsCap))
+		s.mu.Lock()
+		s.usersRunning = true
+		s.mu.Unlock()
 	}
 }
 
@@ -447,6 +545,17 @@ func (s *Service) stop(ctx *kernel.Context, appID proto.AppID) {
 
 	case proto.AppRFAnalyzer:
 		_ = ctx.SendToCapResult(s.rfAnalyzerCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
+	case proto.AppGPIOScope:
+		_ = ctx.SendToCapResult(s.gpioscopeCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
+
+	case proto.AppFBTest:
+		_ = ctx.SendToCapResult(s.fbtestCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
+
+	case proto.AppSerialTerm:
+		_ = ctx.SendToCapResult(s.serialtermCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
+
+	case proto.AppUsers:
+		_ = ctx.SendToCapResult(s.usersCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
 	}
 }
 
@@ -482,6 +591,14 @@ func (s *Service) appCapByID(appID proto.AppID) kernel.Capability {
 		return s.basicCap
 	case proto.AppRFAnalyzer:
 		return s.rfAnalyzerCap
+	case proto.AppGPIOScope:
+		return s.gpioscopeCap
+	case proto.AppFBTest:
+		return s.fbtestCap
+	case proto.AppSerialTerm:
+		return s.serialtermCap
+	case proto.AppUsers:
+		return s.usersCap
 	default:
 		return kernel.Capability{}
 	}
@@ -525,6 +642,14 @@ func (s *Service) isRunningLocked(appID proto.AppID) bool {
 		return s.basicRunning
 	case proto.AppRFAnalyzer:
 		return s.rfAnalyzerRunning
+	case proto.AppGPIOScope:
+		return s.gpioscopeRunning
+	case proto.AppFBTest:
+		return s.fbtestRunning
+	case proto.AppSerialTerm:
+		return s.serialtermRunning
+	case proto.AppUsers:
+		return s.usersRunning
 	default:
 		return false
 	}
@@ -562,6 +687,14 @@ func (s *Service) setRunningLocked(appID proto.AppID, running bool) {
 		s.basicRunning = running
 	case proto.AppRFAnalyzer:
 		s.rfAnalyzerRunning = running
+	case proto.AppGPIOScope:
+		s.gpioscopeRunning = running
+	case proto.AppFBTest:
+		s.fbtestRunning = running
+	case proto.AppSerialTerm:
+		s.serialtermRunning = running
+	case proto.AppUsers:
+		s.usersRunning = running
 	}
 }
 
@@ -618,6 +751,18 @@ func (s *Service) setActiveLocked(appID proto.AppID, active bool, now uint64) {
 	case proto.AppRFAnalyzer:
 		s.rfAnalyzerActive = active
 		s.rfAnalyzerInactiveSince = inactiveSince(active, now, s.rfAnalyzerInactiveSince)
+	case proto.AppGPIOScope:
+		s.gpioscopeActive = active
+		s.gpioscopeInactiveSince = inactiveSince(active, now, s.gpioscopeInactiveSince)
+	case proto.AppFBTest:
+		s.fbtestActive = active
+		s.fbtestInactiveSince = inactiveSince(active, now, s.fbtestInactiveSince)
+	case proto.AppSerialTerm:
+		s.serialtermActive = active
+		s.serialtermInactiveSince = inactiveSince(active, now, s.serialtermInactiveSince)
+	case proto.AppUsers:
+		s.usersActive = active
+		s.usersInactiveSince = inactiveSince(active, now, s.usersInactiveSince)
 	}
 }
 

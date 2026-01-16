@@ -60,6 +60,17 @@ type Message struct {
 	Cap  Capability
 }
 
+// Payload returns the message payload slice.
+//
+// It clamps Len to the Data buffer size to avoid panics if Len is corrupted.
+func (m Message) Payload() []byte {
+	n := int(m.Len)
+	if n > len(m.Data) {
+		n = len(m.Data)
+	}
+	return m.Data[:n]
+}
+
 // MaxMessageBytes is the maximum payload size for IPC messages.
 //
 // Larger transfers should use shared buffers + notify protocols, not mailbox copies.
@@ -138,6 +149,9 @@ func New() *Kernel {
 
 // NewEndpoint allocates a new endpoint and returns a capability for it.
 func (k *Kernel) NewEndpoint(rights Rights) Capability {
+	if rights == 0 {
+		return Capability{}
+	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if k.endpointCount >= maxEndpoints {
@@ -174,7 +188,7 @@ func (k *Kernel) AddTask(t Task) TaskID {
 	return id
 }
 
-func (k *Kernel) send(from Endpoint, to Endpoint, kind uint16, payload []byte, xfer Capability) SendResult {
+func (k *Kernel) send(from Endpoint, to Endpoint, kind uint16, payload []byte, xfer Capability) (res SendResult) {
 	if InPanicMode() {
 		return SendErrQueueFull
 	}
@@ -198,6 +212,14 @@ func (k *Kernel) send(from Endpoint, to Endpoint, kind uint16, payload []byte, x
 	msg.Len = uint16(len(payload))
 	copy(msg.Data[:], payload)
 	msg.Cap = xfer
+
+	defer func() {
+		if r := recover(); r != nil {
+			// A closed endpoint channel can panic on send.
+			// Treat it as a missing endpoint instead of crashing the sender.
+			res = SendErrNoEndpoint
+		}
+	}()
 
 	select {
 	case ch <- msg:

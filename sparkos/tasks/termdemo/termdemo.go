@@ -52,12 +52,18 @@ func (t *Task) Run(ctx *kernel.Context) {
 }
 
 func clearWithRetry(ctx *kernel.Context, termCap kernel.Capability) error {
+	const retryLimit = 500
+	retries := 0
 	for {
 		res := termclient.Clear(ctx, termCap)
 		switch res {
 		case kernel.SendOK:
 			return nil
 		case kernel.SendErrQueueFull:
+			retries++
+			if retries >= retryLimit {
+				return fmt.Errorf("term clear: queue full")
+			}
 			ctx.BlockOnTick()
 			continue
 		default:
@@ -72,12 +78,18 @@ func writeAll(ctx *kernel.Context, termCap kernel.Capability, payload []byte) er
 		if len(chunk) > kernel.MaxMessageBytes {
 			chunk = chunk[:kernel.MaxMessageBytes]
 		}
+		const retryLimit = 500
+		retries := 0
 		for {
 			res := termclient.Write(ctx, termCap, chunk)
 			switch res {
 			case kernel.SendOK:
 				break
 			case kernel.SendErrQueueFull:
+				retries++
+				if retries >= retryLimit {
+					return fmt.Errorf("term write: queue full")
+				}
 				ctx.BlockOnTick()
 				continue
 			default:

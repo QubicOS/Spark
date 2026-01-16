@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	logclient "spark/sparkos/client/logger"
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
 )
@@ -53,16 +54,20 @@ func (s *Service) writeBytes(ctx *kernel.Context, b []byte) error {
 }
 
 func (s *Service) sendToTerm(ctx *kernel.Context, kind proto.Kind, payload []byte) error {
-	for {
-		res := ctx.SendToCapResult(s.termCap, uint16(kind), payload, kernel.Capability{})
-		switch res {
-		case kernel.SendOK:
-			return nil
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			return fmt.Errorf("shell term send: %s", res)
+	res := ctx.SendToCapRetry(s.termCap, uint16(kind), payload, kernel.Capability{}, 500)
+	switch res {
+	case kernel.SendOK:
+		return nil
+	case kernel.SendErrQueueFull:
+		if s.logCap.Valid() {
+			_ = logclient.Log(ctx, s.logCap, fmt.Sprintf("shell: term send %s: queue full", kind))
 		}
+		return fmt.Errorf("shell term send %s: queue full", kind)
+	default:
+		if s.logCap.Valid() {
+			_ = logclient.Log(ctx, s.logCap, fmt.Sprintf("shell: term send %s: %s", kind, res))
+		}
+		return fmt.Errorf("shell term send: %s", res)
 	}
 }
 
@@ -70,15 +75,19 @@ func (s *Service) sendToMux(ctx *kernel.Context, kind proto.Kind, payload []byte
 	if !s.muxCap.Valid() {
 		return errors.New("no consolemux capability")
 	}
-	for {
-		res := ctx.SendToCapResult(s.muxCap, uint16(kind), payload, kernel.Capability{})
-		switch res {
-		case kernel.SendOK:
-			return nil
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			return fmt.Errorf("shell consolemux send: %s", res)
+	res := ctx.SendToCapRetry(s.muxCap, uint16(kind), payload, kernel.Capability{}, 500)
+	switch res {
+	case kernel.SendOK:
+		return nil
+	case kernel.SendErrQueueFull:
+		if s.logCap.Valid() {
+			_ = logclient.Log(ctx, s.logCap, fmt.Sprintf("shell: consolemux send %s: queue full", kind))
 		}
+		return fmt.Errorf("shell consolemux send %s: queue full", kind)
+	default:
+		if s.logCap.Valid() {
+			_ = logclient.Log(ctx, s.logCap, fmt.Sprintf("shell: consolemux send %s: %s", kind, res))
+		}
+		return fmt.Errorf("shell consolemux send: %s", res)
 	}
 }

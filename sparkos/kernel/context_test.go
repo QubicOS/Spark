@@ -24,3 +24,34 @@ func TestContextRecvClosed(t *testing.T) {
 		t.Fatal("expected TryRecv to fail after channel close")
 	}
 }
+
+func TestContextSendClosed(t *testing.T) {
+	k := New()
+	cap := k.NewEndpoint(RightSend | RightRecv)
+	if !cap.Valid() {
+		t.Fatal("expected valid capability")
+	}
+
+	ctx := &Context{k: k, taskID: 1}
+	close(k.endpoints[cap.ep].ch)
+
+	res := ctx.SendToCapResult(cap.Restrict(RightSend), 1, []byte("x"), Capability{})
+	if res != SendErrNoEndpoint {
+		t.Fatalf("expected SendErrNoEndpoint, got %s", res)
+	}
+}
+
+func TestNewEndpointRejectsZeroRights(t *testing.T) {
+	k := New()
+	if k.endpointCount != 0 {
+		t.Fatal("expected empty kernel")
+	}
+
+	cap := k.NewEndpoint(0)
+	if cap.Valid() {
+		t.Fatal("expected invalid capability")
+	}
+	if k.endpointCount != 0 {
+		t.Fatal("expected endpoint not to be allocated")
+	}
+}

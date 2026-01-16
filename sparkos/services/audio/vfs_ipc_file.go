@@ -77,18 +77,14 @@ func (f *ipcFile) Read(p []byte) (int, error) {
 		return 0, errors.New("audio: vfs read payload too large")
 	}
 
-	for {
-		res := f.ctx.SendToCapResult(f.vfsCap, uint16(proto.MsgVFSRead), payload, f.replyCapOut)
-		switch res {
-		case kernel.SendOK:
-			goto sent
-		case kernel.SendErrQueueFull:
-			f.ctx.BlockOnTick()
-		default:
-			return 0, fmt.Errorf("audio: vfs read send: %s", res)
-		}
+	res := f.ctx.SendToCapRetry(f.vfsCap, uint16(proto.MsgVFSRead), payload, f.replyCapOut, 500)
+	switch res {
+	case kernel.SendOK:
+	case kernel.SendErrQueueFull:
+		return 0, errors.New("audio: vfs read send: queue full")
+	default:
+		return 0, fmt.Errorf("audio: vfs read send: %s", res)
 	}
-sent:
 
 	for {
 		msg, ok := <-f.replyCh
@@ -97,7 +93,7 @@ sent:
 		}
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
-			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
+			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Payload())
 			if !ok || ref != proto.MsgVFSRead {
 				return 0, fmt.Errorf("audio: vfs read: %s", code)
 			}
@@ -107,7 +103,7 @@ sent:
 			}
 			return 0, fmt.Errorf("audio: vfs read: %s: %s", code, string(rest))
 		case proto.MsgVFSReadResp:
-			gotID, gotOff, eof, data, ok := proto.DecodeVFSReadRespPayload(msg.Data[:msg.Len])
+			gotID, gotOff, eof, data, ok := proto.DecodeVFSReadRespPayload(msg.Payload())
 			if !ok || gotID != reqID || gotOff != f.off {
 				continue
 			}

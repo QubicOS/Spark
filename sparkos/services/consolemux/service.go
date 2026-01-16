@@ -7,56 +7,64 @@ import (
 	"spark/sparkos/proto"
 )
 
-const interruptByte = 0x07 // Ctrl+G
+const interruptByte = 0x07 // Ctrl+G (toggle focus between shell and app).
 
 type Service struct {
 	inCap  kernel.Capability
 	ctlCap kernel.Capability
 
-	shellCap    kernel.Capability
-	rtdemoCap   kernel.Capability
-	rtvoxelCap  kernel.Capability
-	imgviewCap  kernel.Capability
-	viCap       kernel.Capability
-	mcCap       kernel.Capability
-	hexCap      kernel.Capability
-	vectorCap   kernel.Capability
-	snakeCap    kernel.Capability
-	tetrisCap   kernel.Capability
-	calendarCap kernel.Capability
-	todoCap     kernel.Capability
-	archiveCap  kernel.Capability
-	teaCap      kernel.Capability
-	basicCap    kernel.Capability
-	rfCap       kernel.Capability
-	termCap     kernel.Capability
+	shellCap     kernel.Capability
+	rtdemoCap    kernel.Capability
+	rtvoxelCap   kernel.Capability
+	imgviewCap   kernel.Capability
+	viCap        kernel.Capability
+	mcCap        kernel.Capability
+	hexCap       kernel.Capability
+	vectorCap    kernel.Capability
+	snakeCap     kernel.Capability
+	tetrisCap    kernel.Capability
+	calendarCap  kernel.Capability
+	todoCap      kernel.Capability
+	archiveCap   kernel.Capability
+	teaCap       kernel.Capability
+	basicCap     kernel.Capability
+	rfCap        kernel.Capability
+	gpioscopeCap kernel.Capability
+	fbtestCap    kernel.Capability
+	serialCap    kernel.Capability
+	usersCap     kernel.Capability
+	termCap      kernel.Capability
 
 	activeApp proto.AppID
 	appActive bool
 }
 
-func New(inCap, ctlCap, shellCap, rtdemoCap, rtvoxelCap, imgviewCap, viCap, mcCap, hexCap, vectorCap, snakeCap, tetrisCap, calendarCap, todoCap, archiveCap, teaCap, basicCap, rfCap, termCap kernel.Capability) *Service {
+func New(inCap, ctlCap, shellCap, rtdemoCap, rtvoxelCap, imgviewCap, viCap, mcCap, hexCap, vectorCap, snakeCap, tetrisCap, calendarCap, todoCap, archiveCap, teaCap, basicCap, rfCap, gpioscopeCap, fbtestCap, serialCap, usersCap, termCap kernel.Capability) *Service {
 	return &Service{
-		inCap:       inCap,
-		ctlCap:      ctlCap,
-		shellCap:    shellCap,
-		rtdemoCap:   rtdemoCap,
-		rtvoxelCap:  rtvoxelCap,
-		imgviewCap:  imgviewCap,
-		viCap:       viCap,
-		mcCap:       mcCap,
-		hexCap:      hexCap,
-		vectorCap:   vectorCap,
-		snakeCap:    snakeCap,
-		tetrisCap:   tetrisCap,
-		calendarCap: calendarCap,
-		todoCap:     todoCap,
-		archiveCap:  archiveCap,
-		teaCap:      teaCap,
-		basicCap:    basicCap,
-		rfCap:       rfCap,
-		termCap:     termCap,
-		activeApp:   proto.AppRTDemo,
+		inCap:        inCap,
+		ctlCap:       ctlCap,
+		shellCap:     shellCap,
+		rtdemoCap:    rtdemoCap,
+		rtvoxelCap:   rtvoxelCap,
+		imgviewCap:   imgviewCap,
+		viCap:        viCap,
+		mcCap:        mcCap,
+		hexCap:       hexCap,
+		vectorCap:    vectorCap,
+		snakeCap:     snakeCap,
+		tetrisCap:    tetrisCap,
+		calendarCap:  calendarCap,
+		todoCap:      todoCap,
+		archiveCap:   archiveCap,
+		teaCap:       teaCap,
+		basicCap:     basicCap,
+		rfCap:        rfCap,
+		gpioscopeCap: gpioscopeCap,
+		fbtestCap:    fbtestCap,
+		serialCap:    serialCap,
+		usersCap:     usersCap,
+		termCap:      termCap,
+		activeApp:    proto.AppRTDemo,
 	}
 }
 
@@ -69,15 +77,15 @@ func (s *Service) Run(ctx *kernel.Context) {
 	for msg := range ch {
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgTermInput:
-			s.handleInput(ctx, msg.Data[:msg.Len])
+			s.handleInput(ctx, msg.Payload())
 		case proto.MsgAppControl:
-			active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
+			active, ok := proto.DecodeAppControlPayload(msg.Payload())
 			if !ok {
 				continue
 			}
 			s.setActive(ctx, active)
 		case proto.MsgAppSelect:
-			appID, arg, ok := proto.DecodeAppSelectPayload(msg.Data[:msg.Len])
+			appID, arg, ok := proto.DecodeAppSelectPayload(msg.Payload())
 			if !ok {
 				continue
 			}
@@ -87,18 +95,13 @@ func (s *Service) Run(ctx *kernel.Context) {
 }
 
 func (s *Service) handleInput(ctx *kernel.Context, b []byte) {
-	if s.appActive {
-		s.flushInput(ctx, b)
-		return
-	}
-
 	start := 0
 	for i := 0; i < len(b); i++ {
 		switch b[i] {
 		case interruptByte:
 			s.flushInput(ctx, b[start:i])
 			start = i + 1
-			s.setActive(ctx, true)
+			s.setActive(ctx, !s.appActive)
 		}
 	}
 	s.flushInput(ctx, b[start:])
@@ -188,6 +191,14 @@ func (s *Service) appCapByID(id proto.AppID) kernel.Capability {
 		return s.basicCap
 	case proto.AppRFAnalyzer:
 		return s.rfCap
+	case proto.AppGPIOScope:
+		return s.gpioscopeCap
+	case proto.AppFBTest:
+		return s.fbtestCap
+	case proto.AppSerialTerm:
+		return s.serialCap
+	case proto.AppUsers:
+		return s.usersCap
 	default:
 		return kernel.Capability{}
 	}

@@ -180,7 +180,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 				if msg.Cap.Valid() {
 					t.muxCap = msg.Cap
 				}
-				active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
+				active, ok := proto.DecodeAppControlPayload(msg.Payload())
 				if !ok {
 					continue
 				}
@@ -190,7 +190,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 				}
 
 			case proto.MsgAppSelect:
-				appID, arg, ok := proto.DecodeAppSelectPayload(msg.Data[:msg.Len])
+				appID, arg, ok := proto.DecodeAppSelectPayload(msg.Payload())
 				if !ok || appID != proto.AppBasic {
 					continue
 				}
@@ -220,7 +220,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 				if !t.active {
 					continue
 				}
-				t.handleInput(ctx, msg.Data[:msg.Len])
+				t.handleInput(ctx, msg.Payload())
 				if t.active {
 					t.render()
 				}
@@ -1058,19 +1058,8 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 		t.active = false
 		return
 	}
-	for {
-		res := ctx.SendToCapResult(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{})
-		switch res {
-		case kernel.SendOK:
-			t.active = false
-			return
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			t.active = false
-			return
-		}
-	}
+	_ = ctx.SendToCapRetry(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{}, 500)
+	t.active = false
 }
 
 func splitLeadingLineNumber(line string) (lineNo int, rest string, ok bool) {

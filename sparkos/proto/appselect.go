@@ -20,6 +20,10 @@ const (
 	AppTEA        AppID = 13
 	AppBasic      AppID = 14
 	AppRFAnalyzer AppID = 15
+	AppGPIOScope  AppID = 16
+	AppFBTest     AppID = 17
+	AppSerialTerm AppID = 18
+	AppUsers      AppID = 19
 )
 
 // AppSelectPayload encodes an app selection request.

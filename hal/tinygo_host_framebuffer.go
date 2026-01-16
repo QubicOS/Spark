@@ -39,4 +39,3 @@ func (f *tinyGoHostFramebuffer) Present() error {
 	// No-op by default for tinygo host targets.
 	return nil
 }
-

@@ -113,7 +113,7 @@ func (s *Service) Run(ctx *kernel.Context) {
 
 func (s *Service) handleList(ctx *kernel.Context, msg kernel.Message) {
 	reply := msg.Cap
-	requestID, path, ok := proto.DecodeVFSListPayload(msg.Data[:msg.Len])
+	requestID, path, ok := proto.DecodeVFSListPayload(msg.Payload())
 	if !ok {
 		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSList, 0, "decode list")
 		return
@@ -165,7 +165,7 @@ func (s *Service) handleList(ctx *kernel.Context, msg kernel.Message) {
 
 func (s *Service) handleMkdir(ctx *kernel.Context, msg kernel.Message) {
 	reply := msg.Cap
-	requestID, path, ok := proto.DecodeVFSMkdirPayload(msg.Data[:msg.Len])
+	requestID, path, ok := proto.DecodeVFSMkdirPayload(msg.Payload())
 	if !ok {
 		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSMkdir, 0, "decode mkdir")
 		return
@@ -191,7 +191,7 @@ func (s *Service) handleMkdir(ctx *kernel.Context, msg kernel.Message) {
 
 func (s *Service) handleRemove(ctx *kernel.Context, msg kernel.Message) {
 	reply := msg.Cap
-	requestID, path, ok := proto.DecodeVFSRemovePayload(msg.Data[:msg.Len])
+	requestID, path, ok := proto.DecodeVFSRemovePayload(msg.Payload())
 	if !ok {
 		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSRemove, 0, "decode remove")
 		return
@@ -217,7 +217,7 @@ func (s *Service) handleRemove(ctx *kernel.Context, msg kernel.Message) {
 
 func (s *Service) handleRename(ctx *kernel.Context, msg kernel.Message) {
 	reply := msg.Cap
-	requestID, oldPath, newPath, ok := proto.DecodeVFSRenamePayload(msg.Data[:msg.Len])
+	requestID, oldPath, newPath, ok := proto.DecodeVFSRenamePayload(msg.Payload())
 	if !ok {
 		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSRename, 0, "decode rename")
 		return
@@ -259,7 +259,7 @@ func (s *Service) handleRename(ctx *kernel.Context, msg kernel.Message) {
 
 func (s *Service) handleCopy(ctx *kernel.Context, msg kernel.Message) {
 	reply := msg.Cap
-	requestID, srcPath, dstPath, ok := proto.DecodeVFSCopyPayload(msg.Data[:msg.Len])
+	requestID, srcPath, dstPath, ok := proto.DecodeVFSCopyPayload(msg.Payload())
 	if !ok {
 		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSCopy, 0, "decode copy")
 		return
@@ -370,7 +370,7 @@ func (s *Service) handleCopy(ctx *kernel.Context, msg kernel.Message) {
 
 func (s *Service) handleStat(ctx *kernel.Context, msg kernel.Message) {
 	reply := msg.Cap
-	requestID, path, ok := proto.DecodeVFSStatPayload(msg.Data[:msg.Len])
+	requestID, path, ok := proto.DecodeVFSStatPayload(msg.Payload())
 	if !ok {
 		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSStat, 0, "decode stat")
 		return
@@ -411,7 +411,7 @@ func (s *Service) handleStat(ctx *kernel.Context, msg kernel.Message) {
 
 func (s *Service) handleRead(ctx *kernel.Context, msg kernel.Message) {
 	reply := msg.Cap
-	requestID, path, off, maxBytes, ok := proto.DecodeVFSReadPayload(msg.Data[:msg.Len])
+	requestID, path, off, maxBytes, ok := proto.DecodeVFSReadPayload(msg.Payload())
 	if !ok {
 		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSRead, 0, "decode read")
 		return
@@ -450,7 +450,7 @@ func (s *Service) handleRead(ctx *kernel.Context, msg kernel.Message) {
 
 func (s *Service) handleWriteOpen(ctx *kernel.Context, msg kernel.Message) {
 	reply := msg.Cap
-	requestID, mode, path, ok := proto.DecodeVFSWriteOpenPayload(msg.Data[:msg.Len])
+	requestID, mode, path, ok := proto.DecodeVFSWriteOpenPayload(msg.Payload())
 	if !ok {
 		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgVFSWriteOpen, 0, "decode write open")
 		return
@@ -492,7 +492,7 @@ func (s *Service) handleWriteOpen(ctx *kernel.Context, msg kernel.Message) {
 }
 
 func (s *Service) handleWriteChunk(ctx *kernel.Context, msg kernel.Message) {
-	requestID, data, ok := proto.DecodeVFSWriteChunkPayload(msg.Data[:msg.Len])
+	requestID, data, ok := proto.DecodeVFSWriteChunkPayload(msg.Payload())
 	if !ok {
 		return
 	}
@@ -518,7 +518,7 @@ func (s *Service) handleWriteChunk(ctx *kernel.Context, msg kernel.Message) {
 }
 
 func (s *Service) handleWriteClose(ctx *kernel.Context, msg kernel.Message) {
-	requestID, ok := proto.DecodeVFSWriteClosePayload(msg.Data[:msg.Len])
+	requestID, ok := proto.DecodeVFSWriteClosePayload(msg.Payload())
 	if !ok {
 		return
 	}
@@ -537,17 +537,11 @@ func (s *Service) handleWriteClose(ctx *kernel.Context, msg kernel.Message) {
 }
 
 func (s *Service) send(ctx *kernel.Context, to kernel.Capability, kind proto.Kind, payload []byte) error {
-	for {
-		res := ctx.SendToCapResult(to, uint16(kind), payload, kernel.Capability{})
-		switch res {
-		case kernel.SendOK:
-			return nil
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			return fmt.Errorf("vfs send %s: %s", kind, res)
-		}
+	res := ctx.SendToCapRetry(to, uint16(kind), payload, kernel.Capability{}, 500)
+	if res == kernel.SendOK {
+		return nil
 	}
+	return fmt.Errorf("vfs send %s: %s", kind, res)
 }
 
 func (s *Service) sendErr(

@@ -9,12 +9,14 @@ import (
 type tinyGoHAL struct {
 	logger *uartLogger
 	led    *pinLED
+	gpio   GPIO
 	fb     Framebuffer
 	kbd    Keyboard
 	t      *tinyGoTime
 	flash  Flash
 	net    Network
 	audio  Audio
+	serial Serial
 }
 
 // New returns a Pico 2 (RP2350) HAL implementation.
@@ -31,23 +33,28 @@ func New() HAL {
 	ledPin := machine.LED
 	ledPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
 
+	led := &pinLED{pin: ledPin}
 	return &tinyGoHAL{
 		logger: &uartLogger{uart: uart},
-		led:    &pinLED{pin: ledPin},
+		led:    led,
+		gpio:   newVirtualGPIO([]GPIOPin{newLEDPin("LED", led)}),
 		fb:     &stubFramebuffer{w: 320, h: 320, format: PixelFormatRGB565},
 		kbd:    &stubKeyboard{},
 		t:      newTinyGoTime(),
 		flash:  newRP2Flash(),
 		net:    nullNetwork{},
 		audio:  newTinyGoAudio(),
+		serial: &uartSerial{uart: uart},
 	}
 }
 
 func (h *tinyGoHAL) Logger() Logger   { return h.logger }
 func (h *tinyGoHAL) LED() LED         { return h.led }
+func (h *tinyGoHAL) GPIO() GPIO       { return h.gpio }
 func (h *tinyGoHAL) Display() Display { return tinyGoDisplay{fb: h.fb} }
 func (h *tinyGoHAL) Input() Input     { return tinyGoInput{kbd: h.kbd} }
 func (h *tinyGoHAL) Flash() Flash     { return h.flash }
 func (h *tinyGoHAL) Time() Time       { return h.t }
 func (h *tinyGoHAL) Network() Network { return h.net }
 func (h *tinyGoHAL) Audio() Audio     { return h.audio }
+func (h *tinyGoHAL) Serial() Serial   { return h.serial }

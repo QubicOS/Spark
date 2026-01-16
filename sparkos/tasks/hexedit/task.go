@@ -128,14 +128,14 @@ func (t *Task) Run(ctx *kernel.Context) {
 			if msg.Cap.Valid() {
 				t.muxCap = msg.Cap
 			}
-			active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
+			active, ok := proto.DecodeAppControlPayload(msg.Payload())
 			if !ok {
 				continue
 			}
 			t.setActive(ctx, active)
 
 		case proto.MsgAppSelect:
-			appID, arg, ok := proto.DecodeAppSelectPayload(msg.Data[:msg.Len])
+			appID, arg, ok := proto.DecodeAppSelectPayload(msg.Payload())
 			if !ok || appID != proto.AppHex {
 				continue
 			}
@@ -152,7 +152,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 			if !t.active {
 				continue
 			}
-			t.handleInput(ctx, msg.Data[:msg.Len])
+			t.handleInput(ctx, msg.Payload())
 			if t.active {
 				t.render(ctx)
 			}
@@ -162,14 +162,10 @@ func (t *Task) Run(ctx *kernel.Context) {
 
 func (t *Task) setActive(ctx *kernel.Context, active bool) {
 	if active == t.active {
-		if !active {
-			t.unloadSession()
-		}
 		return
 	}
 	t.active = active
 	if !t.active {
-		t.unloadSession()
 		return
 	}
 	t.setMessage("H help | g goto | / find | v view | i edit | w save | q quit")
@@ -197,17 +193,7 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 	if !t.muxCap.Valid() {
 		return
 	}
-	for {
-		res := ctx.SendToCapResult(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{})
-		switch res {
-		case kernel.SendOK:
-			return
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			return
-		}
-	}
+	_ = ctx.SendToCapRetry(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{}, 500)
 }
 
 func (t *Task) unloadSession() {

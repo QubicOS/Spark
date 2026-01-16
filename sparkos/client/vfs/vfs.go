@@ -77,16 +77,15 @@ func (c *Client) send(ctx *kernel.Context, kind proto.Kind, payload []byte) erro
 	if ctx == nil {
 		return errors.New("vfs client: nil context")
 	}
-	for {
-		res := ctx.SendToCapResult(c.vfsCap, uint16(kind), payload, c.replyCapXfer)
-		switch res {
-		case kernel.SendOK:
-			return nil
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			return fmt.Errorf("vfs client send %s: %s", kind, res)
-		}
+
+	res := ctx.SendToCapRetry(c.vfsCap, uint16(kind), payload, c.replyCapXfer, 500)
+	switch res {
+	case kernel.SendOK:
+		return nil
+	case kernel.SendErrQueueFull:
+		return fmt.Errorf("vfs client send %s: queue full", kind)
+	default:
+		return fmt.Errorf("vfs client send %s: %s", kind, res)
 	}
 }
 
@@ -124,7 +123,7 @@ func (c *Client) List(ctx *kernel.Context, path string) ([]Entry, error) {
 		}
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
-			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
+			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Payload())
 			if !ok || ref != proto.MsgVFSList {
 				continue
 			}
@@ -134,7 +133,7 @@ func (c *Client) List(ctx *kernel.Context, path string) ([]Entry, error) {
 			}
 			return nil, fmt.Errorf("vfs list: %s: %s", code, string(rest))
 		case proto.MsgVFSListResp:
-			gotID, done, typ, size, name, ok := proto.DecodeVFSListRespPayload(msg.Data[:msg.Len])
+			gotID, done, typ, size, name, ok := proto.DecodeVFSListRespPayload(msg.Payload())
 			if !ok || gotID != reqID {
 				continue
 			}
@@ -165,7 +164,7 @@ func (c *Client) Mkdir(ctx *kernel.Context, path string) error {
 		}
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
-			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
+			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Payload())
 			if !ok || ref != proto.MsgVFSMkdir {
 				continue
 			}
@@ -175,7 +174,7 @@ func (c *Client) Mkdir(ctx *kernel.Context, path string) error {
 			}
 			return fmt.Errorf("vfs mkdir: %s: %s", code, string(rest))
 		case proto.MsgVFSMkdirResp:
-			gotID, ok := proto.DecodeVFSMkdirRespPayload(msg.Data[:msg.Len])
+			gotID, ok := proto.DecodeVFSMkdirRespPayload(msg.Payload())
 			if !ok || gotID != reqID {
 				continue
 			}
@@ -203,7 +202,7 @@ func (c *Client) Remove(ctx *kernel.Context, path string) error {
 		}
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
-			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
+			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Payload())
 			if !ok || ref != proto.MsgVFSRemove {
 				continue
 			}
@@ -213,7 +212,7 @@ func (c *Client) Remove(ctx *kernel.Context, path string) error {
 			}
 			return fmt.Errorf("vfs remove: %s: %s", code, string(rest))
 		case proto.MsgVFSRemoveResp:
-			gotID, ok := proto.DecodeVFSRemoveRespPayload(msg.Data[:msg.Len])
+			gotID, ok := proto.DecodeVFSRemoveRespPayload(msg.Payload())
 			if !ok || gotID != reqID {
 				continue
 			}
@@ -241,7 +240,7 @@ func (c *Client) Rename(ctx *kernel.Context, oldPath, newPath string) error {
 		}
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
-			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
+			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Payload())
 			if !ok || ref != proto.MsgVFSRename {
 				continue
 			}
@@ -251,7 +250,7 @@ func (c *Client) Rename(ctx *kernel.Context, oldPath, newPath string) error {
 			}
 			return fmt.Errorf("vfs rename: %s: %s", code, string(rest))
 		case proto.MsgVFSRenameResp:
-			gotID, ok := proto.DecodeVFSRenameRespPayload(msg.Data[:msg.Len])
+			gotID, ok := proto.DecodeVFSRenameRespPayload(msg.Payload())
 			if !ok || gotID != reqID {
 				continue
 			}
@@ -279,7 +278,7 @@ func (c *Client) Copy(ctx *kernel.Context, srcPath, dstPath string) error {
 		}
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
-			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
+			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Payload())
 			if !ok || ref != proto.MsgVFSCopy {
 				continue
 			}
@@ -289,7 +288,7 @@ func (c *Client) Copy(ctx *kernel.Context, srcPath, dstPath string) error {
 			}
 			return fmt.Errorf("vfs copy: %s: %s", code, string(rest))
 		case proto.MsgVFSCopyResp:
-			gotID, done, _, _, ok := proto.DecodeVFSCopyRespPayload(msg.Data[:msg.Len])
+			gotID, done, _, _, ok := proto.DecodeVFSCopyRespPayload(msg.Payload())
 			if !ok || gotID != reqID {
 				continue
 			}
@@ -319,7 +318,7 @@ func (c *Client) Stat(ctx *kernel.Context, path string) (proto.VFSEntryType, uin
 		}
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
-			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
+			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Payload())
 			if !ok || ref != proto.MsgVFSStat {
 				continue
 			}
@@ -329,7 +328,7 @@ func (c *Client) Stat(ctx *kernel.Context, path string) (proto.VFSEntryType, uin
 			}
 			return 0, 0, fmt.Errorf("vfs stat: %s: %s", code, string(rest))
 		case proto.MsgVFSStatResp:
-			gotID, typ, size, ok := proto.DecodeVFSStatRespPayload(msg.Data[:msg.Len])
+			gotID, typ, size, ok := proto.DecodeVFSStatRespPayload(msg.Payload())
 			if !ok || gotID != reqID {
 				continue
 			}
@@ -357,7 +356,7 @@ func (c *Client) ReadAt(ctx *kernel.Context, path string, off uint32, maxBytes u
 		}
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
-			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
+			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Payload())
 			if !ok || ref != proto.MsgVFSRead {
 				continue
 			}
@@ -367,7 +366,7 @@ func (c *Client) ReadAt(ctx *kernel.Context, path string, off uint32, maxBytes u
 			}
 			return nil, false, fmt.Errorf("vfs read: %s: %s", code, string(rest))
 		case proto.MsgVFSReadResp:
-			gotID, gotOff, eof, data, ok := proto.DecodeVFSReadRespPayload(msg.Data[:msg.Len])
+			gotID, gotOff, eof, data, ok := proto.DecodeVFSReadRespPayload(msg.Payload())
 			if !ok || gotID != reqID || gotOff != off {
 				continue
 			}
@@ -419,7 +418,7 @@ func (c *Client) openWriterLocked(ctx *kernel.Context, path string, mode proto.V
 		}
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
-			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
+			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Payload())
 			if !ok || ref != proto.MsgVFSWriteOpen {
 				continue
 			}
@@ -429,7 +428,7 @@ func (c *Client) openWriterLocked(ctx *kernel.Context, path string, mode proto.V
 			}
 			return nil, fmt.Errorf("vfs write open: %s: %s", code, string(rest))
 		case proto.MsgVFSWriteResp:
-			gotID, done, _, ok := proto.DecodeVFSWriteRespPayload(msg.Data[:msg.Len])
+			gotID, done, _, ok := proto.DecodeVFSWriteRespPayload(msg.Payload())
 			if !ok || gotID != reqID || done {
 				continue
 			}
@@ -482,7 +481,7 @@ func (w *Writer) Close() (uint32, error) {
 		}
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgError:
-			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
+			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Payload())
 			if !ok || (ref != proto.MsgVFSWriteChunk && ref != proto.MsgVFSWriteClose) {
 				continue
 			}
@@ -492,7 +491,7 @@ func (w *Writer) Close() (uint32, error) {
 			}
 			return 0, fmt.Errorf("vfs write: %s: %s", code, string(rest))
 		case proto.MsgVFSWriteResp:
-			gotID, done, n, ok := proto.DecodeVFSWriteRespPayload(msg.Data[:msg.Len])
+			gotID, done, n, ok := proto.DecodeVFSWriteRespPayload(msg.Payload())
 			if !ok || gotID != w.requestID || !done {
 				continue
 			}

@@ -45,17 +45,14 @@ func Sleep(ctx *kernel.Context, timeCap kernel.Capability, dt uint32) error {
 	requestID := st.nextID
 
 	payload := proto.SleepPayload(requestID, dt)
-	for {
-		res := ctx.SendToCapResult(timeCap, uint16(proto.MsgSleep), payload, replySend)
-		switch res {
-		case kernel.SendOK:
-			goto waitReply
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-			continue
-		default:
-			return fmt.Errorf("time sleep send: %s", res)
-		}
+	res := ctx.SendToCapRetry(timeCap, uint16(proto.MsgSleep), payload, replySend, 500)
+	switch res {
+	case kernel.SendOK:
+		goto waitReply
+	case kernel.SendErrQueueFull:
+		return fmt.Errorf("time sleep send: queue full")
+	default:
+		return fmt.Errorf("time sleep send: %s", res)
 	}
 
 waitReply:
@@ -67,7 +64,7 @@ waitReply:
 
 		switch proto.Kind(msg.Kind) {
 		case proto.MsgWake:
-			reqID, ok := proto.DecodeWakePayload(msg.Data[:msg.Len])
+			reqID, ok := proto.DecodeWakePayload(msg.Payload())
 			if !ok {
 				return fmt.Errorf("time wake: bad payload")
 			}
@@ -77,7 +74,7 @@ waitReply:
 			return nil
 
 		case proto.MsgError:
-			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
+			code, ref, detail, ok := proto.DecodeErrorPayload(msg.Payload())
 			if !ok {
 				return fmt.Errorf("time error: bad payload")
 			}

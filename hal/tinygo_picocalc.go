@@ -10,12 +10,14 @@ import (
 type picoCalcHAL struct {
 	logger *uartLogger
 	led    *pinLED
+	gpio   GPIO
 	fb     Framebuffer
 	kbd    Keyboard
 	t      *tinyGoTime
 	flash  Flash
 	net    Network
 	audio  Audio
+	serial Serial
 }
 
 // New returns a PicoCalc HAL implementation (Pico/Pico2 on the PicoCalc carrier).
@@ -32,6 +34,7 @@ func New() HAL {
 	ledPin := machine.LED
 	ledPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
 
+	led := &pinLED{pin: ledPin}
 	disp, err := newPicoCalcDisplay()
 	if err != nil {
 		disp = newPicoCalcDisplayStub()
@@ -46,24 +49,28 @@ func New() HAL {
 
 	return &picoCalcHAL{
 		logger: &uartLogger{uart: uart},
-		led:    &pinLED{pin: ledPin},
+		led:    led,
+		gpio:   newVirtualGPIO([]GPIOPin{newLEDPin("LED", led)}),
 		fb:     disp,
 		kbd:    kbd,
 		t:      newTinyGoTime(),
 		flash:  newRP2Flash(),
 		net:    nullNetwork{},
 		audio:  newTinyGoAudio(),
+		serial: &uartSerial{uart: uart},
 	}
 }
 
 func (h *picoCalcHAL) Logger() Logger   { return h.logger }
 func (h *picoCalcHAL) LED() LED         { return h.led }
+func (h *picoCalcHAL) GPIO() GPIO       { return h.gpio }
 func (h *picoCalcHAL) Display() Display { return tinyGoDisplay{fb: h.fb} }
 func (h *picoCalcHAL) Input() Input     { return tinyGoInput{kbd: h.kbd} }
 func (h *picoCalcHAL) Flash() Flash     { return h.flash }
 func (h *picoCalcHAL) Time() Time       { return h.t }
 func (h *picoCalcHAL) Network() Network { return h.net }
 func (h *picoCalcHAL) Audio() Audio     { return h.audio }
+func (h *picoCalcHAL) Serial() Serial   { return h.serial }
 
 type picoCalcFramebuffer struct {
 	w      int

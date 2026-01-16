@@ -90,7 +90,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 				if msg.Cap.Valid() {
 					t.muxCap = msg.Cap
 				}
-				active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
+				active, ok := proto.DecodeAppControlPayload(msg.Payload())
 				if !ok {
 					continue
 				}
@@ -99,7 +99,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 				if !t.active {
 					continue
 				}
-				t.handleInput(ctx, msg.Data[:msg.Len])
+				t.handleInput(ctx, msg.Payload())
 			}
 
 		case seq := <-tickCh:
@@ -130,17 +130,9 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 		t.setActive(false)
 		return
 	}
-	for {
-		res := ctx.SendToCapResult(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{})
-		switch res {
-		case kernel.SendOK:
-			return
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			t.setActive(false)
-			return
-		}
+	res := ctx.SendToCapRetry(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{}, 500)
+	if res != kernel.SendOK {
+		t.setActive(false)
 	}
 }
 
@@ -150,10 +142,24 @@ func (t *Task) setActive(active bool) {
 	}
 	t.active = active
 	t.lastDrawSeq = 0
-	t.frame = 0
 
 	if !t.active {
 		return
+	}
+
+	w := t.fb.Width()
+	h := t.fb.Height()
+	if w <= 0 || h <= 0 {
+		t.active = false
+		return
+	}
+
+	needsInit := w != t.width || h != t.height || t.small == nil || t.dirs == nil || t.objs == nil
+	if !needsInit {
+		return
+	}
+	if t.small == nil || t.dirs == nil || t.objs == nil {
+		t.frame = 0
 	}
 	t.initScene()
 }

@@ -68,3 +68,21 @@ type pinLED struct {
 
 func (l *pinLED) High() { l.pin.High() }
 func (l *pinLED) Low()  { l.pin.Low() }
+
+type uartSerial struct {
+	uart *machine.UART
+}
+
+func (s *uartSerial) Read(p []byte) (int, error) {
+	if s.uart == nil {
+		return 0, ErrNotImplemented
+	}
+	return s.uart.Read(p)
+}
+
+func (s *uartSerial) Write(p []byte) (int, error) {
+	if s.uart == nil {
+		return 0, ErrNotImplemented
+	}
+	return s.uart.Write(p)
+}

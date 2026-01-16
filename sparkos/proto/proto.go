@@ -40,6 +40,17 @@ const (
 	MsgAudioSetVolume
 	MsgAudioStatus
 	MsgAudioMeters
+	MsgGPIOList
+	MsgGPIOListResp
+	MsgGPIOConfig
+	MsgGPIOConfigResp
+	MsgGPIOWrite
+	MsgGPIOWriteResp
+	MsgGPIORead
+	MsgGPIOReadResp
+	MsgSerialSubscribe
+	MsgSerialWrite
+	MsgSerialData
 )
 
 // ErrCode is a generic error category for MsgError responses.
@@ -153,6 +164,28 @@ func (k Kind) String() string {
 		return "audio_status"
 	case MsgAudioMeters:
 		return "audio_meters"
+	case MsgGPIOList:
+		return "gpio_list"
+	case MsgGPIOListResp:
+		return "gpio_list_resp"
+	case MsgGPIOConfig:
+		return "gpio_config"
+	case MsgGPIOConfigResp:
+		return "gpio_config_resp"
+	case MsgGPIOWrite:
+		return "gpio_write"
+	case MsgGPIOWriteResp:
+		return "gpio_write_resp"
+	case MsgGPIORead:
+		return "gpio_read"
+	case MsgGPIOReadResp:
+		return "gpio_read_resp"
+	case MsgSerialSubscribe:
+		return "serial_subscribe"
+	case MsgSerialWrite:
+		return "serial_write"
+	case MsgSerialData:
+		return "serial_data"
 	default:
 		return "unknown"
 	}

@@ -129,19 +129,19 @@ func (t *Task) Run(ctx *kernel.Context) {
 				if msg.Cap.Valid() {
 					t.muxCap = msg.Cap
 				}
-				active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
+				active, ok := proto.DecodeAppControlPayload(msg.Payload())
 				if !ok {
 					continue
 				}
 				t.setActive(ctx, active)
 
 			case proto.MsgAppSelect:
-				appID, arg, ok := proto.DecodeAppSelectPayload(msg.Data[:msg.Len])
+				appID, arg, ok := proto.DecodeAppSelectPayload(msg.Payload())
 				if !ok || appID != proto.AppTEA {
 					continue
 				}
+				t.applyArg(ctx, arg)
 				if t.active {
-					t.applyArg(ctx, arg)
 					t.render()
 				}
 
@@ -149,7 +149,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 				if !t.active {
 					continue
 				}
-				t.handleInput(ctx, msg.Data[:msg.Len])
+				t.handleInput(ctx, msg.Payload())
 				if t.active {
 					t.render()
 				}
@@ -165,7 +165,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 			}
 			switch proto.Kind(msg.Kind) {
 			case proto.MsgAudioStatus:
-				state, vol, sr, pos, total, ok := proto.DecodeAudioStatusPayload(msg.Data[:msg.Len])
+				state, vol, sr, pos, total, ok := proto.DecodeAudioStatusPayload(msg.Payload())
 				if !ok {
 					continue
 				}
@@ -176,7 +176,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 				t.nowTotal = total
 				t.render()
 			case proto.MsgAudioMeters:
-				levels, ok := proto.DecodeAudioMetersPayload(msg.Data[:msg.Len])
+				levels, ok := proto.DecodeAudioMetersPayload(msg.Payload())
 				if !ok {
 					continue
 				}
@@ -252,7 +252,9 @@ func (t *Task) initApp(ctx *kernel.Context) {
 		}
 	}
 
-	t.refreshList(ctx)
+	if t.items == nil {
+		t.refreshList(ctx)
+	}
 }
 
 func (t *Task) unload() {
@@ -266,23 +268,19 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 	if !t.muxCap.Valid() {
 		return
 	}
-	for {
-		res := ctx.SendToCapResult(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{})
-		switch res {
-		case kernel.SendOK:
-			return
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			return
-		}
-	}
+	_ = ctx.SendToCapRetry(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{}, 500)
 }
 
 func (t *Task) applyArg(ctx *kernel.Context, arg string) {
 	arg = strings.TrimSpace(arg)
 	if arg == "" {
 		return
+	}
+	if t.vfs == nil && t.vfsCap.Valid() {
+		t.vfs = vfsclient.New(t.vfsCap)
+	}
+	if t.audio == nil && t.audioCap.Valid() {
+		t.audio = audioclient.New(t.audioCap)
 	}
 	if strings.HasSuffix(strings.ToLower(arg), ".tea") {
 		t.nowPath = arg

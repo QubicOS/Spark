@@ -11,4 +11,3 @@ func (nullNetwork) Recv(pkt []byte) (int, error) {
 	_ = pkt
 	return 0, ErrNotImplemented
 }
-

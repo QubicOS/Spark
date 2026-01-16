@@ -11,6 +11,7 @@ import (
 type tinyGoHostHAL struct {
 	logger *tinyGoHostLogger
 	led    *tinyGoHostLED
+	gpio   GPIO
 	fb     *tinyGoHostFramebuffer
 	kbd    *tinyGoHostKeyboard
 	t      *tinyGoHostTime
@@ -23,9 +24,11 @@ type tinyGoHostHAL struct {
 // This is used by `tinygo run` targets like linux/wasm where there is no MCU pin mapping.
 func New() HAL {
 	l := &tinyGoHostLogger{}
+	led := &tinyGoHostLED{logger: l}
 	return &tinyGoHostHAL{
 		logger: l,
-		led:    &tinyGoHostLED{logger: l},
+		led:    led,
+		gpio:   newVirtualGPIO([]GPIOPin{newLEDPin("LED", led)}),
 		fb:     newTinyGoHostFramebuffer(320, 320),
 		kbd:    newTinyGoHostKeyboard(),
 		t:      newTinyGoHostTime(),
@@ -36,6 +39,7 @@ func New() HAL {
 
 func (h *tinyGoHostHAL) Logger() Logger   { return h.logger }
 func (h *tinyGoHostHAL) LED() LED         { return h.led }
+func (h *tinyGoHostHAL) GPIO() GPIO       { return h.gpio }
 func (h *tinyGoHostHAL) Display() Display { return tinyGoHostDisplay{fb: h.fb} }
 func (h *tinyGoHostHAL) Input() Input     { return tinyGoHostInput{kbd: h.kbd} }
 func (h *tinyGoHostHAL) Flash() Flash     { return h.flash }

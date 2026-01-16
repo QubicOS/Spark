@@ -19,6 +19,9 @@ func (c *Context) AddTask(t Task) TaskID {
 
 // RecvChan returns the inbound message channel for an endpoint capability.
 func (c *Context) RecvChan(epCap Capability) (<-chan Message, bool) {
+	if c == nil || c.k == nil {
+		return nil, false
+	}
 	if !epCap.valid() || !epCap.canRecv() {
 		return nil, false
 	}
@@ -38,6 +41,9 @@ func (c *Context) RecvChan(epCap Capability) (<-chan Message, bool) {
 
 // Recv reads one message from the capability endpoint, blocking until a message arrives.
 func (c *Context) Recv(epCap Capability) (Message, bool) {
+	if c == nil {
+		return Message{}, false
+	}
 	ch, ok := c.RecvChan(epCap)
 	if !ok {
 		return Message{}, false
@@ -51,6 +57,9 @@ func (c *Context) Recv(epCap Capability) (Message, bool) {
 
 // TryRecv reads one message from the capability endpoint without blocking.
 func (c *Context) TryRecv(epCap Capability) (Message, bool) {
+	if c == nil {
+		return Message{}, false
+	}
 	ch, ok := c.RecvChan(epCap)
 	if !ok {
 		return Message{}, false
@@ -87,6 +96,9 @@ func (c *Context) SendCap(fromCap, toCap Capability, kind uint16, payload []byte
 
 // SendCapResult sends a message and transfers an optional capability.
 func (c *Context) SendCapResult(fromCap, toCap Capability, kind uint16, payload []byte, xfer Capability) SendResult {
+	if c == nil || c.k == nil {
+		return SendErrNoEndpoint
+	}
 	if !fromCap.valid() {
 		return SendErrInvalidFromCap
 	}
@@ -120,6 +132,9 @@ func (c *Context) SendToCap(toCap Capability, kind uint16, payload []byte, xfer 
 //
 // The message From field is set to 0 (unknown).
 func (c *Context) SendToCapResult(toCap Capability, kind uint16, payload []byte, xfer Capability) SendResult {
+	if c == nil || c.k == nil {
+		return SendErrNoEndpoint
+	}
 	if !toCap.valid() {
 		return SendErrInvalidToCap
 	}
@@ -127,6 +142,37 @@ func (c *Context) SendToCapResult(toCap Capability, kind uint16, payload []byte,
 		return SendErrToNoSendRight
 	}
 	return c.k.send(0, toCap.ep, kind, payload, xfer)
+}
+
+// SendToCapRetry sends a message, retrying on a full queue up to retryLimit times.
+//
+// It returns the last SendResult. If retryLimit is 0, it performs no retries.
+func (c *Context) SendToCapRetry(
+	toCap Capability,
+	kind uint16,
+	payload []byte,
+	xfer Capability,
+	retryLimit int,
+) SendResult {
+	if c == nil {
+		return SendErrNoEndpoint
+	}
+	if retryLimit < 0 {
+		retryLimit = 0
+	}
+
+	retries := 0
+	for {
+		res := c.SendToCapResult(toCap, kind, payload, xfer)
+		if res != SendErrQueueFull {
+			return res
+		}
+		if retries >= retryLimit {
+			return res
+		}
+		retries++
+		c.BlockOnTick()
+	}
 }
 
 // NewEndpoint allocates a new endpoint and returns a capability for it.

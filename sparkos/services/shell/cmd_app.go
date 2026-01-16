@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 
+	"spark/sparkos/internal/userdb"
 	"spark/sparkos/kernel"
 	"spark/sparkos/proto"
 	vitask "spark/sparkos/tasks/vi"
@@ -16,6 +17,7 @@ func registerAppCommands(r *registry) error {
 		{Name: "basic", Usage: "basic [file] | basic run <file>", Desc: "Tiny BASIC IDE (F1 code, F2 io, F3 vars).", Run: cmdBasic},
 		{Name: "hex", Usage: "hex <file>", Desc: "Hex viewer/editor (q/ESC to exit, w to save).", Run: cmdHex},
 		{Name: "vector", Usage: "vector [expr]", Desc: "Math calculator with graphing (g graph, H help).", Run: cmdVector},
+		{Name: "gpio", Aliases: []string{"scope", "sigview"}, Usage: "gpio", Desc: "GPIO / Signal Viewer (Tab modes, r run, q exit).", Run: cmdGPIOScope},
 		{Name: "snake", Usage: "snake", Desc: "Snake game (arrows move, p pause, r restart, q quit).", Run: cmdSnake},
 		{Name: "tetris", Usage: "tetris", Desc: "Tetris (arrows move, z/x rotate, c drop, p pause, r restart, q quit).", Run: cmdTetris},
 		{Name: "cal", Aliases: []string{"calendar"}, Usage: "cal [YYYY-MM[-DD]]", Desc: "Calendar (arrows move, Enter day view, a add, d delete, n/b month, q quit).", Run: cmdCalendar},
@@ -26,6 +28,9 @@ func registerAppCommands(r *registry) error {
 		{Name: "rtvoxel", Usage: "rtvoxel [on|off]", Desc: "Start voxel world demo (exit with q/ESC).", Run: cmdRTVoxel},
 		{Name: "imgview", Usage: "imgview <file>", Desc: "View an image (BMP/PNG/JPEG; q/ESC to exit).", Run: cmdImgView},
 		{Name: "rf", Usage: "rf", Desc: "2.4 GHz RF Analyzer (nRF24 scan + waterfall + sniffer).", Run: cmdRFAnalyzer},
+		{Name: "fbtest", Usage: "fbtest", Desc: "Framebuffer benchmark (r rerun, q quit).", Run: cmdFBTest},
+		{Name: "serial", Usage: "serial", Desc: "Serial terminal (Ctrl+Q exit, Ctrl+R clear).", Run: cmdSerial},
+		{Name: "users", Usage: "users", Desc: "User manager (admin only; n new, p password, r role, h home).", Run: cmdUsers},
 	} {
 		if err := r.register(cmd); err != nil {
 			return err
@@ -118,6 +123,49 @@ func cmdVector(ctx *kernel.Context, s *Service, args []string, _ redirection) er
 	}
 
 	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppVector, expr)); err != nil {
+		return err
+	}
+	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))
+}
+
+func cmdGPIOScope(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	if len(args) != 0 {
+		return errors.New("usage: gpio")
+	}
+	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppGPIOScope, "")); err != nil {
+		return err
+	}
+	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))
+}
+
+func cmdFBTest(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	if len(args) != 0 {
+		return errors.New("usage: fbtest")
+	}
+	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppFBTest, "")); err != nil {
+		return err
+	}
+	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))
+}
+
+func cmdSerial(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	if len(args) != 0 {
+		return errors.New("usage: serial")
+	}
+	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppSerialTerm, "")); err != nil {
+		return err
+	}
+	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))
+}
+
+func cmdUsers(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	if len(args) != 0 {
+		return errors.New("usage: users")
+	}
+	if s.userRole != userdb.RoleAdmin {
+		return errors.New("users: requires admin")
+	}
+	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppUsers, "")); err != nil {
 		return err
 	}
 	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))

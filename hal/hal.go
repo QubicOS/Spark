@@ -78,6 +78,12 @@ type Input interface {
 	Keyboard() Keyboard
 }
 
+// Serial provides a byte stream (if available).
+type Serial interface {
+	Read(p []byte) (int, error)
+	Write(p []byte) (int, error)
+}
+
 // Flash provides raw access to non-volatile memory.
 //
 // It is intentionally low-level: addresses and erase blocks only.
@@ -122,10 +128,13 @@ type PWMAudio interface {
 type HAL interface {
 	Logger() Logger
 	LED() LED
+	// GPIO returns a GPIO controller, or nil if unsupported.
+	GPIO() GPIO
 	Display() Display
 	Input() Input
 	Flash() Flash
 	Time() Time
 	Network() Network
 	Audio() Audio
+	Serial() Serial
 }

@@ -57,14 +57,14 @@ func (t *Task) Run(ctx *kernel.Context) {
 			if msg.Cap.Valid() {
 				t.muxCap = msg.Cap
 			}
-			active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
+			active, ok := proto.DecodeAppControlPayload(msg.Payload())
 			if !ok {
 				continue
 			}
 			t.setActive(ctx, active)
 
 		case proto.MsgAppSelect:
-			appID, arg, ok := proto.DecodeAppSelectPayload(msg.Data[:msg.Len])
+			appID, arg, ok := proto.DecodeAppSelectPayload(msg.Payload())
 			if !ok || appID != proto.AppImgView {
 				continue
 			}
@@ -77,7 +77,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 			if !t.active {
 				continue
 			}
-			if t.handleInput(ctx, msg.Data[:msg.Len]) {
+			if t.handleInput(ctx, msg.Payload()) {
 				t.requestExit(ctx)
 			}
 		}
@@ -86,14 +86,10 @@ func (t *Task) Run(ctx *kernel.Context) {
 
 func (t *Task) setActive(ctx *kernel.Context, active bool) {
 	if active == t.active {
-		if !active {
-			t.unloadSession()
-		}
 		return
 	}
 	t.active = active
 	if !t.active {
-		t.unloadSession()
 		return
 	}
 	t.render(ctx)
@@ -116,21 +112,9 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 		t.unloadSession()
 		return
 	}
-	for {
-		res := ctx.SendToCapResult(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{})
-		switch res {
-		case kernel.SendOK:
-			t.active = false
-			t.unloadSession()
-			return
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			t.active = false
-			t.unloadSession()
-			return
-		}
-	}
+	_ = ctx.SendToCapRetry(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{}, 500)
+	t.active = false
+	t.unloadSession()
 }
 
 func (t *Task) unloadSession() {

@@ -42,6 +42,9 @@ type Task struct {
 	active bool
 	muxCap kernel.Capability
 
+	initialized bool
+	pendingArg  string
+
 	w int
 	h int
 
@@ -129,19 +132,21 @@ func (t *Task) Run(ctx *kernel.Context) {
 				if msg.Cap.Valid() {
 					t.muxCap = msg.Cap
 				}
-				active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
+				active, ok := proto.DecodeAppControlPayload(msg.Payload())
 				if !ok {
 					continue
 				}
 				t.setActive(ctx, active)
 
 			case proto.MsgAppSelect:
-				appID, arg, ok := proto.DecodeAppSelectPayload(msg.Data[:msg.Len])
+				appID, arg, ok := proto.DecodeAppSelectPayload(msg.Payload())
 				if !ok || appID != proto.AppCalendar {
 					continue
 				}
-				if arg != "" {
+				t.pendingArg = arg
+				if t.initialized && arg != "" {
 					t.handleSelectArg(arg)
+					t.pendingArg = ""
 				}
 				if t.active {
 					t.render()
@@ -151,7 +156,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 				if !t.active {
 					continue
 				}
-				t.handleInput(ctx, msg.Data[:msg.Len])
+				t.handleInput(ctx, msg.Payload())
 				if t.active {
 					t.render()
 				}
@@ -185,7 +190,17 @@ func (t *Task) setActive(ctx *kernel.Context, active bool) {
 	if !t.active {
 		return
 	}
-	t.initApp(ctx)
+	if !t.initialized {
+		t.initApp(ctx)
+		if !t.active {
+			return
+		}
+		t.initialized = true
+	}
+	if t.pendingArg != "" {
+		t.handleSelectArg(t.pendingArg)
+		t.pendingArg = ""
+	}
 	t.render()
 }
 
@@ -220,6 +235,8 @@ func (t *Task) initApp(ctx *kernel.Context) {
 
 func (t *Task) unload() {
 	t.active = false
+	t.initialized = false
+	t.pendingArg = ""
 	t.events = nil
 	t.inbuf = nil
 	t.input = nil
@@ -234,17 +251,7 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 	if !t.muxCap.Valid() {
 		return
 	}
-	for {
-		res := ctx.SendToCapResult(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{})
-		switch res {
-		case kernel.SendOK:
-			return
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			return
-		}
-	}
+	_ = ctx.SendToCapRetry(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{}, 500)
 }
 
 func (t *Task) handleSelectArg(arg string) {
