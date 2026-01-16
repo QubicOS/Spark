@@ -69,8 +69,6 @@ type Service struct {
 	suBuf    []byte
 	suFails  int
 	suBlock  uint64
-
-	termScreenSaved bool
 }
 
 func New(inCap kernel.Capability, termCap kernel.Capability, logCap kernel.Capability, vfsCap kernel.Capability, timeCap kernel.Capability, muxCap kernel.Capability) *Service {
@@ -354,19 +352,7 @@ func (s *Service) banner() string {
 
 func (s *Service) handleFocus(ctx *kernel.Context, active bool) {
 	if !active {
-		// Preserve the exact pixels currently on the screen before an app draws over them.
-		_ = s.sendToTerm(ctx, proto.MsgTermScreenSave, nil)
-		s.termScreenSaved = true
 		return
-	}
-
-	hadSaved := s.termScreenSaved
-	s.termScreenSaved = false
-
-	// Try to restore the previous screen first to avoid losing on-screen history
-	// (tinyterm draws directly into the framebuffer without keeping a full cell buffer).
-	if hadSaved {
-		_ = s.sendToTerm(ctx, proto.MsgTermScreenRestore, nil)
 	}
 	s.utf8buf = s.utf8buf[:0]
 	if !s.authed {
@@ -381,12 +367,8 @@ func (s *Service) handleFocus(ctx *kernel.Context, active bool) {
 		_ = s.redrawAuth(ctx)
 		_ = s.sendToTerm(ctx, proto.MsgTermRefresh, nil)
 	} else {
-		// If we had a saved screen, keep it as-is (it includes prompt + popups).
-		// If there was no saved screen, renderTab() will rebuild the view.
-		if !hadSaved {
-			s.initTabsIfNeeded()
-			s.renderTab(ctx)
-		}
+		s.initTabsIfNeeded()
+		s.renderTab(ctx)
 	}
 }
 
