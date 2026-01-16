@@ -31,6 +31,7 @@ func registerAppCommands(r *registry) error {
 		{Name: "fbtest", Usage: "fbtest", Desc: "Framebuffer benchmark (r rerun, q quit).", Run: cmdFBTest},
 		{Name: "serial", Usage: "serial", Desc: "Serial terminal (Ctrl+Q exit, Ctrl+R clear).", Run: cmdSerial},
 		{Name: "users", Usage: "users", Desc: "User manager (admin only; n new, p password, r role, h home).", Run: cmdUsers},
+		{Name: "donut", Usage: "donut", Desc: "QuarkGL 3D donut demo (q/ESC exit, w wireframe).", Run: cmdDonut},
 	} {
 		if err := r.register(cmd); err != nil {
 			return err
@@ -166,6 +167,16 @@ func cmdUsers(ctx *kernel.Context, s *Service, args []string, _ redirection) err
 		return errors.New("users: requires admin")
 	}
 	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppUsers, "")); err != nil {
+		return err
+	}
+	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))
+}
+
+func cmdDonut(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	if len(args) != 0 {
+		return errors.New("usage: donut")
+	}
+	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppQuarkDonut, "")); err != nil {
 		return err
 	}
 	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))

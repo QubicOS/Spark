@@ -81,6 +81,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	fbtestEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	serialtermEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	usersEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	donutEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 
 	rtdemoProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	rtvoxelProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
@@ -101,6 +102,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	fbtestProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	serialtermProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	usersProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	donutProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 
 	k.AddTask(logger.New(h.Logger(), logEP.Restrict(kernel.RightRecv)))
 	k.AddTask(timesvc.New(timeEP))
@@ -141,6 +143,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			fbtestProxyEP.Restrict(kernel.RightRecv),
 			serialtermProxyEP.Restrict(kernel.RightRecv),
 			usersProxyEP.Restrict(kernel.RightRecv),
+			donutProxyEP.Restrict(kernel.RightRecv),
 			rtdemoEP.Restrict(kernel.RightSend),
 			rtvoxelEP.Restrict(kernel.RightSend),
 			imgviewEP.Restrict(kernel.RightSend),
@@ -160,6 +163,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			fbtestEP.Restrict(kernel.RightSend),
 			serialtermEP.Restrict(kernel.RightSend),
 			usersEP.Restrict(kernel.RightSend),
+			donutEP.Restrict(kernel.RightSend),
 			rtdemoEP.Restrict(kernel.RightRecv),
 			rtvoxelEP.Restrict(kernel.RightRecv),
 			imgviewEP.Restrict(kernel.RightRecv),
@@ -179,6 +183,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			fbtestEP.Restrict(kernel.RightRecv),
 			serialtermEP.Restrict(kernel.RightRecv),
 			usersEP.Restrict(kernel.RightRecv),
+			donutEP.Restrict(kernel.RightRecv),
 		))
 		k.AddTask(consolemux.New(
 			muxEP.Restrict(kernel.RightRecv),
@@ -203,6 +208,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			fbtestProxyEP.Restrict(kernel.RightSend),
 			serialtermProxyEP.Restrict(kernel.RightSend),
 			usersProxyEP.Restrict(kernel.RightSend),
+			donutProxyEP.Restrict(kernel.RightSend),
 			termEP.Restrict(kernel.RightSend),
 		))
 		k.AddTask(termkbd.NewInput(h.Input(), muxEP.Restrict(kernel.RightSend)))
