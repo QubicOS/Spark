@@ -16,6 +16,9 @@ type Service struct {
 	fb hal.Framebuffer
 	d  *fbDisplay
 	t  *tinyterm.Terminal
+
+	saved      []byte
+	savedValid bool
 }
 
 func New(disp hal.Display, ep kernel.Capability) *Service {
@@ -83,6 +86,10 @@ func (s *Service) Run(ctx *kernel.Context) {
 			case proto.MsgTermRefresh:
 				s.t.Display()
 				dirty = false
+			case proto.MsgTermScreenSave:
+				s.saveScreen()
+			case proto.MsgTermScreenRestore:
+				s.restoreScreen()
 			}
 		}
 	}
@@ -98,5 +105,51 @@ func (s *Service) reset() {
 		UseSoftwareScroll: true,
 	})
 	s.fb.ClearRGB(0, 0, 0)
+	_ = s.fb.Present()
+}
+
+func (s *Service) saveScreen() {
+	if s.fb == nil {
+		return
+	}
+	buf := s.fb.Buffer()
+	if buf == nil {
+		return
+	}
+	size := s.fb.StrideBytes() * s.fb.Height()
+	if size <= 0 {
+		return
+	}
+	if size > len(buf) {
+		size = len(buf)
+	}
+	if cap(s.saved) < size {
+		s.saved = make([]byte, size)
+	} else {
+		s.saved = s.saved[:size]
+	}
+	copy(s.saved, buf[:size])
+	s.savedValid = true
+}
+
+func (s *Service) restoreScreen() {
+	if !s.savedValid || s.fb == nil {
+		return
+	}
+	buf := s.fb.Buffer()
+	if buf == nil {
+		return
+	}
+	size := s.fb.StrideBytes() * s.fb.Height()
+	if size <= 0 {
+		return
+	}
+	if size > len(buf) {
+		size = len(buf)
+	}
+	if size > len(s.saved) {
+		size = len(s.saved)
+	}
+	copy(buf[:size], s.saved[:size])
 	_ = s.fb.Present()
 }
