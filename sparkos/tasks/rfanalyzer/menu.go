@@ -71,6 +71,7 @@ const (
 	menuItemToggleProtoMode
 
 	menuItemAutomationConfig
+	menuItemPresetProfiles
 
 	menuItemOpenHelp
 )
@@ -135,6 +136,7 @@ func menuItems(cat menuCategory) []menuItem {
 	case menuAdvanced:
 		return []menuItem{
 			{id: menuItemAutomationConfig, label: "Automation / Monitoring…"},
+			{id: menuItemPresetProfiles, label: "Preset Profiles…"},
 			{id: menuItemSavePreset, label: "Save Preset…"},
 			{id: menuItemLoadPreset, label: "Load Preset…"},
 		}

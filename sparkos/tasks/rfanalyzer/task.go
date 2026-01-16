@@ -171,6 +171,13 @@ type Task struct {
 
 	showFilters bool
 
+	showPresets    bool
+	presetSel      int
+	presetTop      int
+	presetList     []string
+	autoloadPreset string
+	autoloadErr    string
+
 	showAutomation bool
 	autoSel        int
 
@@ -401,6 +408,7 @@ func (t *Task) setActive(ctx *kernel.Context, active bool) {
 	if t.vfs == nil && t.vfsCap.Valid() {
 		t.vfs = vfsclient.New(t.vfsCap)
 	}
+	t.maybeAutoloadPreset(ctx)
 	t.invalidate(dirtyAll)
 	t.ensureWaterfallAlloc()
 	t.renderNow(ctx.NowTick())
@@ -427,6 +435,7 @@ func (t *Task) unload() {
 	t.showMenu = false
 	t.showHelp = false
 	t.showFilters = false
+	t.showPresets = false
 	t.showAutomation = false
 	t.showPrompt = false
 	t.promptTitle = ""
@@ -521,6 +530,11 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 
 	if t.showFilters {
 		t.handleFiltersKey(ctx, k)
+		return
+	}
+
+	if t.showPresets {
+		t.handlePresetsKey(ctx, k)
 		return
 	}
 

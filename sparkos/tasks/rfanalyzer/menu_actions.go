@@ -331,6 +331,14 @@ func (t *Task) activateMenuItem(ctx *kernel.Context, id menuItemID) {
 		t.closeMenu()
 		t.invalidate(dirtyOverlay | dirtyStatus)
 
+	case menuItemPresetProfiles:
+		t.showPresets = true
+		t.presetSel = 0
+		t.presetTop = 0
+		t.refreshPresetList(ctx)
+		t.closeMenu()
+		t.invalidate(dirtyOverlay | dirtyStatus)
+
 	case menuItemOpenHelp:
 		t.showHelp = true
 		t.closeMenu()

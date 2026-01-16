@@ -735,6 +735,10 @@ func (t *Task) renderOverlay(l layout) {
 		t.renderFiltersOverlay(l)
 		return
 	}
+	if t.showPresets {
+		t.renderPresetsOverlay(l)
+		return
+	}
 	if t.showAutomation {
 		t.renderAutomationOverlay(l)
 		return
