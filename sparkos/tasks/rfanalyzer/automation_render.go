@@ -19,10 +19,10 @@ func (t *Task) renderAutomationOverlay(l layout) {
 	_ = t.d.FillRectangle(px, py, pw, ph, colorBorder)
 	_ = t.d.FillRectangle(px+1, py+1, pw-2, ph-2, colorPanelBG)
 	_ = t.d.FillRectangle(px+1, py+1, pw-2, t.fontHeight+1, colorHeaderBG)
-	t.drawStringClipped(px+2, py, "Automation (Esc close)", colorFG, boxCols)
+	t.drawStringClipped(px+2, py+1, "Automation (Esc close)", colorFG, boxCols)
 
 	status := t.automationStatusLine(t.nowTick)
-	t.drawStringClipped(px+2, py+t.fontHeight, status, colorDim, boxCols)
+	t.drawStringClipped(px+2, py+t.fontHeight+2, status, colorDim, boxCols)
 
 	lines := make([]string, 0, automationLines)
 
@@ -67,7 +67,7 @@ func (t *Task) renderAutomationOverlay(l layout) {
 	}
 	lines = append(lines, fmt.Sprintf("NAME    <%s>", name))
 
-	y0 := py + 2*t.fontHeight
+	y0 := py + 2*t.fontHeight + 2
 	for i := 0; i < len(lines); i++ {
 		y := y0 + int16(i)*t.fontHeight
 		fg := colorFG
@@ -81,5 +81,5 @@ func (t *Task) renderAutomationOverlay(l layout) {
 	}
 
 	hint := "Up/Down sel  Left/Right adj  Enter edit/toggle"
-	t.drawStringClipped(px+2, py+ph-t.fontHeight, hint, colorDim, boxCols)
+	t.drawStringClipped(px+2, py+ph-t.fontHeight-1, hint, colorDim, boxCols)
 }

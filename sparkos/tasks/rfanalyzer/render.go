@@ -6,8 +6,7 @@ import (
 	"strings"
 
 	"spark/hal"
-	"spark/sparkos/fonts/const2bitcolor"
-	"spark/sparkos/fonts/dejavumono5"
+	"spark/sparkos/fonts/font6x8cp1251"
 
 	"tinygo.org/x/drivers"
 	"tinygo.org/x/tinyfont"
@@ -26,6 +25,8 @@ var (
 	colorSelBG     = color.RGBA{R: 0xE8, G: 0xE8, B: 0xE8, A: 0xFF}
 	colorSelFG     = color.RGBA{R: 0x11, G: 0x11, B: 0x11, A: 0xFF}
 	colorFocusMark = color.RGBA{R: 0x20, G: 0xA0, B: 0xFF, A: 0xFF}
+	colorMenuBG    = color.RGBA{R: 0x1A, G: 0x3D, B: 0x7A, A: 0xFF}
+	colorMenuFG    = color.RGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF}
 )
 
 type rect struct {
@@ -74,7 +75,8 @@ func (t *Task) computeLayout() layout {
 	statusH := int16(statusRows) * t.fontHeight
 	mainY := headerH
 
-	leftCols := 40
+	// Keep the left (spectrum/waterfall) column modest to leave room for the right panels.
+	leftCols := 34
 	if leftCols < 20 {
 		leftCols = 20
 	}
@@ -263,18 +265,11 @@ func rgb565From888(r, g, b uint8) uint16 {
 }
 
 func (t *Task) initFont() bool {
-	f := &dejavumono5.DejaVuSansMono5
-	t.font = f
+	t.font = font6x8cp1251.Font
+	t.fontWidth = 6
+	t.fontHeight = 8
+	t.fontOffset = 7
 
-	h, off, err := const2bitcolor.ComputeTerminalMetrics(f)
-	if err != nil {
-		return false
-	}
-	t.fontHeight = h
-	t.fontOffset = off
-
-	_, outboxWidth := tinyfont.LineWidth(t.font, "0")
-	t.fontWidth = int16(outboxWidth)
 	return t.fontWidth > 0 && t.fontHeight > 0
 }
 
@@ -287,7 +282,9 @@ func (t *Task) renderDirty() {
 	}
 
 	l := t.computeLayout()
-	full := (t.dirty & dirtyAll) == dirtyAll
+	overlayActive := t.showPrompt || t.showMenu || t.showHelp || t.showFilters || t.showPresets || t.showAutomation
+	clearOverlay := !overlayActive && (t.dirty&dirtyOverlay) != 0
+	full := (t.dirty&dirtyAll) == dirtyAll || clearOverlay
 	if full {
 		_ = t.d.FillRectangle(0, 0, int16(t.fb.Width()), int16(t.fb.Height()), colorBG)
 	}
@@ -316,7 +313,7 @@ func (t *Task) renderDirty() {
 	if full || (t.dirty&dirtyStatus) != 0 {
 		t.renderStatus(l)
 	}
-	if full || (t.dirty&dirtyOverlay) != 0 {
+	if full || (t.dirty&dirtyOverlay) != 0 || overlayActive {
 		t.renderOverlay(l)
 	}
 
@@ -328,14 +325,89 @@ func (t *Task) renderHeader(l layout) {
 	_ = t.d.FillRectangle(l.menu.x, l.menu.y, l.menu.w, l.menu.h, colorHeaderBG)
 	_ = t.d.FillRectangle(l.toolbar.x, l.toolbar.y, l.toolbar.w, l.toolbar.h, colorHeaderBG)
 
-	menu := "[m] View  RF  Capture  Decode  Display  Advanced  Help"
-	if t.showMenu {
-		menu = "[m] View  RF  Capture  Decode  Display  Advanced  Help  (open)"
-	}
-	t.drawStringClipped(l.menu.x+2, l.menu.y, menu, colorFG, t.cols)
+	t.renderMenuBar(l)
 
 	title := "2.4GHz RF Analyzer  nRF24 scan+spectrum+waterfall+sniffer"
 	t.drawStringClipped(l.toolbar.x+2, l.toolbar.y, title, colorDim, t.cols)
+}
+
+type menuBarSeg struct {
+	cat  menuCategory
+	text string
+	x    int16
+	w    int16
+}
+
+func (t *Task) menuBarSegments(l layout) []menuBarSeg {
+	type labelSet struct {
+		full string
+	}
+	labels := []labelSet{
+		{full: "View"},
+		{full: "RF"},
+		{full: "Capture"},
+		{full: "Decode"},
+		{full: "Display"},
+		{full: "Advanced"},
+		{full: "Help"},
+	}
+
+	availCols := t.cols
+	pad := true
+	gapCols := 1
+
+	totalCols := 0
+	for _, it := range labels {
+		w := len(it.full)
+		if pad {
+			w += 2
+		}
+		totalCols += w
+	}
+	totalCols += gapCols * (len(labels) - 1)
+
+	// If the hotbar doesn't fit, switch to a compact layout.
+	if totalCols > availCols {
+		pad = false
+		totalCols = 0
+		for _, it := range labels {
+			totalCols += len(it.full)
+		}
+		totalCols += gapCols * (len(labels) - 1)
+	}
+
+	x := l.menu.x + 2
+	out := make([]menuBarSeg, 0, len(labels))
+	for i, it := range labels {
+		name := it.full
+		s := name
+		if pad {
+			s = " " + name + " "
+		}
+		w := int16(len(s)) * t.fontWidth
+		out = append(out, menuBarSeg{
+			cat:  menuCategory(i),
+			text: s,
+			x:    x,
+			w:    w,
+		})
+		x += w + int16(gapCols)*t.fontWidth
+	}
+	return out
+}
+
+func (t *Task) renderMenuBar(l layout) {
+	segs := t.menuBarSegments(l)
+	for _, seg := range segs {
+		fg := colorFG
+		bg := colorHeaderBG
+		if t.showMenu && seg.cat == t.menuCat {
+			fg = colorMenuFG
+			bg = colorMenuBG
+		}
+		_ = t.d.FillRectangle(seg.x, l.menu.y, seg.w, t.fontHeight, bg)
+		t.drawStringClipped(seg.x, l.menu.y, seg.text, fg, int(seg.w/t.fontWidth))
+	}
 }
 
 func (t *Task) renderStatus(l layout) {
@@ -359,13 +431,13 @@ func (t *Task) renderSpectrum(l layout) {
 	t.renderPanel(l.spectrum, "Spectrum", t.focus == focusSpectrum)
 
 	inner := l.spectrum.inset(2, 2)
-	headerY := inner.y
+	headerY := inner.y + t.fontHeight + 1
 	labelsY := inner.y + inner.h - t.fontHeight
 	plot := rect{
 		x: inner.x,
-		y: inner.y + t.fontHeight + 1,
+		y: headerY + t.fontHeight + 1,
 		w: inner.w,
-		h: inner.h - 2*t.fontHeight - 2,
+		h: inner.h - 3*t.fontHeight - 3,
 	}
 	if plot.h <= 0 || plot.w <= 0 {
 		return
@@ -418,7 +490,15 @@ func (t *Task) renderSpectrum(l layout) {
 		x := plot.x + int16(ch)*plot.w/numChannels
 		_ = t.d.FillRectangle(x, plot.y+plot.h-2, 1, 2, colorDim)
 		label := fmt.Sprintf("%d", ch)
-		t.drawStringClipped(x, labelsY, label, colorDim, l.leftCols)
+		remainPx := int(inner.x + inner.w - x)
+		if remainPx <= 0 {
+			continue
+		}
+		remainCols := remainPx / int(t.fontWidth)
+		if remainCols <= 0 {
+			continue
+		}
+		t.drawStringClipped(x, labelsY, label, colorDim, remainCols)
 	}
 
 	info := fmt.Sprintf("ch %03d  avg+peak  rng %d-%d  dwell %dms  step %d", t.selectedChannel, t.channelRangeLo, t.channelRangeHi, t.dwellTimeMs, clampInt(t.scanSpeedScalar, 1, 10))
@@ -429,14 +509,8 @@ func (t *Task) renderWaterfall(l layout) {
 	t.renderPanel(l.waterfall, "Waterfall", t.focus == focusWaterfall)
 
 	inner := l.waterfall.inset(2, 2)
-	headerY := inner.y
-	plot := rect{
-		x: inner.x,
-		y: inner.y + t.fontHeight + 1,
-		w: inner.w,
-		h: inner.h - t.fontHeight - 2,
-	}
-	if plot.h <= 0 || plot.w <= 0 {
+	plot, headerY, ok := t.waterfallPlotRect(l)
+	if !ok {
 		return
 	}
 
@@ -528,6 +602,7 @@ func (t *Task) renderSniffer(l layout) {
 		return
 	}
 
+	y0 := inner.y + t.fontHeight + 1
 	status := "LIVE"
 	if t.replayActive {
 		if t.replayPlaying {
@@ -539,13 +614,13 @@ func (t *Task) renderSniffer(l layout) {
 		status = "PAUSED"
 	}
 	hdr := fmt.Sprintf("%s  pps:%d drop:%d  %s", status, t.pktsPerSec, t.pktDropped, t.filterSummary())
-	t.drawStringClipped(inner.x+2, inner.y, hdr, colorFG, maxCols)
+	t.drawStringClipped(inner.x+2, y0, hdr, colorFG, maxCols)
 
 	colHdr := "t(ms) ch r ln addr   c"
-	t.drawStringClipped(inner.x+2, inner.y+t.fontHeight, colHdr, colorDim, maxCols)
+	t.drawStringClipped(inner.x+2, y0+t.fontHeight, colHdr, colorDim, maxCols)
 
-	listY := inner.y + 2*t.fontHeight
-	listRows := int((inner.h - 2*t.fontHeight) / t.fontHeight)
+	listY := y0 + 2*t.fontHeight
+	listRows := int((inner.h - 3*t.fontHeight - 1) / t.fontHeight)
 	if listRows <= 0 {
 		return
 	}
@@ -620,6 +695,7 @@ func (t *Task) renderProtocol(l layout) {
 		return
 	}
 
+	y0 := inner.y + t.fontHeight + 1
 	var p *packet
 	if t.replayActive {
 		if t.replayPktCacheOK {
@@ -632,21 +708,21 @@ func (t *Task) renderProtocol(l layout) {
 		}
 	}
 	if p == nil {
-		t.drawStringClipped(inner.x+2, inner.y, "mode:"+t.protoMode.String(), colorDim, maxCols)
+		t.drawStringClipped(inner.x+2, y0, "mode:"+t.protoMode.String(), colorDim, maxCols)
 		msg := "(select a packet)"
 		if t.replayActive && t.replay != nil && t.replayPktLimit > 0 {
 			msg = "(loading packet...)"
 		}
-		t.drawStringClipped(inner.x+2, inner.y+t.fontHeight, msg, colorDim, maxCols)
+		t.drawStringClipped(inner.x+2, y0+t.fontHeight, msg, colorDim, maxCols)
 		return
 	}
 
 	h1 := fmt.Sprintf("mode:%s  #%d  ch:%03d  t:%04d", t.protoMode, p.seq, p.channel, int(p.tick%10000))
 	h2 := fmt.Sprintf("rate:%s len:%02d crc:%s addr:%dB", p.rate, p.length, p.crcText(), p.addrLen)
-	t.drawStringClipped(inner.x+2, inner.y, h1, colorFG, maxCols)
-	t.drawStringClipped(inner.x+2, inner.y+t.fontHeight, h2, colorDim, maxCols)
+	t.drawStringClipped(inner.x+2, y0, h1, colorFG, maxCols)
+	t.drawStringClipped(inner.x+2, y0+t.fontHeight, h2, colorDim, maxCols)
 
-	y := inner.y + 2*t.fontHeight
+	y := y0 + 2*t.fontHeight
 	if y+t.fontHeight > inner.y+inner.h {
 		return
 	}
@@ -746,57 +822,92 @@ func (t *Task) renderOverlay(l layout) {
 }
 
 func (t *Task) renderMenuOverlay(l layout) {
-	boxCols := t.cols - 4
-	if boxCols > 56 {
-		boxCols = 56
-	}
-	boxRows := 22
-	if boxRows > t.mainRows {
-		boxRows = t.mainRows
-	}
-	px := int16(2) * t.fontWidth
-	py := int16(headerRows) * t.fontHeight
-	pw := int16(boxCols) * t.fontWidth
-	ph := int16(boxRows) * t.fontHeight
-
-	_ = t.d.FillRectangle(px, py, pw, ph, colorBorder)
-	_ = t.d.FillRectangle(px+1, py+1, pw-2, ph-2, colorPanelBG)
-	_ = t.d.FillRectangle(px+1, py+1, pw-2, t.fontHeight+1, colorHeaderBG)
-
-	catLine := t.menuCategoryLine()
-	t.drawStringClipped(px+2, py, catLine, colorFG, boxCols)
-
 	items := menuItems(t.menuCat)
-	contentRows := boxRows - 3
-	if contentRows < 1 {
+	if len(items) == 0 {
 		return
 	}
+
+	segs := t.menuBarSegments(l)
+	var anchor menuBarSeg
+	found := false
+	for _, seg := range segs {
+		if seg.cat == t.menuCat {
+			anchor = seg
+			found = true
+			break
+		}
+	}
+	if !found {
+		anchor = menuBarSeg{cat: t.menuCat, x: l.menu.x + 2, w: 12 * t.fontWidth}
+	}
+
+	maxLineCols := 18
+	for _, it := range items {
+		cols := len(t.menuItemLine(it))
+		if cols > maxLineCols {
+			maxLineCols = cols
+		}
+	}
+	if maxLineCols < 18 {
+		maxLineCols = 18
+	}
+	if maxLineCols > t.cols-2 {
+		maxLineCols = t.cols - 2
+	}
+
+	pw := int16(maxLineCols)*t.fontWidth + 4
+	ph := int16(len(items))*t.fontHeight + 2
+	px := anchor.x
+	py := l.menu.y + l.menu.h
+
+	screenW := int16(t.fb.Width())
+	screenH := int16(t.fb.Height())
+	statusH := int16(statusRows) * t.fontHeight
+	if px+pw > screenW {
+		px = screenW - pw
+	}
+	if px < 0 {
+		px = 0
+	}
+	// Ensure the dropdown doesn't cover status lines.
+	maxH := screenH - statusH - py
+	if ph > maxH {
+		ph = maxH
+	}
+	if ph <= 2 {
+		return
+	}
+	visibleRows := int((ph - 2) / t.fontHeight)
+	if visibleRows <= 0 {
+		return
+	}
+
 	if t.menuSel < 0 {
 		t.menuSel = 0
 	}
 	if t.menuSel >= len(items) {
 		t.menuSel = len(items) - 1
-		if t.menuSel < 0 {
-			t.menuSel = 0
-		}
 	}
-	top := t.menuSel - contentRows/2
+	top := t.menuSel - visibleRows/2
 	if top < 0 {
 		top = 0
 	}
-	if top > len(items)-contentRows {
-		top = len(items) - contentRows
+	if top > len(items)-visibleRows {
+		top = len(items) - visibleRows
 	}
 	if top < 0 {
 		top = 0
 	}
 
-	for row := 0; row < contentRows; row++ {
+	_ = t.d.FillRectangle(px, py, pw, ph, colorBorder)
+	_ = t.d.FillRectangle(px+1, py+1, pw-2, ph-2, colorPanelBG)
+
+	for row := 0; row < visibleRows; row++ {
 		i := top + row
 		if i < 0 || i >= len(items) {
 			continue
 		}
-		y := py + t.fontHeight + int16(row+1)*t.fontHeight
+		y := py + 1 + int16(row)*t.fontHeight
 		fg := colorFG
 		bg := colorPanelBG
 		if i == t.menuSel {
@@ -804,7 +915,7 @@ func (t *Task) renderMenuOverlay(l layout) {
 			bg = colorSelBG
 		}
 		_ = t.d.FillRectangle(px+1, y, pw-2, t.fontHeight, bg)
-		t.drawStringClipped(px+2, y, t.menuItemLine(items[i]), fg, boxCols)
+		t.drawStringClipped(px+2, y, t.menuItemLine(items[i]), fg, maxLineCols)
 	}
 }
 
@@ -929,9 +1040,9 @@ func (t *Task) renderPromptOverlay(l layout) {
 	if title == "" {
 		title = "Input"
 	}
-	t.drawStringClipped(px+2, py, title+"  (Enter apply, Esc cancel)", colorFG, boxCols)
+	t.drawStringClipped(px+2, py+1, title+"  (Enter apply, Esc cancel)", colorFG, boxCols)
 
-	fieldY := py + 2*t.fontHeight
+	fieldY := py + 2*t.fontHeight + 2
 	_ = t.d.FillRectangle(px+2, fieldY, pw-4, t.fontHeight+2, colorHeaderBG)
 
 	text := string(t.promptBuf)
@@ -961,7 +1072,7 @@ func (t *Task) renderHelpOverlay(l layout) {
 	_ = t.d.FillRectangle(px, py, pw, ph, colorBorder)
 	_ = t.d.FillRectangle(px+1, py+1, pw-2, ph-2, colorPanelBG)
 	_ = t.d.FillRectangle(px+1, py+1, pw-2, t.fontHeight+1, colorHeaderBG)
-	t.drawStringClipped(px+2, py, "Help  (h/Esc close)", colorFG, boxCols)
+	t.drawStringClipped(px+2, py+1, "Help  (h/Esc close)", colorFG, boxCols)
 
 	lines := []string{
 		"s start/stop scan",
@@ -977,7 +1088,7 @@ func (t *Task) renderHelpOverlay(l layout) {
 		"Arrows: adjust focused panel",
 	}
 	for i, it := range lines {
-		y := py + t.fontHeight + int16(i+1)*t.fontHeight
+		y := py + 2*t.fontHeight + 2 + int16(i)*t.fontHeight
 		fg := colorDim
 		if it == "" {
 			fg = colorBorder
@@ -1000,8 +1111,8 @@ func (t *Task) renderFiltersOverlay(l layout) {
 	_ = t.d.FillRectangle(px, py, pw, ph, colorBorder)
 	_ = t.d.FillRectangle(px+1, py+1, pw-2, ph-2, colorPanelBG)
 	_ = t.d.FillRectangle(px+1, py+1, pw-2, t.fontHeight+1, colorHeaderBG)
-	t.drawStringClipped(px+2, py, "Filters (Esc/f close)", colorFG, boxCols)
-	t.drawStringClipped(px+2, py+t.fontHeight, "Up/Down sel  Left/Right adj  Enter edit", colorDim, boxCols)
+	t.drawStringClipped(px+2, py+1, "Filters (Esc/f close)", colorFG, boxCols)
+	t.drawStringClipped(px+2, py+t.fontHeight+2, "Up/Down sel  Left/Right adj  Enter edit", colorDim, boxCols)
 
 	lines := make([]string, 0, filterLines)
 	lines = append(lines, fmt.Sprintf("CRC    <%s>", t.filterCRC))
@@ -1046,7 +1157,7 @@ func (t *Task) renderFiltersOverlay(l layout) {
 	}
 	lines = append(lines, fmt.Sprintf("BURSTΔ [%s]", burst))
 
-	y0 := py + 2*t.fontHeight
+	y0 := py + 2*t.fontHeight + 2
 	for i := 0; i < len(lines); i++ {
 		y := y0 + int16(i)*t.fontHeight
 		fg := colorFG

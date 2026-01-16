@@ -19,9 +19,10 @@ func (t *Task) renderAnalysis(l layout) {
 	}
 
 	tabs := t.analysisTabsLine()
-	t.drawStringClipped(inner.x+2, inner.y, tabs, colorDim, maxCols)
+	y0 := inner.y + t.fontHeight + 1
+	t.drawStringClipped(inner.x+2, y0, tabs, colorDim, maxCols)
 
-	y := inner.y + t.fontHeight
+	y := y0 + t.fontHeight
 	if y+t.fontHeight > inner.y+inner.h {
 		return
 	}

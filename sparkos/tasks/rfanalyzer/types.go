@@ -116,6 +116,7 @@ const (
 	wfPaletteCyan wfPalette = iota
 	wfPaletteFire
 	wfPaletteGray
+	wfPaletteCubic
 )
 
 func (p wfPalette) String() string {
@@ -126,6 +127,8 @@ func (p wfPalette) String() string {
 		return "FIRE"
 	case wfPaletteGray:
 		return "GRAY"
+	case wfPaletteCubic:
+		return "CUBIC"
 	default:
 		return "?"
 	}

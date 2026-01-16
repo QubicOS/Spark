@@ -42,6 +42,10 @@ type Task struct {
 	fontWidth  int16
 	fontHeight int16
 
+	readOnly bool
+	showMenu bool
+	menuSel  int
+
 	active bool
 	muxCap kernel.Capability
 
@@ -138,10 +142,11 @@ func (t *Task) Run(ctx *kernel.Context) {
 				}
 
 			case proto.MsgAppSelect:
-				appID, _, ok := proto.DecodeAppSelectPayload(msg.Payload())
+				appID, arg, ok := proto.DecodeAppSelectPayload(msg.Payload())
 				if !ok || appID != proto.AppUsers {
 					continue
 				}
+				t.readOnly = strings.TrimSpace(arg) == "ro"
 				if t.active {
 					t.refresh(ctx)
 					t.render()
@@ -276,35 +281,199 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		return
 	}
 
+	if t.showMenu {
+		t.handleMenuKey(ctx, k)
+		return
+	}
+
 	switch k.kind {
 	case keyEsc:
-		t.requestExit(ctx)
+		t.openMenu()
 	case keyUp:
 		t.moveSel(-1)
 	case keyDown:
 		t.moveSel(1)
+	case keyEnter:
+		t.openMenu()
 	case keyRune:
-		t.handleRune(ctx, k.r)
+		if k.r == 'm' || k.r == 'M' {
+			t.openMenu()
+		}
 	}
 }
 
-func (t *Task) handleRune(ctx *kernel.Context, r rune) {
-	switch r {
-	case 'q':
-		t.requestExit(ctx)
-	case 'R':
+func (t *Task) ensureWritable() bool {
+	if !t.readOnly {
+		return true
+	}
+	t.status = "Read-only mode (use `su root` for admin)."
+	return false
+}
+
+type menuAction uint8
+
+const (
+	menuActionNewUser menuAction = iota
+	menuActionSetPassword
+	menuActionToggleRole
+	menuActionEditHome
+	menuActionDelete
+	menuActionReload
+	menuActionBack
+	menuActionSep
+)
+
+type menuItem struct {
+	action     menuAction
+	label      string
+	enabled    bool
+	selectable bool
+}
+
+func (t *Task) menuItems() []menuItem {
+	u, ok := t.selected()
+	allowEdit := !t.readOnly
+	allowSelected := ok
+	allowSelectedNonRoot := ok && u.Name != "root"
+
+	items := []menuItem{
+		{action: menuActionNewUser, label: "Create user…", enabled: allowEdit, selectable: true},
+		{action: menuActionSetPassword, label: "Set password…", enabled: allowEdit && allowSelectedNonRoot, selectable: true},
+		{action: menuActionToggleRole, label: "Toggle role", enabled: allowEdit && allowSelectedNonRoot, selectable: true},
+		{action: menuActionEditHome, label: "Edit home…", enabled: allowEdit && allowSelectedNonRoot, selectable: true},
+		{action: menuActionDelete, label: "Delete user…", enabled: allowEdit && allowSelectedNonRoot, selectable: true},
+		{action: menuActionSep, label: "", enabled: false, selectable: false},
+		{action: menuActionReload, label: "Reload users", enabled: true, selectable: true},
+		{action: menuActionBack, label: "Back to shell", enabled: true, selectable: true},
+	}
+
+	if !allowSelected {
+		for i := range items {
+			switch items[i].action {
+			case menuActionSetPassword, menuActionToggleRole, menuActionEditHome, menuActionDelete:
+				items[i].enabled = false
+			}
+		}
+	}
+
+	return items
+}
+
+func (t *Task) openMenu() {
+	t.showMenu = true
+	t.menuSel = 0
+	items := t.menuItems()
+	for i := range items {
+		if items[i].selectable && items[i].enabled {
+			t.menuSel = i
+			return
+		}
+	}
+	for i := range items {
+		if items[i].selectable {
+			t.menuSel = i
+			return
+		}
+	}
+}
+
+func (t *Task) closeMenu() {
+	t.showMenu = false
+}
+
+func (t *Task) moveMenuSel(delta int) {
+	items := t.menuItems()
+	if len(items) == 0 {
+		return
+	}
+	i := t.menuSel
+	for tries := 0; tries < len(items); tries++ {
+		i += delta
+		if i < 0 {
+			i = len(items) - 1
+		}
+		if i >= len(items) {
+			i = 0
+		}
+		if items[i].selectable {
+			t.menuSel = i
+			return
+		}
+	}
+}
+
+func (t *Task) handleMenuKey(ctx *kernel.Context, k key) {
+	switch k.kind {
+	case keyEsc:
+		t.closeMenu()
+	case keyUp:
+		t.moveMenuSel(-1)
+	case keyDown:
+		t.moveMenuSel(1)
+	case keyEnter:
+		t.activateMenuItem(ctx)
+	case keyRune:
+		if k.r == 'm' || k.r == 'M' {
+			t.closeMenu()
+		}
+	}
+}
+
+func (t *Task) activateMenuItem(ctx *kernel.Context) {
+	items := t.menuItems()
+	if t.menuSel < 0 || t.menuSel >= len(items) {
+		return
+	}
+	it := items[t.menuSel]
+	if !it.selectable {
+		return
+	}
+	if !it.enabled {
+		if t.readOnly {
+			t.status = "Read-only mode (use `su root` for admin)."
+		} else {
+			t.status = "Action unavailable."
+		}
+		return
+	}
+
+	switch it.action {
+	case menuActionNewUser:
+		if !t.ensureWritable() {
+			return
+		}
+		t.beginNewUser()
+		t.closeMenu()
+	case menuActionSetPassword:
+		if !t.ensureWritable() {
+			return
+		}
+		t.beginSetPassword()
+		t.closeMenu()
+	case menuActionToggleRole:
+		if !t.ensureWritable() {
+			return
+		}
+		t.toggleRole(ctx)
+		t.closeMenu()
+	case menuActionEditHome:
+		if !t.ensureWritable() {
+			return
+		}
+		t.beginEditHome()
+		t.closeMenu()
+	case menuActionDelete:
+		if !t.ensureWritable() {
+			return
+		}
+		t.beginDelete()
+		t.closeMenu()
+	case menuActionReload:
 		t.refresh(ctx)
 		t.status = "Reloaded."
-	case 'n':
-		t.beginNewUser()
-	case 'p':
-		t.beginSetPassword()
-	case 'r':
-		t.toggleRole(ctx)
-	case 'h':
-		t.beginEditHome()
-	case 'd':
-		t.beginDelete()
+		t.closeMenu()
+	case menuActionBack:
+		t.requestExit(ctx)
 	}
 }
 
@@ -838,7 +1007,11 @@ func (t *Task) render() {
 	pad := 6
 	title := "Users"
 	t.drawText(pad, pad, title, color.RGBA{R: 0xEE, G: 0xEE, B: 0xEE, A: 0xFF})
-	t.drawText(pad+textWidth(t.font, title)+8, pad, "n new  p pass  r role  h home  d del  q back", color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xFF})
+	hint := "Enter/Esc menu  \u2191/\u2193 select"
+	if t.readOnly {
+		hint = "Enter/Esc menu  \u2191/\u2193 select  (read-only)"
+	}
+	t.drawText(pad+textWidth(t.font, title)+8, pad, hint, color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xFF})
 
 	xList, yList, listW, listH, inputH := t.layout()
 	xInfo := xList + listW + pad
@@ -863,6 +1036,11 @@ func (t *Task) render() {
 	if t.inputMode != inputNone {
 		t.renderInputBar()
 	}
+	if t.showMenu && t.inputMode == inputNone {
+		t.renderMenuOverlay()
+	}
+
+	_ = t.fb.Present()
 }
 
 func (t *Task) renderList(x, y, w, h int) {
@@ -924,23 +1102,113 @@ func (t *Task) renderInfo(x, y, w, h int) {
 	t.drawText(x, yy, "Home: "+truncateToWidth(t.font, u.Home, w), color.RGBA{R: 0xEE, G: 0xEE, B: 0xEE, A: 0xFF})
 	yy += lineH * 2
 
-	t.drawText(x, yy, "Keys:", color.RGBA{R: 0xAA, G: 0xAA, B: 0xAA, A: 0xFF})
+	t.drawText(x, yy, "Menu:", color.RGBA{R: 0xAA, G: 0xAA, B: 0xAA, A: 0xFF})
 	yy += lineH
-	for _, ln := range []string{
-		"n  create user",
-		"p  set password",
-		"r  toggle role",
-		"h  edit home",
-		"d  delete user",
-		"R  reload",
-		"q  back to shell",
-	} {
+	lines := []string{
+		"Enter/Esc  open/close menu",
+		"Up/Down    select user",
+		"Menu has all actions.",
+	}
+	if t.readOnly {
+		lines = append(lines, "Read-only mode.")
+	}
+	for _, ln := range lines {
 		if yy+lineH > y+h {
 			break
 		}
-		t.drawText(x, yy, ln, color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xFF})
+		t.drawText(x, yy, truncateToWidth(t.font, ln, w), color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xFF})
 		yy += lineH
 	}
+}
+
+func (t *Task) renderMenuOverlay() {
+	items := t.menuItems()
+	if len(items) == 0 {
+		return
+	}
+	buf := t.fb.Buffer()
+	if buf == nil {
+		return
+	}
+	stride := t.fb.StrideBytes()
+
+	pad := 6
+	lineH := int(t.fontHeight) + 4
+
+	maxLabelW := 0
+	for _, it := range items {
+		if it.action == menuActionSep {
+			continue
+		}
+		w := textWidth(t.font, it.label)
+		if !it.enabled {
+			w += textWidth(t.font, " (disabled)")
+		}
+		if w > maxLabelW {
+			maxLabelW = w
+		}
+	}
+
+	title := "Menu"
+	if t.readOnly {
+		title = "Menu (read-only)"
+	}
+	titleW := textWidth(t.font, title)
+	boxW := maxLabelW
+	if titleW > boxW {
+		boxW = titleW
+	}
+	boxW += pad * 4
+	if boxW > t.w-pad*2 {
+		boxW = t.w - pad*2
+	}
+	boxH := (len(items)+2)*lineH + pad
+	if boxH > t.h-pad*2 {
+		boxH = t.h - pad*2
+	}
+
+	x0 := pad
+	y0 := pad + int(t.fontHeight) + 12
+
+	fillRectRGB565(buf, stride, x0, y0, boxW, boxH, rgb565From888(0x10, 0x14, 0x1E))
+	drawRectOutlineRGB565(buf, stride, x0, y0, boxW, boxH, rgb565From888(0x2B, 0x33, 0x44))
+	fillRectRGB565(buf, stride, x0, y0, boxW, lineH, rgb565From888(0x1C, 0x24, 0x36))
+
+	t.drawText(x0+pad, y0+2, truncateToWidth(t.font, title, boxW-pad*2), color.RGBA{R: 0xEE, G: 0xEE, B: 0xEE, A: 0xFF})
+
+	y := y0 + lineH
+	for i, it := range items {
+		if y+lineH > y0+boxH-lineH {
+			break
+		}
+		if it.action == menuActionSep {
+			fillRectRGB565(buf, stride, x0+pad, y+lineH/2, boxW-pad*2, 1, rgb565From888(0x2B, 0x33, 0x44))
+			y += lineH
+			continue
+		}
+
+		fg := color.RGBA{R: 0xD6, G: 0xD6, B: 0xD6, A: 0xFF}
+		if !it.enabled {
+			fg = color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xFF}
+		}
+		if i == t.menuSel {
+			fillRectRGB565(buf, stride, x0+1, y, boxW-2, lineH, rgb565From888(0x20, 0x35, 0x60))
+			fg = color.RGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF}
+			if !it.enabled {
+				fg = color.RGBA{R: 0xCC, G: 0xCC, B: 0xCC, A: 0xFF}
+			}
+		}
+
+		label := it.label
+		if !it.enabled {
+			label += " (disabled)"
+		}
+		t.drawText(x0+pad, y+2, truncateToWidth(t.font, label, boxW-pad*2), fg)
+		y += lineH
+	}
+
+	footer := "Enter select  Esc close"
+	t.drawText(x0+pad, y0+boxH-lineH+2, truncateToWidth(t.font, footer, boxW-pad*2), color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xFF})
 }
 
 func (t *Task) renderInputBar() {
