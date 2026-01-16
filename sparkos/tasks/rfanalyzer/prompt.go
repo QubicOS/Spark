@@ -19,6 +19,9 @@ const (
 	promptSavePreset
 	promptLoadPreset
 	promptSetFilterAddr
+	promptSetFilterPayload
+	promptSetFilterAge
+	promptSetFilterBurst
 	promptStartRecording
 	promptLoadSession
 	promptLoadCompareSession
@@ -119,7 +122,7 @@ func (t *Task) insertPromptRune(r rune) {
 
 func isNumericPrompt(k promptKind) bool {
 	switch k {
-	case promptSetChannel, promptSetRangeLo, promptSetRangeHi, promptSetDwell, promptSetScanStep, promptReplaySeek:
+	case promptSetChannel, promptSetRangeLo, promptSetRangeHi, promptSetDwell, promptSetScanStep, promptSetFilterAge, promptSetFilterBurst, promptReplaySeek:
 		return true
 	default:
 		return false
@@ -241,27 +244,80 @@ func (t *Task) submitPrompt(ctx *kernel.Context) {
 			t.invalidate(dirtySniffer | dirtyProtocol | dirtyStatus)
 			return
 		}
-		if len(s)%2 != 0 {
-			t.promptErr = "addr: hex must be even length"
+		val, mask, err := parseHexMaskPattern(s, len(t.filterAddr))
+		if err != nil {
+			t.promptErr = "addr: " + err.Error()
 			t.invalidate(dirtyOverlay)
 			return
 		}
-		if len(s)/2 > len(t.filterAddr) {
-			t.promptErr = fmt.Sprintf("addr: max %d bytes", len(t.filterAddr))
-			t.invalidate(dirtyOverlay)
-			return
+		t.filterAddrLen = len(val)
+		for i := 0; i < t.filterAddrLen; i++ {
+			t.filterAddr[i] = val[i]
+			t.filterAddrMask[i] = mask[i]
 		}
-		n := len(s) / 2
-		for i := 0; i < n; i++ {
-			b, ok := parseHexByte(s[i*2 : i*2+2])
-			if !ok {
-				t.promptErr = "addr: bad hex"
-				t.invalidate(dirtyOverlay)
-				return
+		for i := t.filterAddrLen; i < len(t.filterAddr); i++ {
+			t.filterAddr[i] = 0
+			t.filterAddrMask[i] = 0
+		}
+		t.reconcileSnifferSelection()
+		t.closePrompt()
+		t.invalidate(dirtySniffer | dirtyProtocol | dirtyStatus)
+		return
+
+	case promptSetFilterPayload:
+		s = strings.ReplaceAll(strings.TrimSpace(s), " ", "")
+		if s == "" {
+			t.filterPayloadLen = 0
+			for i := range t.filterPayload {
+				t.filterPayload[i] = 0
+				t.filterPayloadMask[i] = 0
 			}
-			t.filterAddr[i] = b
+			t.reconcileSnifferSelection()
+			t.closePrompt()
+			t.invalidate(dirtySniffer | dirtyProtocol | dirtyStatus)
+			return
 		}
-		t.filterAddrLen = n
+		val, mask, err := parseHexMaskPattern(s, len(t.filterPayload))
+		if err != nil {
+			t.promptErr = "payload: " + err.Error()
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		t.filterPayloadLen = len(val)
+		for i := 0; i < t.filterPayloadLen; i++ {
+			t.filterPayload[i] = val[i]
+			t.filterPayloadMask[i] = mask[i]
+		}
+		for i := t.filterPayloadLen; i < len(t.filterPayload); i++ {
+			t.filterPayload[i] = 0
+			t.filterPayloadMask[i] = 0
+		}
+		t.reconcileSnifferSelection()
+		t.closePrompt()
+		t.invalidate(dirtySniffer | dirtyProtocol | dirtyStatus)
+		return
+
+	case promptSetFilterAge:
+		n, err := parseIntStrict(s)
+		if err != nil {
+			t.promptErr = "age: " + err.Error()
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		t.filterAgeMs = clampInt(n, 0, 1_000_000)
+		t.reconcileSnifferSelection()
+		t.closePrompt()
+		t.invalidate(dirtySniffer | dirtyProtocol | dirtyStatus)
+		return
+
+	case promptSetFilterBurst:
+		n, err := parseIntStrict(s)
+		if err != nil {
+			t.promptErr = "burst: " + err.Error()
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		t.filterBurstMaxMs = clampInt(n, 0, 1_000_000)
 		t.reconcileSnifferSelection()
 		t.closePrompt()
 		t.invalidate(dirtySniffer | dirtyProtocol | dirtyStatus)
@@ -375,4 +431,55 @@ func parseHexNibble(r rune) (byte, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func parseHexMaskPattern(s string, maxBytes int) ([]byte, []byte, error) {
+	if s == "" {
+		return nil, nil, errors.New("empty")
+	}
+	if len(s)%2 != 0 {
+		return nil, nil, errors.New("hex must be even length")
+	}
+	n := len(s) / 2
+	if n > maxBytes {
+		return nil, nil, fmt.Errorf("max %d bytes", maxBytes)
+	}
+	val := make([]byte, n)
+	mask := make([]byte, n)
+	for i := 0; i < n; i++ {
+		v, m, ok := parseHexMaskByte(s[i*2 : i*2+2])
+		if !ok {
+			return nil, nil, errors.New("bad hex")
+		}
+		val[i] = v
+		mask[i] = m
+	}
+	return val, mask, nil
+}
+
+func parseHexMaskByte(s string) (byte, byte, bool) {
+	if len(s) != 2 {
+		return 0, 0, false
+	}
+
+	v := byte(0)
+	m := byte(0)
+
+	if s[0] != '?' {
+		hi, ok := parseHexNibble(rune(s[0]))
+		if !ok {
+			return 0, 0, false
+		}
+		v |= hi << 4
+		m |= 0xF0
+	}
+	if s[1] != '?' {
+		lo, ok := parseHexNibble(rune(s[1]))
+		if !ok {
+			return 0, 0, false
+		}
+		v |= lo
+		m |= 0x0F
+	}
+	return v, m, true
 }

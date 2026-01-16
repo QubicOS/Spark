@@ -21,6 +21,9 @@ type packetMeta struct {
 	tick uint64
 	seq  uint32
 
+	deltaMs uint16
+	flags   uint8
+
 	channel uint8
 	rate    rfDataRate
 
@@ -29,7 +32,8 @@ type packetMeta struct {
 
 	length uint8
 
-	payloadHash uint32
+	payloadHash   uint32
+	payloadPrefix [payloadPrefixBytes]byte
 
 	crcLen uint8
 	crcOK  bool
@@ -59,6 +63,99 @@ type session struct {
 	energySum  [numChannels]uint64
 	pktCount   [numChannels]uint32
 	pktBad     [numChannels]uint32
+}
+
+type sessionDevTrack struct {
+	used bool
+
+	addrLen uint8
+	addr    [5]byte
+
+	lastTick uint64
+
+	lastPayloadHash uint32
+	lastPayloadTick uint64
+}
+
+func deriveSessionPacketMeta(devs *[maxDevices]sessionDevTrack, m packetMeta) (uint16, uint8) {
+	if devs == nil || m.addrLen == 0 {
+		return 0, 0
+	}
+	addrLen := m.addrLen
+	if addrLen > 5 {
+		addrLen = 5
+	}
+
+	matchIdx := -1
+	for i := range devs {
+		if !devs[i].used || devs[i].addrLen != addrLen {
+			continue
+		}
+		match := true
+		for j := 0; j < int(addrLen); j++ {
+			if devs[i].addr[j] != m.addr[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			matchIdx = i
+			break
+		}
+	}
+
+	if matchIdx < 0 {
+		evict := -1
+		var oldest uint64
+		for i := range devs {
+			if !devs[i].used {
+				evict = i
+				break
+			}
+			if evict == -1 || devs[i].lastTick < oldest {
+				oldest = devs[i].lastTick
+				evict = i
+			}
+		}
+		if evict < 0 {
+			return 0, 0
+		}
+		d := &devs[evict]
+		*d = sessionDevTrack{
+			used:            true,
+			addrLen:         addrLen,
+			addr:            m.addr,
+			lastTick:        m.tick,
+			lastPayloadHash: m.payloadHash,
+			lastPayloadTick: m.tick,
+		}
+		return 0, 0
+	}
+
+	d := &devs[matchIdx]
+	deltaMs := uint16(0)
+	flags := uint8(0)
+	if d.lastTick != 0 && m.tick > d.lastTick {
+		dt := m.tick - d.lastTick
+		if dt > 0xFFFF {
+			dt = 0xFFFF
+		}
+		deltaMs = uint16(dt)
+		if dt <= 12 {
+			flags |= pktFlagBurst
+		}
+	}
+	if d.lastPayloadHash != 0 &&
+		d.lastPayloadHash == m.payloadHash &&
+		m.tick > d.lastPayloadTick &&
+		(m.tick-d.lastPayloadTick) <= anaRetryWindowTicks {
+		flags |= pktFlagRetry
+	}
+	d.lastTick = m.tick
+	d.lastPayloadHash = m.payloadHash
+	d.lastPayloadTick = m.tick
+
+	return deltaMs, flags
 }
 
 func (t *Task) loadSession(ctx *kernel.Context, input string) (*session, error) {
@@ -99,6 +196,8 @@ func (t *Task) loadSession(ctx *kernel.Context, input string) (*session, error) 
 		startTick: ^uint64(0),
 		endTick:   0,
 	}
+
+	var devTrack [maxDevices]sessionDevTrack
 
 	off := uint32(len(sessionMagic))
 	for off < size {
@@ -148,6 +247,7 @@ func (t *Task) loadSession(ctx *kernel.Context, input string) (*session, error) 
 			meta, ok := decodeSessionPacketMeta(payload)
 			if ok {
 				meta.off = off - 5
+				meta.deltaMs, meta.flags = deriveSessionPacketMeta(&devTrack, meta)
 				s.packets = append(s.packets, meta)
 				s.noteTick(meta.tick)
 				ch := int(meta.channel)
@@ -300,7 +400,9 @@ func decodeSessionPacketMeta(payload []byte) (packetMeta, bool) {
 	if off+int(m.length) > len(payload) {
 		return packetMeta{}, false
 	}
-	m.payloadHash = fnv1a32(payload[off : off+int(m.length)])
+	pl := payload[off : off+int(m.length)]
+	m.payloadHash = fnv1a32(pl)
+	copy(m.payloadPrefix[:], pl)
 	off += int(m.length)
 	if off >= len(payload) {
 		return packetMeta{}, false
@@ -357,6 +459,7 @@ func decodeSessionPacket(payload []byte) (packet, bool) {
 		return packet{}, false
 	}
 	copy(p.payload[:], payload[off:off+int(p.length)])
+	p.payloadHash = fnv1a32(payload[off : off+int(p.length)])
 	off += int(p.length)
 	if off >= len(payload) {
 		return packet{}, false

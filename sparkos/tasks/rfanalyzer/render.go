@@ -983,7 +983,7 @@ func (t *Task) renderFiltersOverlay(l layout) {
 	if boxCols < 20 {
 		boxCols = 20
 	}
-	boxRows := 12
+	boxRows := 3 + filterLines
 	px := l.sniffer.x + 2
 	py := l.sniffer.y + t.fontHeight*2
 	pw := int16(boxCols) * t.fontWidth
@@ -993,7 +993,7 @@ func (t *Task) renderFiltersOverlay(l layout) {
 	_ = t.d.FillRectangle(px+1, py+1, pw-2, ph-2, colorPanelBG)
 	_ = t.d.FillRectangle(px+1, py+1, pw-2, t.fontHeight+1, colorHeaderBG)
 	t.drawStringClipped(px+2, py, "Filters (Esc/f close)", colorFG, boxCols)
-	t.drawStringClipped(px+2, py+t.fontHeight, "Up/Down sel  Left/Right adj  Enter addr", colorDim, boxCols)
+	t.drawStringClipped(px+2, py+t.fontHeight, "Up/Down sel  Left/Right adj  Enter edit", colorDim, boxCols)
 
 	lines := make([]string, 0, filterLines)
 	lines = append(lines, fmt.Sprintf("CRC    <%s>", t.filterCRC))
@@ -1019,6 +1019,24 @@ func (t *Task) renderFiltersOverlay(l layout) {
 		addr = t.filterAddrHex()
 	}
 	lines = append(lines, fmt.Sprintf("ADDR   <%s>", addr))
+
+	pay := "(none)"
+	if t.filterPayloadLen > 0 {
+		pay = t.filterPayloadHex()
+	}
+	lines = append(lines, fmt.Sprintf("PAY    <%s>", pay))
+
+	age := "off"
+	if t.filterAgeMs > 0 {
+		age = fmt.Sprintf("%d", t.filterAgeMs)
+	}
+	lines = append(lines, fmt.Sprintf("AGEms  [%s]", age))
+
+	burst := "off"
+	if t.filterBurstMaxMs > 0 {
+		burst = fmt.Sprintf("%d", t.filterBurstMaxMs)
+	}
+	lines = append(lines, fmt.Sprintf("BURSTΔ [%s]", burst))
 
 	y0 := py + 2*t.fontHeight
 	for i := 0; i < len(lines); i++ {

@@ -5,10 +5,19 @@ import (
 )
 
 const maxPackets = 256
+const payloadPrefixBytes = 8
+
+const (
+	pktFlagRetry uint8 = 1 << 0
+	pktFlagBurst uint8 = 1 << 1
+)
 
 type packet struct {
 	seq  uint32
 	tick uint64
+
+	deltaMs uint16
+	flags   uint8
 
 	channel uint8
 	rate    rfDataRate
@@ -19,6 +28,8 @@ type packet struct {
 	length  uint8
 	payload [32]byte
 
+	payloadHash uint32
+
 	crcLen uint8
 	crc    [2]byte
 	crcOK  bool
@@ -28,6 +39,9 @@ type packetSummary struct {
 	seq  uint32
 	tick uint64
 
+	deltaMs uint16
+	flags   uint8
+
 	channel uint8
 	rate    rfDataRate
 
@@ -35,6 +49,10 @@ type packetSummary struct {
 	addr    [5]byte
 
 	length uint8
+
+	payloadHash   uint32
+	payloadPrefix [payloadPrefixBytes]byte
+
 	crcLen uint8
 	crcOK  bool
 }
@@ -43,16 +61,26 @@ func summaryFromPacket(p *packet) packetSummary {
 	if p == nil {
 		return packetSummary{}
 	}
+	var prefix [payloadPrefixBytes]byte
+	n := int(p.length)
+	if n > len(prefix) {
+		n = len(prefix)
+	}
+	copy(prefix[:], p.payload[:n])
 	return packetSummary{
-		seq:     p.seq,
-		tick:    p.tick,
-		channel: p.channel,
-		rate:    p.rate,
-		addrLen: p.addrLen,
-		addr:    p.addr,
-		length:  p.length,
-		crcLen:  p.crcLen,
-		crcOK:   p.crcOK,
+		seq:           p.seq,
+		tick:          p.tick,
+		deltaMs:       p.deltaMs,
+		flags:         p.flags,
+		channel:       p.channel,
+		rate:          p.rate,
+		addrLen:       p.addrLen,
+		addr:          p.addr,
+		length:        p.length,
+		payloadHash:   p.payloadHash,
+		payloadPrefix: prefix,
+		crcLen:        p.crcLen,
+		crcOK:         p.crcOK,
 	}
 }
 
@@ -61,15 +89,19 @@ func summaryFromMeta(m *packetMeta) packetSummary {
 		return packetSummary{}
 	}
 	return packetSummary{
-		seq:     m.seq,
-		tick:    m.tick,
-		channel: m.channel,
-		rate:    m.rate,
-		addrLen: m.addrLen,
-		addr:    m.addr,
-		length:  m.length,
-		crcLen:  m.crcLen,
-		crcOK:   m.crcOK,
+		seq:           m.seq,
+		tick:          m.tick,
+		deltaMs:       m.deltaMs,
+		flags:         m.flags,
+		channel:       m.channel,
+		rate:          m.rate,
+		addrLen:       m.addrLen,
+		addr:          m.addr,
+		length:        m.length,
+		payloadHash:   m.payloadHash,
+		payloadPrefix: m.payloadPrefix,
+		crcLen:        m.crcLen,
+		crcOK:         m.crcOK,
 	}
 }
 
@@ -138,6 +170,28 @@ func (t *Task) appendPacket(p packet) {
 	}
 	p.seq = t.pktSeq
 	t.pktSeq++
+
+	p.payloadHash = fnv1a32(p.payload[:p.length])
+	p.deltaMs = 0
+	p.flags = 0
+	if d := t.findDevice(p.addrLen, p.addr); d != nil {
+		if d.lastTick != 0 && p.tick > d.lastTick {
+			dt := p.tick - d.lastTick
+			if dt > 0xFFFF {
+				dt = 0xFFFF
+			}
+			p.deltaMs = uint16(dt)
+			if dt <= 12 {
+				p.flags |= pktFlagBurst
+			}
+		}
+		if d.lastPayloadHash != 0 &&
+			d.lastPayloadHash == p.payloadHash &&
+			p.tick > d.lastPayloadTick &&
+			(p.tick-d.lastPayloadTick) <= anaRetryWindowTicks {
+			p.flags |= pktFlagRetry
+		}
+	}
 
 	t.recordPacket(p)
 	t.analyticsOnPacket(&p)
@@ -258,9 +312,44 @@ func (t *Task) packetSummaryPassesFilters(p packetSummary) bool {
 			return false
 		}
 		for i := 0; i < t.filterAddrLen; i++ {
-			if p.addr[i] != t.filterAddr[i] {
+			mask := t.filterAddrMask[i]
+			if mask == 0 {
+				continue
+			}
+			if (p.addr[i] & mask) != (t.filterAddr[i] & mask) {
 				return false
 			}
+		}
+	}
+
+	if t.filterPayloadLen > 0 {
+		if int(p.length) < t.filterPayloadLen {
+			return false
+		}
+		for i := 0; i < t.filterPayloadLen && i < len(p.payloadPrefix); i++ {
+			mask := t.filterPayloadMask[i]
+			if mask == 0 {
+				continue
+			}
+			if (p.payloadPrefix[i] & mask) != (t.filterPayload[i] & mask) {
+				return false
+			}
+		}
+	}
+
+	if t.filterAgeMs > 0 {
+		now := t.nowTick
+		if t.replayActive {
+			now = t.replayNowTick
+		}
+		if now > p.tick && (now-p.tick) > uint64(t.filterAgeMs) {
+			return false
+		}
+	}
+
+	if t.filterBurstMaxMs > 0 {
+		if p.deltaMs == 0 || int(p.deltaMs) > t.filterBurstMaxMs {
+			return false
 		}
 	}
 

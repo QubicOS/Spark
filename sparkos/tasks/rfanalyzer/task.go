@@ -126,13 +126,19 @@ type Task struct {
 	snifferTop    int
 	snifferSelSeq uint32
 
-	filterCRC     filterCRC
-	filterChannel filterChannel
-	filterMinLen  int
-	filterMaxLen  int
-	filterAddr    [5]byte
-	filterAddrLen int
-	filterSel     int
+	filterCRC         filterCRC
+	filterChannel     filterChannel
+	filterMinLen      int
+	filterMaxLen      int
+	filterAddr        [5]byte
+	filterAddrMask    [5]byte
+	filterAddrLen     int
+	filterPayload     [payloadPrefixBytes]byte
+	filterPayloadMask [payloadPrefixBytes]byte
+	filterPayloadLen  int
+	filterAgeMs       int
+	filterBurstMaxMs  int
+	filterSel         int
 
 	showMenu bool
 	menuCat  menuCategory

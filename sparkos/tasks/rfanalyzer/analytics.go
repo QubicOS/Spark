@@ -198,7 +198,11 @@ func (t *Task) analyticsOnPacket(p *packet) {
 	if p == nil {
 		return
 	}
-	hash := fnv1a32(p.payload[:p.length])
+	hash := p.payloadHash
+	if hash == 0 && p.length > 0 {
+		hash = fnv1a32(p.payload[:p.length])
+		p.payloadHash = hash
+	}
 	t.analyticsOnPacketMeta(packetMeta{
 		tick:        p.tick,
 		seq:         p.seq,

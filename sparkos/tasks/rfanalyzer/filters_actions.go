@@ -6,7 +6,7 @@ import (
 	"spark/sparkos/kernel"
 )
 
-const filterLines = 5
+const filterLines = 8
 
 func (t *Task) handleFiltersKey(ctx *kernel.Context, k key) {
 	switch k.kind {
@@ -41,9 +41,20 @@ func (t *Task) handleFiltersKey(ctx *kernel.Context, k key) {
 		t.adjustFilter(ctx, +1)
 		return
 	case keyEnter:
-		if t.filterSel == 4 {
+		switch t.filterSel {
+		case 4:
 			initial := t.filterAddrHex()
-			t.openPrompt(promptSetFilterAddr, "Filter address prefix (hex, empty clears)", initial)
+			t.openPrompt(promptSetFilterAddr, "Filter address mask (hex, use ??, empty clears)", initial)
+			t.showFilters = false
+		case 5:
+			initial := t.filterPayloadHex()
+			t.openPrompt(promptSetFilterPayload, "Filter payload prefix (hex, use ??, empty clears)", initial)
+			t.showFilters = false
+		case 6:
+			t.openPrompt(promptSetFilterAge, "Filter age window (ms, 0 disables)", fmt.Sprintf("%d", t.filterAgeMs))
+			t.showFilters = false
+		case 7:
+			t.openPrompt(promptSetFilterBurst, "Filter burst Δt max (ms, 0 disables)", fmt.Sprintf("%d", t.filterBurstMaxMs))
 			t.showFilters = false
 		}
 		return
@@ -71,6 +82,12 @@ func (t *Task) adjustFilter(_ *kernel.Context, delta int) {
 			t.filterMinLen = t.filterMaxLen
 		}
 		changed = true
+	case 6: // AGEms
+		t.filterAgeMs = clampInt(t.filterAgeMs+delta*100, 0, 1_000_000)
+		changed = true
+	case 7: // BURSTΔ
+		t.filterBurstMaxMs = clampInt(t.filterBurstMaxMs+delta, 0, 1_000_000)
+		changed = true
 	}
 	if !changed {
 		return
@@ -87,6 +104,15 @@ func (t *Task) filterSummary() string {
 	if t.filterAddrLen > 0 {
 		s += " ADDR:" + t.filterAddrHex()
 	}
+	if t.filterPayloadLen > 0 {
+		s += " PAY:" + t.filterPayloadHex()
+	}
+	if t.filterAgeMs > 0 {
+		s += fmt.Sprintf(" AGE:%dms", t.filterAgeMs)
+	}
+	if t.filterBurstMaxMs > 0 {
+		s += fmt.Sprintf(" BΔ<=%dms", t.filterBurstMaxMs)
+	}
 	return s
 }
 
@@ -96,7 +122,38 @@ func (t *Task) filterAddrHex() string {
 	}
 	out := ""
 	for i := 0; i < t.filterAddrLen && i < len(t.filterAddr); i++ {
-		out += fmt.Sprintf("%02X", t.filterAddr[i])
+		out += hexMaskByte(t.filterAddr[i], t.filterAddrMask[i])
 	}
 	return out
+}
+
+func (t *Task) filterPayloadHex() string {
+	if t.filterPayloadLen <= 0 {
+		return ""
+	}
+	out := ""
+	for i := 0; i < t.filterPayloadLen && i < len(t.filterPayload); i++ {
+		out += hexMaskByte(t.filterPayload[i], t.filterPayloadMask[i])
+	}
+	return out
+}
+
+func hexMaskByte(v, mask byte) string {
+	hi := byte('?')
+	lo := byte('?')
+	if (mask & 0xF0) != 0 {
+		hi = hexDigit(v >> 4)
+	}
+	if (mask & 0x0F) != 0 {
+		lo = hexDigit(v & 0x0F)
+	}
+	return string([]byte{hi, lo})
+}
+
+func hexDigit(v byte) byte {
+	v &= 0x0F
+	if v < 10 {
+		return '0' + v
+	}
+	return 'A' + (v - 10)
 }
