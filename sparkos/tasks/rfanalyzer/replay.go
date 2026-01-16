@@ -77,6 +77,7 @@ func (t *Task) exitReplay(ctx *kernel.Context) {
 	t.replayErr = ""
 	t.replayPktCacheOK = false
 	t.replayPktCacheSeq = 0
+	t.resetAnalytics()
 	t.invalidate(dirtyAll)
 }
 
@@ -152,21 +153,15 @@ func (t *Task) updateReplayPosition(ctx *kernel.Context, sessionTick uint64, for
 		return
 	}
 
+	oldSweepIdx := t.replaySweepIdx
+	oldPktLimit := t.replayPktLimit
+
 	newSweepIdx := upperBoundSweep(t.replay.sweeps, sessionTick)
 	if newSweepIdx < 0 {
 		newSweepIdx = 0
 	}
 	if newSweepIdx >= len(t.replay.sweeps) {
 		newSweepIdx = len(t.replay.sweeps) - 1
-	}
-
-	if force || newSweepIdx != t.replaySweepIdx {
-		if force || newSweepIdx < t.replaySweepIdx || newSweepIdx-t.replaySweepIdx > 8 {
-			t.replaySweepIdx = -1
-			t.rebuildReplayWaterfall(ctx)
-		}
-		t.advanceReplaySweepTo(ctx, newSweepIdx)
-		t.invalidate(dirtySpectrum | dirtyWaterfall | dirtyStatus)
 	}
 
 	newPktLimit := upperBoundPacket(t.replay.packets, sessionTick)
@@ -176,14 +171,51 @@ func (t *Task) updateReplayPosition(ctx *kernel.Context, sessionTick uint64, for
 	if newPktLimit > len(t.replay.packets) {
 		newPktLimit = len(t.replay.packets)
 	}
-	if force || newPktLimit != t.replayPktLimit {
-		if newPktLimit > t.replayPktLimit {
-			t.pktSecCount += newPktLimit - t.replayPktLimit
+
+	jump := force ||
+		oldSweepIdx < 0 ||
+		newSweepIdx < oldSweepIdx ||
+		newSweepIdx-oldSweepIdx > 8 ||
+		newPktLimit < oldPktLimit
+
+	if jump {
+		t.resetAnalytics()
+		t.rebuildReplayWaterfallAt(ctx, newSweepIdx, true)
+		t.replaySweepIdx = newSweepIdx
+
+		// Rebuild packet-driven stats from a tail window.
+		const pktWindow = 512
+		start := newPktLimit - pktWindow
+		if start < 0 {
+			start = 0
+		}
+		for i := start; i < newPktLimit; i++ {
+			t.analyticsOnPacketMeta(t.replay.packets[i])
+		}
+
+		t.pktSecStart = 0
+		t.pktSecCount = 0
+		t.pktsPerSec = 0
+	} else if newSweepIdx != oldSweepIdx {
+		t.advanceReplaySweepTo(ctx, newSweepIdx)
+		t.invalidate(dirtySpectrum | dirtyWaterfall | dirtyStatus)
+	}
+
+	if newPktLimit != oldPktLimit {
+		if !jump && newPktLimit > oldPktLimit {
+			for i := oldPktLimit; i < newPktLimit; i++ {
+				t.analyticsOnPacketMeta(t.replay.packets[i])
+			}
+			t.pktSecCount += newPktLimit - oldPktLimit
 		}
 		t.replayPktLimit = newPktLimit
 		t.replayPktCacheOK = false
 		t.reconcileSnifferSelection()
 		t.invalidate(dirtySniffer | dirtyProtocol | dirtyStatus)
+	}
+
+	if jump {
+		t.invalidate(dirtySpectrum | dirtyWaterfall | dirtySniffer | dirtyProtocol | dirtyStatus | dirtyAnalysis)
 	}
 }
 
@@ -193,6 +225,7 @@ func (t *Task) advanceReplaySweepTo(ctx *kernel.Context, target int) {
 	}
 	if t.replaySweepIdx < 0 {
 		t.applyReplaySweep(ctx, target)
+		t.analyticsOnSweep(t.replay.sweeps[target].tick)
 		t.replaySweepIdx = target
 		return
 	}
@@ -204,6 +237,7 @@ func (t *Task) advanceReplaySweepTo(ctx *kernel.Context, target int) {
 
 	for i := t.replaySweepIdx + 1; i <= target; i++ {
 		t.applyReplaySweep(ctx, i)
+		t.analyticsOnSweep(t.replay.sweeps[i].tick)
 		t.replaySweepIdx = i
 		if !t.waterfallFrozen {
 			t.pushWaterfallRow()
@@ -211,7 +245,7 @@ func (t *Task) advanceReplaySweepTo(ctx *kernel.Context, target int) {
 	}
 }
 
-func (t *Task) rebuildReplayWaterfall(ctx *kernel.Context) {
+func (t *Task) rebuildReplayWaterfallAt(ctx *kernel.Context, sweepIdx int, updateAnalytics bool) {
 	if !t.ensureWaterfallAlloc() || t.replay == nil || len(t.replay.sweeps) == 0 {
 		return
 	}
@@ -220,12 +254,11 @@ func (t *Task) rebuildReplayWaterfall(ctx *kernel.Context) {
 	}
 	t.wfHead = 0
 
-	sweepIdx := t.replaySweepIdx
 	if sweepIdx < 0 {
-		sweepIdx = upperBoundSweep(t.replay.sweeps, t.replayNowTick)
-		if sweepIdx < 0 {
-			sweepIdx = 0
-		}
+		sweepIdx = 0
+	}
+	if sweepIdx >= len(t.replay.sweeps) {
+		sweepIdx = len(t.replay.sweeps) - 1
 	}
 
 	start := sweepIdx - (t.wfH - 1)
@@ -234,6 +267,9 @@ func (t *Task) rebuildReplayWaterfall(ctx *kernel.Context) {
 	}
 	for i := start; i <= sweepIdx && i < len(t.replay.sweeps); i++ {
 		t.applyReplaySweep(ctx, i)
+		if updateAnalytics {
+			t.analyticsOnSweep(t.replay.sweeps[i].tick)
+		}
 		t.pushWaterfallRow()
 	}
 	t.invalidate(dirtyWaterfall)

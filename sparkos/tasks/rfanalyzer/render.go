@@ -59,9 +59,11 @@ type layout struct {
 	rf        rect
 	sniffer   rect
 	proto     rect
+	analysis  rect
 
-	leftCols  int
-	rightCols int
+	leftCols      int
+	rightMainCols int
+	analysisCols  int
 }
 
 func (t *Task) computeLayout() layout {
@@ -85,6 +87,21 @@ func (t *Task) computeLayout() layout {
 	rightCols := t.cols - leftCols
 	leftW := int16(leftCols) * t.fontWidth
 	rightW := w - leftW
+
+	analysisCols := 28
+	if analysisCols > rightCols-24 {
+		analysisCols = rightCols / 3
+	}
+	if analysisCols < 20 {
+		analysisCols = 20
+	}
+	rightMainCols := rightCols - analysisCols
+	if rightMainCols < 24 {
+		analysisCols = 0
+		rightMainCols = rightCols
+	}
+	rightMainW := int16(rightMainCols) * t.fontWidth
+	analysisW := rightW - rightMainW
 
 	spectrumRows := 16
 	if spectrumRows > t.mainRows-8 {
@@ -128,9 +145,10 @@ func (t *Task) computeLayout() layout {
 	spectrum := rect{x: 0, y: mainY, w: leftW, h: int16(spectrumRows) * t.fontHeight}
 	waterfall := rect{x: 0, y: mainY + spectrum.h, w: leftW, h: int16(waterfallRows) * t.fontHeight}
 
-	rf := rect{x: leftW, y: mainY, w: rightW, h: int16(controlRows) * t.fontHeight}
-	sniffer := rect{x: leftW, y: rf.y + rf.h, w: rightW, h: int16(snifferRows) * t.fontHeight}
-	proto := rect{x: leftW, y: sniffer.y + sniffer.h, w: rightW, h: int16(protoRows) * t.fontHeight}
+	rf := rect{x: leftW, y: mainY, w: rightMainW, h: int16(controlRows) * t.fontHeight}
+	sniffer := rect{x: leftW, y: rf.y + rf.h, w: rightMainW, h: int16(snifferRows) * t.fontHeight}
+	proto := rect{x: leftW, y: sniffer.y + sniffer.h, w: rightMainW, h: int16(protoRows) * t.fontHeight}
+	analysis := rect{x: leftW + rightMainW, y: mainY, w: analysisW, h: int16(t.mainRows) * t.fontHeight}
 
 	return layout{
 		menu:      menu,
@@ -142,8 +160,11 @@ func (t *Task) computeLayout() layout {
 		rf:        rf,
 		sniffer:   sniffer,
 		proto:     proto,
+		analysis:  analysis,
 		leftCols:  leftCols,
-		rightCols: rightCols,
+
+		rightMainCols: rightMainCols,
+		analysisCols:  analysisCols,
 	}
 }
 
@@ -289,6 +310,9 @@ func (t *Task) renderDirty() {
 	if full || (t.dirty&dirtyProtocol) != 0 {
 		t.renderProtocol(l)
 	}
+	if full || (t.dirty&dirtyAnalysis) != 0 {
+		t.renderAnalysis(l)
+	}
 	if full || (t.dirty&dirtyStatus) != 0 {
 		t.renderStatus(l)
 	}
@@ -370,6 +394,15 @@ func (t *Task) renderSpectrum(l layout) {
 		yPeak := plot.y + plot.h - 1 - int16(t.energyPeak[ch])*plot.h/255
 		if yPeak >= plot.y && yPeak < plot.y+plot.h {
 			_ = t.d.FillRectangle(x0, yPeak, x1-x0, 1, colorWarn)
+		}
+
+		// Collision/interference highlight (CRC bad / retries).
+		if t.anaChanPkt[ch] >= 8 {
+			badPct := int(t.anaChanBad[ch] * 100 / t.anaChanPkt[ch])
+			retryPct := int(t.anaChanRetry[ch] * 100 / t.anaChanPkt[ch])
+			if badPct >= 25 || retryPct >= 25 {
+				_ = t.d.FillRectangle(x0, plot.y, x1-x0, 2, colorWarn)
+			}
 		}
 	}
 
@@ -936,7 +969,7 @@ func (t *Task) renderHelpOverlay(l layout) {
 }
 
 func (t *Task) renderFiltersOverlay(l layout) {
-	boxCols := l.rightCols
+	boxCols := l.rightMainCols
 	if boxCols < 20 {
 		boxCols = 20
 	}

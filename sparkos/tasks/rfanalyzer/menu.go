@@ -30,6 +30,7 @@ const (
 	menuItemFocusRFControl
 	menuItemFocusSniffer
 	menuItemFocusProtocol
+	menuItemFocusAnalysis
 
 	menuItemToggleScan
 	menuItemToggleWaterfall
@@ -78,6 +79,7 @@ func menuItems(cat menuCategory) []menuItem {
 			{id: menuItemFocusRFControl, label: "Focus RF Control"},
 			{id: menuItemFocusSniffer, label: "Focus Sniffer"},
 			{id: menuItemFocusProtocol, label: "Focus Protocol"},
+			{id: menuItemFocusAnalysis, label: "Focus Analysis"},
 			{id: menuItemResetView, label: "Reset View"},
 		}
 	case menuRF:

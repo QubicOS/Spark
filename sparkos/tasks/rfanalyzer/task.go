@@ -17,6 +17,7 @@ const (
 	focusRFControl
 	focusSniffer
 	focusProtocol
+	focusAnalysis
 )
 
 type Task struct {
@@ -146,6 +147,32 @@ type Task struct {
 	promptCursor int
 	promptErr    string
 
+	analysisView analysisView
+	analysisSel  int
+	analysisTop  int
+
+	anaSweepCount uint32
+	anaOccCount   [numChannels]uint32
+	anaEnergySum  [numChannels]uint32
+	anaChanPkt    [numChannels]uint32
+	anaChanBad    [numChannels]uint32
+	anaChanRetry  [numChannels]uint32
+
+	anaHigh      [numChannels]bool
+	anaLastRise  [numChannels]uint64
+	anaRiseCount [numChannels]uint8
+	anaRiseAvgMs [numChannels]uint32
+	anaRiseMinMs [numChannels]uint32
+	anaRiseMaxMs [numChannels]uint32
+
+	bestHist     [64]bestChanEntry
+	bestHead     int
+	bestCount    int
+	bestNextTick uint64
+
+	devices     [maxDevices]deviceStat
+	deviceCount int
+
 	dirty dirtyFlags
 }
 
@@ -168,6 +195,7 @@ func New(disp hal.Display, ep, vfsCap kernel.Capability) *Task {
 		rng:             0xA341316C,
 		replaySpeed:     1,
 		protoMode:       protoDecoded,
+		analysisView:    analysisChannels,
 		filterCRC:       filterCRCAny,
 		filterChannel:   filterChannelAll,
 		menuCat:         menuRF,
@@ -481,10 +509,24 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 
 func (t *Task) cycleFocus() {
 	t.focus++
-	if t.focus > focusProtocol {
+	if t.focus > focusAnalysis {
 		t.focus = focusSpectrum
 	}
 	t.invalidate(dirtyHeader)
+}
+
+func (t *Task) prevAnalysisView() {
+	t.analysisView = analysisView(wrapEnum(int(t.analysisView)-1, 4))
+	t.analysisSel = 0
+	t.analysisTop = 0
+	t.invalidate(dirtyAnalysis)
+}
+
+func (t *Task) nextAnalysisView() {
+	t.analysisView = analysisView(wrapEnum(int(t.analysisView)+1, 4))
+	t.analysisSel = 0
+	t.analysisTop = 0
+	t.invalidate(dirtyAnalysis)
 }
 
 func (t *Task) handleEnter(ctx *kernel.Context) {
@@ -524,6 +566,16 @@ func (t *Task) handleEnter(ctx *kernel.Context) {
 	case focusSpectrum, focusWaterfall:
 		t.openPrompt(promptSetChannel, fmt.Sprintf("Set channel (0..%d)", maxChannel), fmt.Sprintf("%d", t.selectedChannel))
 		return
+	case focusAnalysis:
+		if t.analysisView == analysisChannels {
+			top := t.topChannels(8)
+			if t.analysisSel >= 0 && t.analysisSel < len(top) {
+				t.selectedChannel = clampInt(top[t.analysisSel].ch, 0, maxChannel)
+				t.recordConfig(ctx.NowTick())
+				t.invalidate(dirtySpectrum | dirtyWaterfall | dirtyStatus | dirtyAnalysis)
+			}
+		}
+		return
 	default:
 		_ = ctx
 		return
@@ -557,6 +609,7 @@ func (t *Task) resetView() {
 		t.wfBuf[i] = 0
 	}
 	t.wfHead = 0
+	t.resetAnalytics()
 	t.invalidate(dirtyAll)
 }
 
@@ -589,6 +642,8 @@ func (t *Task) adjustLeft() {
 	case focusRFControl:
 		t.adjustSetting(-1)
 		t.invalidate(dirtyRFControl | dirtyStatus)
+	case focusAnalysis:
+		t.prevAnalysisView()
 	}
 }
 
@@ -603,6 +658,8 @@ func (t *Task) adjustRight() {
 	case focusRFControl:
 		t.adjustSetting(+1)
 		t.invalidate(dirtyRFControl | dirtyStatus)
+	case focusAnalysis:
+		t.nextAnalysisView()
 	}
 }
 
@@ -617,6 +674,11 @@ func (t *Task) adjustUp() {
 		t.moveSnifferSelection(-1)
 	case focusProtocol:
 		t.invalidate(dirtyProtocol)
+	case focusAnalysis:
+		if t.analysisSel > 0 {
+			t.analysisSel--
+			t.invalidate(dirtyAnalysis)
+		}
 	}
 }
 
@@ -631,5 +693,8 @@ func (t *Task) adjustDown() {
 		t.moveSnifferSelection(+1)
 	case focusProtocol:
 		t.invalidate(dirtyProtocol)
+	case focusAnalysis:
+		t.analysisSel++
+		t.invalidate(dirtyAnalysis)
 	}
 }

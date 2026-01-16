@@ -18,10 +18,11 @@ const (
 	dirtyRFControl
 	dirtySniffer
 	dirtyProtocol
+	dirtyAnalysis
 	dirtyStatus
 	dirtyOverlay
 
-	dirtyAll = dirtyHeader | dirtySpectrum | dirtyWaterfall | dirtyRFControl | dirtySniffer | dirtyProtocol | dirtyStatus | dirtyOverlay
+	dirtyAll = dirtyHeader | dirtySpectrum | dirtyWaterfall | dirtyRFControl | dirtySniffer | dirtyProtocol | dirtyAnalysis | dirtyStatus | dirtyOverlay
 )
 
 type rfDataRate uint8

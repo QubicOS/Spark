@@ -100,6 +100,10 @@ func (t *Task) activateMenuItem(ctx *kernel.Context, id menuItemID) {
 		t.focus = focusProtocol
 		t.closeMenu()
 		t.invalidate(dirtyHeader)
+	case menuItemFocusAnalysis:
+		t.focus = focusAnalysis
+		t.closeMenu()
+		t.invalidate(dirtyHeader)
 
 	case menuItemToggleScan:
 		now := ctx.NowTick()

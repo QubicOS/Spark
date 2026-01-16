@@ -106,6 +106,7 @@ func (t *Task) onSweepComplete(now uint64) {
 	}
 
 	t.recordSweep(now)
+	t.analyticsOnSweep(now)
 
 	if t.waterfallFrozen {
 		return

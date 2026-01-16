@@ -29,6 +29,8 @@ type packetMeta struct {
 
 	length uint8
 
+	payloadHash uint32
+
 	crcLen uint8
 	crcOK  bool
 }
@@ -276,6 +278,7 @@ func decodeSessionPacketMeta(payload []byte) (packetMeta, bool) {
 	if off+int(m.length) > len(payload) {
 		return packetMeta{}, false
 	}
+	m.payloadHash = fnv1a32(payload[off : off+int(m.length)])
 	off += int(m.length)
 	if off >= len(payload) {
 		return packetMeta{}, false
