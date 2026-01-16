@@ -80,6 +80,16 @@ type Task struct {
 	activePreset string
 	presetDirty  bool
 
+	recording           bool
+	recordName          string
+	recordPath          string
+	recordBuf           []byte
+	recordNextFlushTick uint64
+	recordSweeps        uint32
+	recordPackets       uint32
+	recordBytes         uint32
+	recordErr           string
+
 	rng uint32
 
 	nextRenderTick uint64
@@ -244,6 +254,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 			t.nowTick = tick
 			t.onTick(tick)
 			t.tickPacketsPerSecond(tick)
+			t.flushRecording(ctx, tick, false)
 			if t.active && t.dirty != 0 && tick >= t.nextRenderTick {
 				t.renderNow(tick)
 			}
@@ -254,12 +265,18 @@ func (t *Task) Run(ctx *kernel.Context) {
 func (t *Task) setActive(ctx *kernel.Context, active bool) {
 	if active == t.active {
 		if !active {
+			if t.recording {
+				_ = t.stopRecording(ctx)
+			}
 			t.unload()
 		}
 		return
 	}
 	t.active = active
 	if !t.active {
+		if t.recording {
+			_ = t.stopRecording(ctx)
+		}
 		t.unload()
 		return
 	}
@@ -287,6 +304,9 @@ func (t *Task) unload() {
 }
 
 func (t *Task) requestExit(ctx *kernel.Context) {
+	if t.recording {
+		_ = t.stopRecording(ctx)
+	}
 	if t.fb != nil {
 		t.fb.ClearRGB(0, 0, 0)
 		_ = t.fb.Present()
@@ -439,18 +459,22 @@ func (t *Task) handleEnter(ctx *kernel.Context) {
 		case rfSettingRate:
 			t.dataRate = rfDataRate(wrapEnum(int(t.dataRate)+1, 3))
 			t.presetDirty = true
+			t.recordConfig(ctx.NowTick())
 			t.invalidate(dirtyRFControl | dirtyStatus)
 		case rfSettingCRC:
 			t.crcMode = rfCRCMode(wrapEnum(int(t.crcMode)+1, 3))
 			t.presetDirty = true
+			t.recordConfig(ctx.NowTick())
 			t.invalidate(dirtyRFControl | dirtyStatus)
 		case rfSettingAutoAck:
 			t.autoAck = !t.autoAck
 			t.presetDirty = true
+			t.recordConfig(ctx.NowTick())
 			t.invalidate(dirtyRFControl | dirtyStatus)
 		case rfSettingPower:
 			t.powerLevel = rfPowerLevel(wrapEnum(int(t.powerLevel)+1, 4))
 			t.presetDirty = true
+			t.recordConfig(ctx.NowTick())
 			t.invalidate(dirtyRFControl | dirtyStatus)
 		}
 		return

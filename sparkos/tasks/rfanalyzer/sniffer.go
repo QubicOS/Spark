@@ -84,6 +84,8 @@ func (t *Task) appendPacket(p packet) {
 	p.seq = t.pktSeq
 	t.pktSeq++
 
+	t.recordPacket(p)
+
 	if t.pktCount < maxPackets {
 		t.packets[t.pktHead] = p
 		t.pktHead++

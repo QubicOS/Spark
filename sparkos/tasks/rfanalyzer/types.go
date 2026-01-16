@@ -169,6 +169,7 @@ func (t *Task) adjustSetting(delta int) {
 		t.powerLevel = rfPowerLevel(wrapEnum(int(t.powerLevel)+delta, 4))
 	}
 	t.presetDirty = true
+	t.recordConfig(t.nowTick)
 }
 
 func wrapEnum(v, n int) int {

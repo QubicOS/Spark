@@ -118,6 +118,19 @@ func (t *Task) activateMenuItem(ctx *kernel.Context, id menuItemID) {
 		t.capturePaused = !t.capturePaused
 		t.invalidate(dirtyStatus | dirtySniffer | dirtyOverlay)
 
+	case menuItemToggleRecording:
+		if t.recording {
+			_ = t.stopRecording(ctx)
+			t.invalidate(dirtyStatus | dirtyRFControl | dirtyOverlay)
+			return
+		}
+		initial := t.recordName
+		if initial == "" {
+			initial = "session"
+		}
+		t.openPrompt(promptStartRecording, "Start recording session name", initial)
+		t.closeMenu()
+
 	case menuItemResetView:
 		t.resetView()
 		t.invalidate(dirtyOverlay)
@@ -142,27 +155,32 @@ func (t *Task) activateMenuItem(ctx *kernel.Context, id menuItemID) {
 		t.dataRate = rfDataRate(wrapEnum(int(t.dataRate)+1, 3))
 		t.presetDirty = true
 		t.scanNextTick = 0
+		t.recordConfig(ctx.NowTick())
 		t.invalidate(dirtyRFControl | dirtySpectrum | dirtyStatus | dirtyOverlay)
 
 	case menuItemCycleCRC:
 		t.crcMode = rfCRCMode(wrapEnum(int(t.crcMode)+1, 3))
 		t.presetDirty = true
+		t.recordConfig(ctx.NowTick())
 		t.invalidate(dirtyRFControl | dirtyStatus | dirtyOverlay)
 
 	case menuItemToggleAutoAck:
 		t.autoAck = !t.autoAck
 		t.presetDirty = true
+		t.recordConfig(ctx.NowTick())
 		t.invalidate(dirtyRFControl | dirtyStatus | dirtyOverlay)
 
 	case menuItemCyclePower:
 		t.powerLevel = rfPowerLevel(wrapEnum(int(t.powerLevel)+1, 4))
 		t.presetDirty = true
+		t.recordConfig(ctx.NowTick())
 		t.invalidate(dirtyRFControl | dirtyStatus | dirtyOverlay)
 
 	case menuItemCyclePalette:
 		t.wfPalette = wfPalette(wrapEnum(int(t.wfPalette)+1, 3))
 		t.rebuildWaterfallPalette()
 		t.presetDirty = true
+		t.recordConfig(ctx.NowTick())
 		t.invalidate(dirtyWaterfall | dirtyStatus | dirtyOverlay)
 
 	case menuItemToggleProtoMode:

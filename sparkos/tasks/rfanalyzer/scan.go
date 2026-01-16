@@ -97,6 +97,8 @@ func (t *Task) onSweepComplete(now uint64) {
 		}
 	}
 
+	t.recordSweep(now)
+
 	if t.waterfallFrozen {
 		return
 	}
@@ -180,5 +182,18 @@ func (t *Task) statusLine() string {
 	if t.capturePaused {
 		cap = "PAUSED"
 	}
-	return fmt.Sprintf("MODE:%s WF:%s CAP:%s  SEL:%03d  RATE:%s CRC:%s  PKT/s:%d DROP:%d", mode, wf, cap, t.selectedChannel, t.dataRate, t.crcMode, t.pktsPerSec, t.pktDropped)
+
+	rec := "OFF"
+	if t.recording {
+		rec = "ON"
+	}
+	recInfo := "REC:" + rec
+	if t.recordErr != "" {
+		recInfo = "REC:ERR"
+	}
+	if t.recording && t.recordName != "" {
+		recInfo = fmt.Sprintf("REC:%s %s %dKB", rec, t.recordName, t.recordBytes/1024)
+	}
+
+	return fmt.Sprintf("MODE:%s WF:%s CAP:%s %s  SEL:%03d  RATE:%s CRC:%s  PKT/s:%d DROP:%d", mode, wf, cap, recInfo, t.selectedChannel, t.dataRate, t.crcMode, t.pktsPerSec, t.pktDropped)
 }

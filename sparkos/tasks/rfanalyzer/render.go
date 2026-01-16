@@ -444,6 +444,18 @@ func (t *Task) renderRFControl(l layout) {
 	t.drawStringClipped(inner.x+2, y, preset, colorDim, maxCols)
 	y += t.fontHeight
 
+	rec := "REC: OFF"
+	recColor := colorDim
+	if t.recordErr != "" {
+		rec = "REC: ERROR " + t.recordErr
+		recColor = colorWarn
+	} else if t.recording {
+		rec = fmt.Sprintf("REC: ON  %s  %dKB  swp:%d pkt:%d", t.recordName, t.recordBytes/1024, t.recordSweeps, t.recordPackets)
+		recColor = colorAccent
+	}
+	t.drawStringClipped(inner.x+2, y, rec, recColor, maxCols)
+	y += t.fontHeight
+
 	lines := []string{
 		fmt.Sprintf("LO    [%03d]", t.channelRangeLo),
 		fmt.Sprintf("HI    [%03d]", t.channelRangeHi),

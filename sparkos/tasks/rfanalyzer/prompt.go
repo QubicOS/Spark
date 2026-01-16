@@ -19,6 +19,7 @@ const (
 	promptSavePreset
 	promptLoadPreset
 	promptSetFilterAddr
+	promptStartRecording
 )
 
 func (t *Task) openPrompt(kind promptKind, title, initial string) {
@@ -138,6 +139,7 @@ func (t *Task) submitPrompt(ctx *kernel.Context) {
 			return
 		}
 		t.selectedChannel = n
+		t.recordConfig(ctx.NowTick())
 		t.closePrompt()
 		t.invalidate(dirtySpectrum | dirtyWaterfall | dirtyStatus)
 		return
@@ -155,6 +157,7 @@ func (t *Task) submitPrompt(ctx *kernel.Context) {
 		}
 		t.presetDirty = true
 		t.scanNextTick = 0
+		t.recordConfig(ctx.NowTick())
 		t.closePrompt()
 		t.invalidate(dirtyRFControl | dirtySpectrum | dirtyWaterfall | dirtyStatus)
 		return
@@ -172,6 +175,7 @@ func (t *Task) submitPrompt(ctx *kernel.Context) {
 		}
 		t.presetDirty = true
 		t.scanNextTick = 0
+		t.recordConfig(ctx.NowTick())
 		t.closePrompt()
 		t.invalidate(dirtyRFControl | dirtySpectrum | dirtyWaterfall | dirtyStatus)
 		return
@@ -186,6 +190,7 @@ func (t *Task) submitPrompt(ctx *kernel.Context) {
 		t.dwellTimeMs = clampInt(n, 1, 50)
 		t.presetDirty = true
 		t.scanNextTick = 0
+		t.recordConfig(ctx.NowTick())
 		t.closePrompt()
 		t.invalidate(dirtyRFControl | dirtySpectrum | dirtyStatus)
 		return
@@ -200,6 +205,7 @@ func (t *Task) submitPrompt(ctx *kernel.Context) {
 		t.scanSpeedScalar = clampInt(n, 1, 10)
 		t.presetDirty = true
 		t.scanNextTick = 0
+		t.recordConfig(ctx.NowTick())
 		t.closePrompt()
 		t.invalidate(dirtyRFControl | dirtySpectrum | dirtyStatus)
 		return
@@ -256,6 +262,16 @@ func (t *Task) submitPrompt(ctx *kernel.Context) {
 		t.reconcileSnifferSelection()
 		t.closePrompt()
 		t.invalidate(dirtySniffer | dirtyProtocol | dirtyStatus)
+		return
+
+	case promptStartRecording:
+		if err := t.startRecording(ctx, s); err != nil {
+			t.promptErr = err.Error()
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		t.closePrompt()
+		t.invalidate(dirtyStatus | dirtyRFControl)
 		return
 
 	default:

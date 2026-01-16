@@ -34,6 +34,7 @@ const (
 	menuItemToggleScan
 	menuItemToggleWaterfall
 	menuItemToggleCapture
+	menuItemToggleRecording
 	menuItemResetView
 
 	menuItemSetChannel
@@ -90,6 +91,7 @@ func menuItems(cat menuCategory) []menuItem {
 			{id: menuItemToggleScan, label: "Start/Stop Scan"},
 			{id: menuItemToggleWaterfall, label: "Freeze/Resume Waterfall"},
 			{id: menuItemToggleCapture, label: "Pause/Resume Capture"},
+			{id: menuItemToggleRecording, label: "Start/Stop Recording…"},
 		}
 	case menuDecode:
 		return []menuItem{
