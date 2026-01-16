@@ -90,6 +90,20 @@ type Task struct {
 	recordBytes         uint32
 	recordErr           string
 
+	replayActive       bool
+	replayPlaying      bool
+	replaySpeed        int
+	replayHostLastTick uint64
+	replayNowTick      uint64
+	replaySweepIdx     int
+	replayPktLimit     int
+	replayCfgIdx       int
+	replay             *session
+	replayErr          string
+	replayPktCache     packet
+	replayPktCacheSeq  uint32
+	replayPktCacheOK   bool
+
 	rng uint32
 
 	nextRenderTick uint64
@@ -152,6 +166,7 @@ func New(disp hal.Display, ep, vfsCap kernel.Capability) *Task {
 		powerLevel:      rfPwrMax,
 		wfPalette:       wfPaletteCyan,
 		rng:             0xA341316C,
+		replaySpeed:     1,
 		protoMode:       protoDecoded,
 		filterCRC:       filterCRCAny,
 		filterChannel:   filterChannelAll,
@@ -252,7 +267,10 @@ func (t *Task) Run(ctx *kernel.Context) {
 				continue
 			}
 			t.nowTick = tick
-			t.onTick(tick)
+			t.onTick(ctx, tick)
+			if t.replayActive {
+				t.updateReplayPacketCache(ctx)
+			}
 			t.tickPacketsPerSecond(tick)
 			t.flushRecording(ctx, tick, false)
 			if t.active && t.dirty != 0 && tick >= t.nextRenderTick {
@@ -293,6 +311,17 @@ func (t *Task) unload() {
 	t.inbuf = nil
 	t.scanActive = false
 	t.scanNextTick = 0
+	t.replayActive = false
+	t.replayPlaying = false
+	t.replayHostLastTick = 0
+	t.replayNowTick = 0
+	t.replaySweepIdx = -1
+	t.replayPktLimit = 0
+	t.replayCfgIdx = -1
+	t.replay = nil
+	t.replayErr = ""
+	t.replayPktCacheOK = false
+	t.replayPktCacheSeq = 0
 	t.showMenu = false
 	t.showHelp = false
 	t.showFilters = false
@@ -406,6 +435,11 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		case 'q':
 			t.requestExit(ctx)
 		case 's':
+			if t.replayActive {
+				t.replayPlaying = !t.replayPlaying
+				t.invalidate(dirtyStatus)
+				return
+			}
 			now := ctx.NowTick()
 			if t.scanActive {
 				t.stopScan()
@@ -416,9 +450,18 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 			t.waterfallFrozen = !t.waterfallFrozen
 			t.invalidate(dirtyStatus | dirtyWaterfall)
 		case 'p':
+			if t.replayActive {
+				t.replayPlaying = !t.replayPlaying
+				t.invalidate(dirtyStatus)
+				return
+			}
 			t.capturePaused = !t.capturePaused
 			t.invalidate(dirtyStatus | dirtySniffer)
 		case 'r':
+			if t.replayActive {
+				t.resetReplayView(ctx)
+				return
+			}
 			t.resetView()
 		case 'm':
 			t.openMenu()
@@ -515,6 +558,24 @@ func (t *Task) resetView() {
 	}
 	t.wfHead = 0
 	t.invalidate(dirtyAll)
+}
+
+func (t *Task) resetReplayView(ctx *kernel.Context) {
+	t.resetView()
+	if ctx == nil || t.replay == nil {
+		return
+	}
+	t.replayCfgIdx = -1
+	t.replaySweepIdx = -1
+	t.replayPktLimit = 0
+	t.snifferSel = 0
+	t.snifferTop = 0
+	t.snifferSelSeq = 0
+	t.replayPktCacheOK = false
+	t.replayPktCacheSeq = 0
+	t.replayHostLastTick = 0
+	t.applyReplayConfigAt(t.replayNowTick)
+	t.updateReplayPosition(ctx, t.replayNowTick, true)
 }
 
 func (t *Task) adjustLeft() {

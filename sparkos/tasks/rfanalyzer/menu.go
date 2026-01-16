@@ -37,6 +37,12 @@ const (
 	menuItemToggleRecording
 	menuItemResetView
 
+	menuItemLoadSession
+	menuItemExitReplay
+	menuItemReplayPlayPause
+	menuItemReplaySeek
+	menuItemReplaySpeed
+
 	menuItemSetChannel
 	menuItemSetRangeLo
 	menuItemSetRangeHi
@@ -92,6 +98,11 @@ func menuItems(cat menuCategory) []menuItem {
 			{id: menuItemToggleWaterfall, label: "Freeze/Resume Waterfall"},
 			{id: menuItemToggleCapture, label: "Pause/Resume Capture"},
 			{id: menuItemToggleRecording, label: "Start/Stop Recording…"},
+			{id: menuItemLoadSession, label: "Load Session (Replay)…"},
+			{id: menuItemReplayPlayPause, label: "Replay Play/Pause"},
+			{id: menuItemReplaySeek, label: "Replay Seek…"},
+			{id: menuItemReplaySpeed, label: "Replay Speed"},
+			{id: menuItemExitReplay, label: "Exit Replay (Live)"},
 		}
 	case menuDecode:
 		return []menuItem{

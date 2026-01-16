@@ -131,6 +131,56 @@ func (t *Task) activateMenuItem(ctx *kernel.Context, id menuItemID) {
 		t.openPrompt(promptStartRecording, "Start recording session name", initial)
 		t.closeMenu()
 
+	case menuItemLoadSession:
+		initial := ""
+		if t.replay != nil {
+			initial = t.replay.name
+		}
+		if initial == "" {
+			initial = "session"
+		}
+		t.openPrompt(promptLoadSession, "Load session name (from /rf/sessions)", initial)
+		t.closeMenu()
+
+	case menuItemExitReplay:
+		t.exitReplay(ctx)
+		t.closeMenu()
+
+	case menuItemReplayPlayPause:
+		if t.replayActive {
+			t.replayPlaying = !t.replayPlaying
+			t.invalidate(dirtyStatus | dirtyOverlay)
+		}
+
+	case menuItemReplaySeek:
+		if !t.replayActive || t.replay == nil {
+			return
+		}
+		offsetMs := 0
+		if t.replayNowTick >= t.replay.startTick {
+			offsetMs = int(t.replayNowTick - t.replay.startTick)
+		}
+		t.openPrompt(promptReplaySeek, "Seek to t(ms) from session start", fmt.Sprintf("%d", offsetMs))
+		t.closeMenu()
+
+	case menuItemReplaySpeed:
+		if !t.replayActive {
+			return
+		}
+		switch t.replaySpeed {
+		case 1:
+			t.replaySpeed = 2
+		case 2:
+			t.replaySpeed = 4
+		case 4:
+			t.replaySpeed = 8
+		case 8:
+			t.replaySpeed = 16
+		default:
+			t.replaySpeed = 1
+		}
+		t.invalidate(dirtyStatus | dirtyOverlay)
+
 	case menuItemResetView:
 		t.resetView()
 		t.invalidate(dirtyOverlay)

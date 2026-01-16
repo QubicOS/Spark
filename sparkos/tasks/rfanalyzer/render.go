@@ -325,6 +325,9 @@ func (t *Task) renderStatus(l layout) {
 	t.drawStringClipped(l.status1.x+2, l.status1.y, s1, colorFG, t.cols)
 
 	s2 := "keys: s scan  w wf  p cap  r reset  m menu  t focus  c chan  f filt  h help  q quit"
+	if t.replayActive {
+		s2 = "keys: s play  w wf  p play  r reset  m menu  t focus  c chan  f filt  h help  q quit"
+	}
 	t.drawStringClipped(l.status2.x+2, l.status2.y, s2, colorDim, t.cols)
 }
 
@@ -493,7 +496,13 @@ func (t *Task) renderSniffer(l layout) {
 	}
 
 	status := "LIVE"
-	if t.capturePaused {
+	if t.replayActive {
+		if t.replayPlaying {
+			status = "REPLAY/PLAY"
+		} else {
+			status = "REPLAY/PAUSE"
+		}
+	} else if t.capturePaused {
 		status = "PAUSED"
 	}
 	hdr := fmt.Sprintf("%s  pps:%d drop:%d  %s", status, t.pktsPerSec, t.pktDropped, t.filterSummary())
@@ -548,8 +557,8 @@ func (t *Task) renderSniffer(l layout) {
 		if idx < 0 || idx >= total {
 			continue
 		}
-		p, ok := t.filteredPacketByIndex(idx)
-		if !ok || p == nil {
+		p, ok := t.filteredPacketSummaryByIndex(idx)
+		if !ok {
 			continue
 		}
 
@@ -578,10 +587,24 @@ func (t *Task) renderProtocol(l layout) {
 		return
 	}
 
-	p, ok := t.filteredPacketByIndex(t.snifferSel)
-	if !ok || p == nil {
+	var p *packet
+	if t.replayActive {
+		if t.replayPktCacheOK {
+			p = &t.replayPktCache
+		}
+	} else {
+		lp, ok := t.filteredLivePacketByIndex(t.snifferSel)
+		if ok && lp != nil {
+			p = lp
+		}
+	}
+	if p == nil {
 		t.drawStringClipped(inner.x+2, inner.y, "mode:"+t.protoMode.String(), colorDim, maxCols)
-		t.drawStringClipped(inner.x+2, inner.y+t.fontHeight, "(select a packet)", colorDim, maxCols)
+		msg := "(select a packet)"
+		if t.replayActive && t.replay != nil && t.replayPktLimit > 0 {
+			msg = "(loading packet...)"
+		}
+		t.drawStringClipped(inner.x+2, inner.y+t.fontHeight, msg, colorDim, maxCols)
 		return
 	}
 
@@ -780,6 +803,42 @@ func (t *Task) menuItemLine(it menuItem) string {
 			return it.label + "  [PAUSED]"
 		}
 		return it.label + "  [LIVE]"
+	case menuItemToggleRecording:
+		if t.recordErr != "" {
+			return it.label + "  [ERR]"
+		}
+		if t.recording {
+			return it.label + "  [ON]"
+		}
+		return it.label + "  [OFF]"
+	case menuItemLoadSession:
+		if t.replayActive && t.replay != nil {
+			return it.label + "  <" + t.replay.name + ">"
+		}
+		return it.label + "  [LIVE]"
+	case menuItemReplayPlayPause:
+		if !t.replayActive {
+			return it.label + "  [N/A]"
+		}
+		if t.replayPlaying {
+			return it.label + "  [PLAY]"
+		}
+		return it.label + "  [PAUSE]"
+	case menuItemReplaySeek:
+		if !t.replayActive {
+			return it.label + "  [N/A]"
+		}
+		return it.label + "  (" + t.replayTimeText() + ")"
+	case menuItemReplaySpeed:
+		if !t.replayActive {
+			return it.label + "  [N/A]"
+		}
+		return it.label + fmt.Sprintf("  <x%d>", clampInt(t.replaySpeed, 1, 32))
+	case menuItemExitReplay:
+		if !t.replayActive {
+			return it.label + "  [N/A]"
+		}
+		return it.label + "  [OK]"
 	case menuItemCycleRate:
 		return it.label + "  <" + t.dataRate.String() + ">"
 	case menuItemCycleCRC:

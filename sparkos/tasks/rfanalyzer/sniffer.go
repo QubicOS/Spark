@@ -24,6 +24,55 @@ type packet struct {
 	crcOK  bool
 }
 
+type packetSummary struct {
+	seq  uint32
+	tick uint64
+
+	channel uint8
+	rate    rfDataRate
+
+	addrLen uint8
+	addr    [5]byte
+
+	length uint8
+	crcLen uint8
+	crcOK  bool
+}
+
+func summaryFromPacket(p *packet) packetSummary {
+	if p == nil {
+		return packetSummary{}
+	}
+	return packetSummary{
+		seq:     p.seq,
+		tick:    p.tick,
+		channel: p.channel,
+		rate:    p.rate,
+		addrLen: p.addrLen,
+		addr:    p.addr,
+		length:  p.length,
+		crcLen:  p.crcLen,
+		crcOK:   p.crcOK,
+	}
+}
+
+func summaryFromMeta(m *packetMeta) packetSummary {
+	if m == nil {
+		return packetSummary{}
+	}
+	return packetSummary{
+		seq:     m.seq,
+		tick:    m.tick,
+		channel: m.channel,
+		rate:    m.rate,
+		addrLen: m.addrLen,
+		addr:    m.addr,
+		length:  m.length,
+		crcLen:  m.crcLen,
+		crcOK:   m.crcOK,
+	}
+}
+
 func rateShort(r rfDataRate) byte {
 	switch r {
 	case rfRate2M:
@@ -37,15 +86,15 @@ func rateShort(r rfDataRate) byte {
 	}
 }
 
-func (p *packet) addrSuffix3() string {
-	if p.addrLen == 0 {
+func addrSuffix3(addrLen uint8, addr [5]byte) string {
+	if addrLen == 0 {
 		return "------"
 	}
-	start := int(p.addrLen) - 3
+	start := int(addrLen) - 3
 	if start < 0 {
 		start = 0
 	}
-	for start+3 > int(p.addrLen) {
+	for start+3 > int(addrLen) {
 		start--
 		if start < 0 {
 			start = 0
@@ -55,27 +104,33 @@ func (p *packet) addrSuffix3() string {
 	b0 := byte(0)
 	b1 := byte(0)
 	b2 := byte(0)
-	if start < int(p.addrLen) {
-		b0 = p.addr[start]
+	if start < int(addrLen) {
+		b0 = addr[start]
 	}
-	if start+1 < int(p.addrLen) {
-		b1 = p.addr[start+1]
+	if start+1 < int(addrLen) {
+		b1 = addr[start+1]
 	}
-	if start+2 < int(p.addrLen) {
-		b2 = p.addr[start+2]
+	if start+2 < int(addrLen) {
+		b2 = addr[start+2]
 	}
 	return fmt.Sprintf("%02X%02X%02X", b0, b1, b2)
 }
 
-func (p *packet) crcText() string {
-	if p.crcLen == 0 {
+func crcText(crcLen uint8, crcOK bool) string {
+	if crcLen == 0 {
 		return "--"
 	}
-	if p.crcOK {
+	if crcOK {
 		return "OK"
 	}
 	return "!!"
 }
+
+func (p *packet) addrSuffix3() string { return addrSuffix3(p.addrLen, p.addr) }
+func (p *packet) crcText() string     { return crcText(p.crcLen, p.crcOK) }
+
+func (p packetSummary) addrSuffix3() string { return addrSuffix3(p.addrLen, p.addr) }
+func (p packetSummary) crcText() string     { return crcText(p.crcLen, p.crcOK) }
 
 func (t *Task) appendPacket(p packet) {
 	if t.pktSeq == 0 {
@@ -135,11 +190,39 @@ func (t *Task) packetByDisplayIndex(i int) (*packet, bool) {
 	return &t.packets[idx], true
 }
 
-func (t *Task) packetPassesFilters(p *packet) bool {
-	if p == nil {
-		return false
+func (t *Task) packetVisibleCount() int {
+	if t.replayActive && t.replay != nil {
+		return t.replayPktLimit
 	}
+	return t.pktCount
+}
 
+func (t *Task) packetSummaryByDisplayIndex(i int) (packetSummary, bool) {
+	if i < 0 {
+		return packetSummary{}, false
+	}
+	if t.replayActive && t.replay != nil {
+		limit := t.replayPktLimit
+		if limit > len(t.replay.packets) {
+			limit = len(t.replay.packets)
+		}
+		if i >= limit {
+			return packetSummary{}, false
+		}
+		metaIdx := limit - 1 - i
+		if metaIdx < 0 || metaIdx >= len(t.replay.packets) {
+			return packetSummary{}, false
+		}
+		return summaryFromMeta(&t.replay.packets[metaIdx]), true
+	}
+	p, ok := t.packetByDisplayIndex(i)
+	if !ok || p == nil {
+		return packetSummary{}, false
+	}
+	return summaryFromPacket(p), true
+}
+
+func (t *Task) packetSummaryPassesFilters(p packetSummary) bool {
 	switch t.filterCRC {
 	case filterCRCOK:
 		if !p.crcOK {
@@ -185,29 +268,75 @@ func (t *Task) packetPassesFilters(p *packet) bool {
 
 func (t *Task) filteredCount() int {
 	n := 0
-	for i := 0; i < t.pktCount; i++ {
-		p, ok := t.packetByDisplayIndex(i)
+	total := t.packetVisibleCount()
+	for i := 0; i < total; i++ {
+		p, ok := t.packetSummaryByDisplayIndex(i)
 		if !ok {
 			continue
 		}
-		if t.packetPassesFilters(p) {
+		if t.packetSummaryPassesFilters(p) {
 			n++
 		}
 	}
 	return n
 }
 
-func (t *Task) filteredPacketByIndex(idx int) (*packet, bool) {
+func (t *Task) filteredPacketSummaryByIndex(idx int) (packetSummary, bool) {
+	if idx < 0 {
+		return packetSummary{}, false
+	}
+	seen := 0
+	total := t.packetVisibleCount()
+	for i := 0; i < total; i++ {
+		p, ok := t.packetSummaryByDisplayIndex(i)
+		if !ok || !t.packetSummaryPassesFilters(p) {
+			continue
+		}
+		if seen == idx {
+			return p, true
+		}
+		seen++
+	}
+	return packetSummary{}, false
+}
+
+func (t *Task) filteredReplayPacketMetaByIndex(idx int) (packetMeta, bool) {
+	if !t.replayActive || t.replay == nil || idx < 0 {
+		return packetMeta{}, false
+	}
+	seen := 0
+	limit := t.replayPktLimit
+	if limit > len(t.replay.packets) {
+		limit = len(t.replay.packets)
+	}
+	for i := 0; i < limit; i++ {
+		metaIdx := limit - 1 - i
+		if metaIdx < 0 || metaIdx >= len(t.replay.packets) {
+			continue
+		}
+		meta := t.replay.packets[metaIdx]
+		if !t.packetSummaryPassesFilters(summaryFromMeta(&meta)) {
+			continue
+		}
+		if seen == idx {
+			return meta, true
+		}
+		seen++
+	}
+	return packetMeta{}, false
+}
+
+func (t *Task) filteredLivePacketByIndex(idx int) (*packet, bool) {
 	if idx < 0 {
 		return nil, false
 	}
 	seen := 0
 	for i := 0; i < t.pktCount; i++ {
 		p, ok := t.packetByDisplayIndex(i)
-		if !ok {
+		if !ok || p == nil {
 			continue
 		}
-		if !t.packetPassesFilters(p) {
+		if !t.packetSummaryPassesFilters(summaryFromPacket(p)) {
 			continue
 		}
 		if seen == idx {
@@ -220,16 +349,18 @@ func (t *Task) filteredPacketByIndex(idx int) (*packet, bool) {
 
 func (t *Task) reconcileSnifferSelection() {
 	if t.snifferSelSeq == 0 {
-		if p, ok := t.filteredPacketByIndex(0); ok {
+		if p, ok := t.filteredPacketSummaryByIndex(0); ok && p.seq != 0 {
 			t.snifferSel = 0
 			t.snifferSelSeq = p.seq
 		}
 		return
 	}
+
 	seen := 0
-	for i := 0; i < t.pktCount; i++ {
-		p, ok := t.packetByDisplayIndex(i)
-		if !ok || !t.packetPassesFilters(p) {
+	total := t.packetVisibleCount()
+	for i := 0; i < total; i++ {
+		p, ok := t.packetSummaryByDisplayIndex(i)
+		if !ok || !t.packetSummaryPassesFilters(p) {
 			continue
 		}
 		if p.seq == t.snifferSelSeq {
@@ -238,12 +369,16 @@ func (t *Task) reconcileSnifferSelection() {
 		}
 		seen++
 	}
-	if p, ok := t.filteredPacketByIndex(0); ok {
+
+	if p, ok := t.filteredPacketSummaryByIndex(0); ok && p.seq != 0 {
 		t.snifferSel = 0
 		t.snifferSelSeq = p.seq
 	} else {
 		t.snifferSel = 0
 		t.snifferSelSeq = 0
+	}
+	if t.replayActive {
+		t.replayPktCacheOK = false
 	}
 }
 
@@ -343,8 +478,11 @@ func (t *Task) moveSnifferSelection(delta int) {
 		return
 	}
 	t.snifferSel = sel
-	if p, ok := t.filteredPacketByIndex(t.snifferSel); ok && p != nil {
+	if p, ok := t.filteredPacketSummaryByIndex(t.snifferSel); ok && p.seq != 0 {
 		t.snifferSelSeq = p.seq
+	}
+	if t.replayActive {
+		t.replayPktCacheOK = false
 	}
 
 	rows := t.snifferListRows()

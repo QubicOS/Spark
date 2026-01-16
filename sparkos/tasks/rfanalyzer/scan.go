@@ -1,10 +1,18 @@
 package rfanalyzer
 
-import "fmt"
+import (
+	"fmt"
+
+	"spark/sparkos/kernel"
+)
 
 const renderIntervalTicks = 33
 
-func (t *Task) onTick(tick uint64) {
+func (t *Task) onTick(ctx *kernel.Context, tick uint64) {
+	if t.replayActive {
+		t.onReplayTick(ctx, tick)
+		return
+	}
 	if !t.scanActive {
 		return
 	}
@@ -171,7 +179,9 @@ func toggleAmp(tick uint64, periodTicks uint64, onAmp, offAmp int) int {
 
 func (t *Task) statusLine() string {
 	mode := "IDLE"
-	if t.scanActive {
+	if t.replayActive {
+		mode = "REPLAY"
+	} else if t.scanActive {
 		mode = "SCAN"
 	}
 	wf := "RUN"
@@ -179,7 +189,13 @@ func (t *Task) statusLine() string {
 		wf = "FROZEN"
 	}
 	cap := "LIVE"
-	if t.capturePaused {
+	if t.replayActive {
+		if t.replayPlaying {
+			cap = "PLAY"
+		} else {
+			cap = "PAUSE"
+		}
+	} else if t.capturePaused {
 		cap = "PAUSED"
 	}
 
@@ -195,5 +211,9 @@ func (t *Task) statusLine() string {
 		recInfo = fmt.Sprintf("REC:%s %s %dKB", rec, t.recordName, t.recordBytes/1024)
 	}
 
-	return fmt.Sprintf("MODE:%s WF:%s CAP:%s %s  SEL:%03d  RATE:%s CRC:%s  PKT/s:%d DROP:%d", mode, wf, cap, recInfo, t.selectedChannel, t.dataRate, t.crcMode, t.pktsPerSec, t.pktDropped)
+	extra := ""
+	if t.replayActive {
+		extra = fmt.Sprintf("  %s x%d", t.replayTimeText(), clampInt(t.replaySpeed, 1, 32))
+	}
+	return fmt.Sprintf("MODE:%s WF:%s CAP:%s %s%s  SEL:%03d  RATE:%s CRC:%s  PKT/s:%d DROP:%d", mode, wf, cap, recInfo, extra, t.selectedChannel, t.dataRate, t.crcMode, t.pktsPerSec, t.pktDropped)
 }

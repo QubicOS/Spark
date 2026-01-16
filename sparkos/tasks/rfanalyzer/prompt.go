@@ -20,6 +20,8 @@ const (
 	promptLoadPreset
 	promptSetFilterAddr
 	promptStartRecording
+	promptLoadSession
+	promptReplaySeek
 )
 
 func (t *Task) openPrompt(kind promptKind, title, initial string) {
@@ -116,7 +118,7 @@ func (t *Task) insertPromptRune(r rune) {
 
 func isNumericPrompt(k promptKind) bool {
 	switch k {
-	case promptSetChannel, promptSetRangeLo, promptSetRangeHi, promptSetDwell, promptSetScanStep:
+	case promptSetChannel, promptSetRangeLo, promptSetRangeHi, promptSetDwell, promptSetScanStep, promptReplaySeek:
 		return true
 	default:
 		return false
@@ -272,6 +274,41 @@ func (t *Task) submitPrompt(ctx *kernel.Context) {
 		}
 		t.closePrompt()
 		t.invalidate(dirtyStatus | dirtyRFControl)
+		return
+
+	case promptLoadSession:
+		if err := t.enterReplay(ctx, s); err != nil {
+			t.promptErr = err.Error()
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		t.closePrompt()
+		return
+
+	case promptReplaySeek:
+		if !t.replayActive || t.replay == nil {
+			t.promptErr = "replay not active"
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		n, err := parseIntStrict(s)
+		if err != nil {
+			t.promptErr = "seek: " + err.Error()
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		newTick := t.replay.startTick + uint64(n)
+		if newTick < t.replay.startTick {
+			newTick = t.replay.startTick
+		}
+		if newTick > t.replay.endTick {
+			newTick = t.replay.endTick
+		}
+		t.replayNowTick = newTick
+		t.replayHostLastTick = 0
+		t.replayPlaying = false
+		t.updateReplayPosition(ctx, t.replayNowTick, true)
+		t.closePrompt()
 		return
 
 	default:

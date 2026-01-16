@@ -58,6 +58,9 @@ func (t *Task) sessionPath(name string) (string, string, error) {
 	if safe == "" {
 		return "", "", errors.New("invalid session name")
 	}
+	if strings.HasSuffix(safe, sessionExt) {
+		safe = strings.TrimSuffix(safe, sessionExt)
+	}
 	return safe, sessionDir + "/" + safe + sessionExt, nil
 }
 
