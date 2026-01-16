@@ -24,6 +24,8 @@ const (
 	MsgVFSWriteClose
 	MsgVFSWriteResp
 	MsgTermRefresh
+	MsgTermScreenSave
+	MsgTermScreenRestore
 	MsgAppControl
 	MsgAppSelect
 	MsgAppShutdown
@@ -132,6 +134,10 @@ func (k Kind) String() string {
 		return "vfs_write_resp"
 	case MsgTermRefresh:
 		return "term_refresh"
+	case MsgTermScreenSave:
+		return "term_screen_save"
+	case MsgTermScreenRestore:
+		return "term_screen_restore"
 	case MsgAppControl:
 		return "app_control"
 	case MsgAppSelect:
