@@ -1,13 +1,31 @@
 package rfanalyzer
 
+func (t *Task) waterfallPlotRect(l layout) (plot rect, headerY int16, ok bool) {
+	inner := l.waterfall.inset(2, 2)
+	headerY = inner.y + t.fontHeight + 1
+	plot = rect{
+		x: inner.x,
+		y: headerY + t.fontHeight + 1,
+		w: inner.w,
+		h: inner.h - 2*t.fontHeight - 3,
+	}
+	if plot.w <= 0 || plot.h <= 0 {
+		return rect{}, 0, false
+	}
+	return plot, headerY, true
+}
+
 func (t *Task) ensureWaterfallAlloc() bool {
 	if t.fb == nil {
 		return false
 	}
 	l := t.computeLayout()
-	inner := l.waterfall.inset(2, 2)
-	plotW := int(inner.w)
-	plotH := int(inner.h - t.fontHeight - 2)
+	plot, _, ok := t.waterfallPlotRect(l)
+	if !ok {
+		return false
+	}
+	plotW := int(plot.w)
+	plotH := int(plot.h)
 	if plotW <= 0 || plotH <= 0 {
 		return false
 	}
@@ -60,6 +78,17 @@ func (t *Task) pushWaterfallRow() {
 }
 
 func (t *Task) rebuildWaterfallPalette() {
+	lerpU8 := func(a, b uint8, t uint8) uint8 {
+		return uint8((uint16(a)*(255-uint16(t)) + uint16(b)*uint16(t)) / 255)
+	}
+	lerpRGB := func(r0, g0, b0, r1, g1, b1, tt uint8) uint16 {
+		return rgb565From888(
+			lerpU8(r0, r1, tt),
+			lerpU8(g0, g1, tt),
+			lerpU8(b0, b1, tt),
+		)
+	}
+
 	switch t.wfPalette {
 	case wfPaletteFire:
 		for i := 0; i < 256; i++ {
@@ -79,6 +108,35 @@ func (t *Task) rebuildWaterfallPalette() {
 		for i := 0; i < 256; i++ {
 			v := uint8(i)
 			t.wfPalette565[i] = rgb565From888(v, v, v)
+		}
+	case wfPaletteCubic:
+		// CubicSDR-like palette: deep blue background → cyan/green → yellow → red → white.
+		for i := 0; i < 256; i++ {
+			v := uint8(i)
+			switch {
+			case v < 64:
+				// almost black → deep blue
+				t.wfPalette565[i] = lerpRGB(0x00, 0x00, 0x06, 0x00, 0x00, 0x60, uint8(v*4))
+			case v < 128:
+				// deep blue → cyan
+				t.wfPalette565[i] = lerpRGB(0x00, 0x00, 0x60, 0x00, 0xA0, 0xFF, uint8((v-64)*4))
+			case v < 176:
+				// cyan → green
+				tw := uint8((uint16(v-128) * 255) / 48)
+				t.wfPalette565[i] = lerpRGB(0x00, 0xA0, 0xFF, 0x00, 0xFF, 0x30, tw)
+			case v < 208:
+				// green → yellow
+				tw := uint8((uint16(v-176) * 255) / 32)
+				t.wfPalette565[i] = lerpRGB(0x00, 0xFF, 0x30, 0xFF, 0xFF, 0x00, tw)
+			case v < 232:
+				// yellow → red
+				tw := uint8((uint16(v-208) * 255) / 24)
+				t.wfPalette565[i] = lerpRGB(0xFF, 0xFF, 0x00, 0xFF, 0x20, 0x00, tw)
+			default:
+				// red → white
+				tw := uint8((uint16(v-232) * 255) / 23)
+				t.wfPalette565[i] = lerpRGB(0xFF, 0x20, 0x00, 0xFF, 0xFF, 0xFF, tw)
+			}
 		}
 	default: // CYAN
 		for i := 0; i < 256; i++ {

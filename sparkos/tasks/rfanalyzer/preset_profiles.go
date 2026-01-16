@@ -261,15 +261,15 @@ func (t *Task) renderPresetsOverlay(l layout) {
 	_ = t.d.FillRectangle(px, py, pw, ph, colorBorder)
 	_ = t.d.FillRectangle(px+1, py+1, pw-2, ph-2, colorPanelBG)
 	_ = t.d.FillRectangle(px+1, py+1, pw-2, t.fontHeight+1, colorHeaderBG)
-	t.drawStringClipped(px+2, py, "Preset Profiles (Esc close)", colorFG, boxCols)
+	t.drawStringClipped(px+2, py+1, "Preset Profiles (Esc close)", colorFG, boxCols)
 
 	status := fmt.Sprintf("active:%s  autoload:%s", orText(t.activePreset, "(none)"), orText(t.autoloadPreset, "(off)"))
 	if t.autoloadErr != "" {
 		status = "msg: " + t.autoloadErr
 	}
-	t.drawStringClipped(px+2, py+t.fontHeight, status, colorDim, boxCols)
+	t.drawStringClipped(px+2, py+t.fontHeight+2, status, colorDim, boxCols)
 
-	y0 := py + 2*t.fontHeight
+	y0 := py + 2*t.fontHeight + 2
 	for row := 0; row < listRows; row++ {
 		i := t.presetTop + row
 		if i < 0 || i >= len(t.presetList) {
@@ -303,7 +303,7 @@ func (t *Task) renderPresetsOverlay(l layout) {
 	}
 
 	hint := "Enter load  d default  c clear  x export  r refresh"
-	t.drawStringClipped(px+2, py+ph-t.fontHeight, hint, colorDim, boxCols)
+	t.drawStringClipped(px+2, py+ph-t.fontHeight-1, hint, colorDim, boxCols)
 }
 
 func orText(s, fallback string) string {

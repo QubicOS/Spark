@@ -340,6 +340,8 @@ func parsePalette(s string) (wfPalette, bool) {
 		return wfPaletteFire, true
 	case "GRAY":
 		return wfPaletteGray, true
+	case "CUBIC", "SDR":
+		return wfPaletteCubic, true
 	default:
 		return 0, false
 	}

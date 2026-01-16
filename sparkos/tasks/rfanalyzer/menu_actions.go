@@ -37,7 +37,7 @@ func (t *Task) handleMenuKey(ctx *kernel.Context, k key) {
 			t.menuCat--
 		}
 		t.menuSel = 0
-		t.invalidate(dirtyOverlay)
+		t.invalidate(dirtyOverlay | dirtyHeader)
 		return
 	case keyRight:
 		if t.menuCat >= menuHelp {
@@ -46,7 +46,7 @@ func (t *Task) handleMenuKey(ctx *kernel.Context, k key) {
 			t.menuCat++
 		}
 		t.menuSel = 0
-		t.invalidate(dirtyOverlay)
+		t.invalidate(dirtyOverlay | dirtyHeader)
 		return
 	case keyUp, keyDown:
 		items := menuItems(t.menuCat)
@@ -295,7 +295,7 @@ func (t *Task) activateMenuItem(ctx *kernel.Context, id menuItemID) {
 		t.invalidate(dirtyRFControl | dirtyStatus | dirtyOverlay)
 
 	case menuItemCyclePalette:
-		t.wfPalette = wfPalette(wrapEnum(int(t.wfPalette)+1, 3))
+		t.wfPalette = wfPalette(wrapEnum(int(t.wfPalette)+1, 4))
 		t.rebuildWaterfallPalette()
 		t.presetDirty = true
 		t.recordConfig(ctx.NowTick())
