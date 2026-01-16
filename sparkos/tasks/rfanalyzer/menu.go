@@ -45,6 +45,9 @@ const (
 	menuItemReplayPlayPause
 	menuItemReplaySeek
 	menuItemReplaySpeed
+	menuItemExportCSV
+	menuItemExportPCAP
+	menuItemExportRFPKT
 	menuItemLoadCompareSession
 	menuItemClearCompare
 
@@ -112,6 +115,9 @@ func menuItems(cat menuCategory) []menuItem {
 			{id: menuItemReplayPlayPause, label: "Replay Play/Pause"},
 			{id: menuItemReplaySeek, label: "Replay Seek…"},
 			{id: menuItemReplaySpeed, label: "Replay Speed"},
+			{id: menuItemExportCSV, label: "Export CSV…"},
+			{id: menuItemExportPCAP, label: "Export PCAP (DLT_USER0)…"},
+			{id: menuItemExportRFPKT, label: "Export Raw Packets…"},
 			{id: menuItemExitReplay, label: "Exit Replay (Live)"},
 		}
 	case menuDecode:

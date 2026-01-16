@@ -220,6 +220,30 @@ func (t *Task) activateMenuItem(ctx *kernel.Context, id menuItemID) {
 		}
 		t.invalidate(dirtyStatus | dirtyOverlay)
 
+	case menuItemExportCSV:
+		initial := "export"
+		if t.replay != nil {
+			initial = t.replay.name
+		}
+		t.openPrompt(promptExportCSV, "Export CSV name (to /rf/exports)", initial)
+		t.closeMenu()
+
+	case menuItemExportPCAP:
+		initial := "export"
+		if t.replay != nil {
+			initial = t.replay.name
+		}
+		t.openPrompt(promptExportPCAP, "Export PCAP name (to /rf/exports)", initial)
+		t.closeMenu()
+
+	case menuItemExportRFPKT:
+		initial := "export"
+		if t.replay != nil {
+			initial = t.replay.name
+		}
+		t.openPrompt(promptExportRFPKT, "Export raw packet dump name (to /rf/exports)", initial)
+		t.closeMenu()
+
 	case menuItemResetView:
 		t.resetView()
 		t.invalidate(dirtyOverlay)

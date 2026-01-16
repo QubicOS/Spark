@@ -26,6 +26,9 @@ const (
 	promptLoadSession
 	promptLoadCompareSession
 	promptReplaySeek
+	promptExportCSV
+	promptExportPCAP
+	promptExportRFPKT
 	promptAnnotTag
 	promptAnnotNote
 	promptAnnotDuration
@@ -384,6 +387,33 @@ func (t *Task) submitPrompt(ctx *kernel.Context) {
 		t.replayHostLastTick = 0
 		t.replayPlaying = false
 		t.updateReplayPosition(ctx, t.replayNowTick, true)
+		t.closePrompt()
+		return
+
+	case promptExportCSV:
+		if err := t.exportReplayCSV(ctx, s); err != nil {
+			t.promptErr = "export: " + err.Error()
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		t.closePrompt()
+		return
+
+	case promptExportPCAP:
+		if err := t.exportReplayPCAP(ctx, s); err != nil {
+			t.promptErr = "export: " + err.Error()
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		t.closePrompt()
+		return
+
+	case promptExportRFPKT:
+		if err := t.exportReplayRFPKT(ctx, s); err != nil {
+			t.promptErr = "export: " + err.Error()
+			t.invalidate(dirtyOverlay)
+			return
+		}
 		t.closePrompt()
 		return
 
