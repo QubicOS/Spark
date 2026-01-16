@@ -104,6 +104,8 @@ type Task struct {
 	replayPktCache     packet
 	replayPktCacheSeq  uint32
 	replayPktCacheOK   bool
+	compare            *session
+	compareErr         string
 
 	rng uint32
 
@@ -172,6 +174,10 @@ type Task struct {
 
 	devices     [maxDevices]deviceStat
 	deviceCount int
+
+	occHist      [occHistLen][occBytes]byte
+	occHistHead  int
+	occHistCount int
 
 	dirty dirtyFlags
 }
@@ -350,6 +356,8 @@ func (t *Task) unload() {
 	t.replayErr = ""
 	t.replayPktCacheOK = false
 	t.replayPktCacheSeq = 0
+	t.compare = nil
+	t.compareErr = ""
 	t.showMenu = false
 	t.showHelp = false
 	t.showFilters = false
@@ -516,14 +524,14 @@ func (t *Task) cycleFocus() {
 }
 
 func (t *Task) prevAnalysisView() {
-	t.analysisView = analysisView(wrapEnum(int(t.analysisView)-1, 4))
+	t.analysisView = analysisView(wrapEnum(int(t.analysisView)-1, 6))
 	t.analysisSel = 0
 	t.analysisTop = 0
 	t.invalidate(dirtyAnalysis)
 }
 
 func (t *Task) nextAnalysisView() {
-	t.analysisView = analysisView(wrapEnum(int(t.analysisView)+1, 4))
+	t.analysisView = analysisView(wrapEnum(int(t.analysisView)+1, 6))
 	t.analysisSel = 0
 	t.analysisTop = 0
 	t.invalidate(dirtyAnalysis)

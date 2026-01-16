@@ -52,6 +52,13 @@ type session struct {
 	sweeps  []sweepIndex
 	packets []packetMeta
 	configs []sessionConfigEvent
+
+	// Aggregated stats (full-session).
+	sweepCount uint32
+	occCount   [numChannels]uint32
+	energySum  [numChannels]uint64
+	pktCount   [numChannels]uint32
+	pktBad     [numChannels]uint32
 }
 
 func (t *Task) loadSession(ctx *kernel.Context, input string) (*session, error) {
@@ -128,6 +135,14 @@ func (t *Task) loadSession(ctx *kernel.Context, input string) (*session, error) 
 			if ok {
 				s.sweeps = append(s.sweeps, sweepIndex{off: off - 5, tick: tick})
 				s.noteTick(tick)
+				s.sweepCount++
+				for ch := 0; ch < numChannels; ch++ {
+					v := payload[8+ch]
+					s.energySum[ch] += uint64(v)
+					if v >= anaOccThreshold {
+						s.occCount[ch]++
+					}
+				}
 			}
 		case recPacket:
 			meta, ok := decodeSessionPacketMeta(payload)
@@ -135,6 +150,13 @@ func (t *Task) loadSession(ctx *kernel.Context, input string) (*session, error) 
 				meta.off = off - 5
 				s.packets = append(s.packets, meta)
 				s.noteTick(meta.tick)
+				ch := int(meta.channel)
+				if ch >= 0 && ch < numChannels {
+					s.pktCount[ch]++
+					if meta.crcLen > 0 && !meta.crcOK {
+						s.pktBad[ch]++
+					}
+				}
 			}
 		default:
 			// ignore unknown record types

@@ -21,6 +21,7 @@ const (
 	promptSetFilterAddr
 	promptStartRecording
 	promptLoadSession
+	promptLoadCompareSession
 	promptReplaySeek
 )
 
@@ -283,6 +284,19 @@ func (t *Task) submitPrompt(ctx *kernel.Context) {
 			return
 		}
 		t.closePrompt()
+		return
+
+	case promptLoadCompareSession:
+		sess, err := t.loadSession(ctx, s)
+		if err != nil {
+			t.promptErr = err.Error()
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		t.compare = sess
+		t.compareErr = ""
+		t.closePrompt()
+		t.invalidate(dirtyAnalysis | dirtySpectrum | dirtyStatus)
 		return
 
 	case promptReplaySeek:

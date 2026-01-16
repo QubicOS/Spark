@@ -43,6 +43,8 @@ const (
 	menuItemReplayPlayPause
 	menuItemReplaySeek
 	menuItemReplaySpeed
+	menuItemLoadCompareSession
+	menuItemClearCompare
 
 	menuItemSetChannel
 	menuItemSetRangeLo
@@ -101,6 +103,8 @@ func menuItems(cat menuCategory) []menuItem {
 			{id: menuItemToggleCapture, label: "Pause/Resume Capture"},
 			{id: menuItemToggleRecording, label: "Start/Stop Recording…"},
 			{id: menuItemLoadSession, label: "Load Session (Replay)…"},
+			{id: menuItemLoadCompareSession, label: "Load Compare Session…"},
+			{id: menuItemClearCompare, label: "Clear Compare Session"},
 			{id: menuItemReplayPlayPause, label: "Replay Play/Pause"},
 			{id: menuItemReplaySeek, label: "Replay Seek…"},
 			{id: menuItemReplaySpeed, label: "Replay Speed"},

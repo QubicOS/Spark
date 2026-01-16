@@ -35,11 +35,15 @@ func (t *Task) renderAnalysis(l layout) {
 		t.renderAnalysisTiming(inner, y, maxCols)
 	case analysisCollisions:
 		t.renderAnalysisCollisions(inner, y, maxCols)
+	case analysisCorrelation:
+		t.renderAnalysisCorrelation(inner, y, maxCols)
+	case analysisComparison:
+		t.renderAnalysisComparison(inner, y, maxCols)
 	}
 }
 
 func (t *Task) analysisTabsLine() string {
-	labels := []analysisView{analysisChannels, analysisDevices, analysisTiming, analysisCollisions}
+	labels := []analysisView{analysisChannels, analysisDevices, analysisTiming, analysisCollisions, analysisCorrelation, analysisComparison}
 	out := "tabs:"
 	for _, v := range labels {
 		if v == t.analysisView {
@@ -221,6 +225,61 @@ func (t *Task) renderAnalysisCollisions(box rect, y int16, maxCols int) {
 		return
 	}
 
+	for i, line := range lines {
+		t.drawStringClipped(box.x+2, y+int16(i)*t.fontHeight, line, colorFG, maxCols)
+	}
+}
+
+func (t *Task) renderAnalysisCorrelation(box rect, y int16, maxCols int) {
+	if t.occHistCount == 0 {
+		t.drawStringClipped(box.x+2, y, "(need sweep history)", colorDim, maxCols)
+		return
+	}
+	ref := clampInt(t.selectedChannel, 0, maxChannel)
+	t.drawStringClipped(box.x+2, y, fmt.Sprintf("ref ch:%03d  win:%d sweeps", ref, t.occHistCount), colorDim, maxCols)
+	y += t.fontHeight
+
+	top := t.topCorrelatedChannels(ref, 8)
+	if len(top) == 0 {
+		t.drawStringClipped(box.x+2, y, "(no correlations)", colorDim, maxCols)
+		return
+	}
+	for i, it := range top {
+		line := fmt.Sprintf("ch:%03d  jacc:%2d%%  both:%d", it.ch, it.jaccPct, it.both)
+		t.drawStringClipped(box.x+2, y+int16(i)*t.fontHeight, line, colorFG, maxCols)
+	}
+
+	// Hop sequence for selected packet device.
+	yy := y + int16(len(top))*t.fontHeight + t.fontHeight
+	if yy+t.fontHeight <= box.y+box.h {
+		if d := t.deviceForSelectedPacket(); d != nil {
+			t.drawStringClipped(box.x+2, yy, "hop seq: "+t.deviceHopSeqText(d, 12), colorDim, maxCols)
+		}
+	}
+}
+
+func (t *Task) renderAnalysisComparison(box rect, y int16, maxCols int) {
+	if t.compare == nil {
+		t.drawStringClipped(box.x+2, y, "(load compare session in Capture menu)", colorDim, maxCols)
+		return
+	}
+	if t.compareErr != "" {
+		t.drawStringClipped(box.x+2, y, "ERR: "+t.compareErr, colorWarn, maxCols)
+		return
+	}
+	curName := "LIVE"
+	if t.replay != nil && t.replayActive {
+		curName = t.replay.name
+	}
+	hdr := fmt.Sprintf("cur:%s  cmp:%s", curName, t.compare.name)
+	t.drawStringClipped(box.x+2, y, hdr, colorDim, maxCols)
+	y += t.fontHeight
+
+	lines := t.compareChannelDiffLines(7)
+	if len(lines) == 0 {
+		t.drawStringClipped(box.x+2, y, "(no diff)", colorDim, maxCols)
+		return
+	}
 	for i, line := range lines {
 		t.drawStringClipped(box.x+2, y+int16(i)*t.fontHeight, line, colorFG, maxCols)
 	}

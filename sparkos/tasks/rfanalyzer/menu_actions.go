@@ -146,6 +146,22 @@ func (t *Task) activateMenuItem(ctx *kernel.Context, id menuItemID) {
 		t.openPrompt(promptLoadSession, "Load session name (from /rf/sessions)", initial)
 		t.closeMenu()
 
+	case menuItemLoadCompareSession:
+		initial := ""
+		if t.compare != nil {
+			initial = t.compare.name
+		}
+		if initial == "" {
+			initial = "session"
+		}
+		t.openPrompt(promptLoadCompareSession, "Load compare session name (from /rf/sessions)", initial)
+		t.closeMenu()
+
+	case menuItemClearCompare:
+		t.compare = nil
+		t.compareErr = ""
+		t.invalidate(dirtyAnalysis | dirtySpectrum | dirtyOverlay | dirtyStatus)
+
 	case menuItemExitReplay:
 		t.exitReplay(ctx)
 		t.closeMenu()

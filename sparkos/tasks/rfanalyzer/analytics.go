@@ -8,6 +8,8 @@ const (
 	anaBestIntervalTicks    = 10_000
 	anaPeriodicMinIntervals = 3
 	maxDevices              = 64
+	occBytes                = (numChannels + 7) / 8
+	occHistLen              = 128
 )
 
 type analysisView uint8
@@ -17,6 +19,8 @@ const (
 	analysisDevices
 	analysisTiming
 	analysisCollisions
+	analysisCorrelation
+	analysisComparison
 )
 
 func (v analysisView) String() string {
@@ -29,6 +33,10 @@ func (v analysisView) String() string {
 		return "TIME"
 	case analysisCollisions:
 		return "COL"
+	case analysisCorrelation:
+		return "CORR"
+	case analysisComparison:
+		return "COMP"
 	default:
 		return "?"
 	}
@@ -68,6 +76,10 @@ type deviceStat struct {
 	burstCur   uint16
 	burstMax   uint16
 	burstCount uint32
+
+	hopSeqHead  uint8
+	hopSeqCount uint8
+	hopSeq      [16]uint8
 }
 
 func (d *deviceStat) addrSuffix3() string {
@@ -105,12 +117,19 @@ func (t *Task) resetAnalytics() {
 	}
 	t.deviceCount = 0
 
+	for i := range t.occHist {
+		t.occHist[i] = [occBytes]byte{}
+	}
+	t.occHistHead = 0
+	t.occHistCount = 0
+
 	t.analysisSel = 0
 	t.analysisTop = 0
 	t.invalidate(dirtyAnalysis)
 }
 
 func (t *Task) analyticsOnSweep(tick uint64) {
+	var bits [occBytes]byte
 	t.anaSweepCount++
 	for ch := 0; ch < numChannels; ch++ {
 		v := t.energyAvg[ch]
@@ -120,6 +139,9 @@ func (t *Task) analyticsOnSweep(tick uint64) {
 		}
 
 		high := v >= anaOccThreshold
+		if high {
+			setOccBit(&bits, ch)
+		}
 		if high && !t.anaHigh[ch] {
 			if last := t.anaLastRise[ch]; last != 0 && tick > last {
 				dt := tick - last
@@ -152,6 +174,7 @@ func (t *Task) analyticsOnSweep(tick uint64) {
 		}
 		t.anaHigh[ch] = high
 	}
+	t.pushOccHist(bits)
 
 	if t.bestNextTick == 0 || tick >= t.bestNextTick {
 		ch, score := t.bestChannelNow()
@@ -261,6 +284,15 @@ func (t *Task) analyticsOnPacketMeta(m packetMeta) {
 		d.hopCount++
 	}
 	d.lastChannel = m.channel
+
+	d.hopSeq[d.hopSeqHead] = m.channel
+	d.hopSeqHead++
+	if d.hopSeqHead >= uint8(len(d.hopSeq)) {
+		d.hopSeqHead = 0
+	}
+	if d.hopSeqCount < uint8(len(d.hopSeq)) {
+		d.hopSeqCount++
+	}
 
 	d.pktCount++
 	if m.crcLen > 0 && !m.crcOK {
@@ -542,4 +574,221 @@ func (t *Task) topConflictChannels(n int) []string {
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+func setOccBit(bits *[occBytes]byte, ch int) {
+	if bits == nil || ch < 0 || ch >= numChannels {
+		return
+	}
+	byteIdx := ch / 8
+	mask := uint8(1 << uint(ch%8))
+	bits[byteIdx] |= mask
+}
+
+func occBit(bits [occBytes]byte, ch int) bool {
+	if ch < 0 || ch >= numChannels {
+		return false
+	}
+	byteIdx := ch / 8
+	mask := uint8(1 << uint(ch%8))
+	return (bits[byteIdx] & mask) != 0
+}
+
+func (t *Task) pushOccHist(bits [occBytes]byte) {
+	t.occHist[t.occHistHead] = bits
+	t.occHistHead++
+	if t.occHistHead >= len(t.occHist) {
+		t.occHistHead = 0
+	}
+	if t.occHistCount < len(t.occHist) {
+		t.occHistCount++
+	}
+}
+
+type corrEntry struct {
+	ch      int
+	jaccPct int
+	both    int
+}
+
+func (t *Task) topCorrelatedChannels(refCh int, n int) []corrEntry {
+	if n < 1 || t.occHistCount == 0 {
+		return nil
+	}
+	refCh = clampInt(refCh, 0, maxChannel)
+
+	refCount := 0
+	var chCount [numChannels]int
+	var bothCount [numChannels]int
+
+	for i := 0; i < t.occHistCount; i++ {
+		rowIdx := t.occHistHead - 1 - i
+		for rowIdx < 0 {
+			rowIdx += len(t.occHist)
+		}
+		row := t.occHist[rowIdx]
+		refHigh := occBit(row, refCh)
+		if refHigh {
+			refCount++
+		}
+		for ch := 0; ch < numChannels; ch++ {
+			high := occBit(row, ch)
+			if high {
+				chCount[ch]++
+			}
+			if refHigh && high {
+				bothCount[ch]++
+			}
+		}
+	}
+	if refCount == 0 {
+		return nil
+	}
+
+	out := make([]corrEntry, 0, n)
+	for ch := 0; ch < numChannels; ch++ {
+		if ch == refCh {
+			continue
+		}
+		union := refCount + chCount[ch] - bothCount[ch]
+		if union <= 0 {
+			continue
+		}
+		j := bothCount[ch] * 100 / union
+		if j <= 0 {
+			continue
+		}
+		e := corrEntry{ch: ch, jaccPct: j, both: bothCount[ch]}
+		if len(out) < n {
+			out = append(out, e)
+		} else {
+			worst := 0
+			for i := 1; i < len(out); i++ {
+				if out[i].jaccPct < out[worst].jaccPct {
+					worst = i
+				}
+			}
+			if e.jaccPct <= out[worst].jaccPct {
+				continue
+			}
+			out[worst] = e
+		}
+	}
+	for i := 0; i < len(out); i++ {
+		for j := i + 1; j < len(out); j++ {
+			if out[j].jaccPct > out[i].jaccPct {
+				out[i], out[j] = out[j], out[i]
+			}
+		}
+	}
+	return out
+}
+
+func (t *Task) deviceForSelectedPacket() *deviceStat {
+	addrLen, addr, ok := t.selectedPacketAddr()
+	if !ok {
+		return nil
+	}
+	return t.findDevice(addrLen, addr)
+}
+
+func (t *Task) deviceHopSeqText(d *deviceStat, n int) string {
+	if d == nil || d.hopSeqCount == 0 {
+		return "-"
+	}
+	if n < 1 {
+		n = 1
+	}
+	if n > int(d.hopSeqCount) {
+		n = int(d.hopSeqCount)
+	}
+
+	start := int(d.hopSeqHead) - n
+	for start < 0 {
+		start += len(d.hopSeq)
+	}
+	out := ""
+	for i := 0; i < n; i++ {
+		idx := start + i
+		if idx >= len(d.hopSeq) {
+			idx -= len(d.hopSeq)
+		}
+		if i > 0 {
+			out += " "
+		}
+		out += fmt.Sprintf("%03d", d.hopSeq[idx])
+	}
+	return out
+}
+
+func (t *Task) compareChannelDiffLines(n int) []string {
+	if t.compare == nil || n < 1 {
+		return nil
+	}
+	type row struct {
+		ch     int
+		diff   int
+		curOcc int
+		cmpOcc int
+		curBad int
+		cmpBad int
+	}
+	top := make([]row, 0, n)
+	for ch := 0; ch < numChannels; ch++ {
+		curOcc := 0
+		if t.anaSweepCount > 0 {
+			curOcc = int(t.anaOccCount[ch] * 100 / uint32(t.anaSweepCount))
+		}
+		cmpOcc := 0
+		if t.compare.sweepCount > 0 {
+			cmpOcc = int(t.compare.occCount[ch] * 100 / t.compare.sweepCount)
+		}
+		curBad := 0
+		if t.anaChanPkt[ch] > 0 {
+			curBad = int(t.anaChanBad[ch] * 100 / t.anaChanPkt[ch])
+		}
+		cmpBad := 0
+		if t.compare.pktCount[ch] > 0 {
+			cmpBad = int(t.compare.pktBad[ch] * 100 / t.compare.pktCount[ch])
+		}
+		diff := absInt(curOcc-cmpOcc) + absInt(curBad-cmpBad)
+		if diff == 0 {
+			continue
+		}
+		r := row{ch: ch, diff: diff, curOcc: curOcc, cmpOcc: cmpOcc, curBad: curBad, cmpBad: cmpBad}
+		if len(top) < n {
+			top = append(top, r)
+		} else {
+			worst := 0
+			for i := 1; i < len(top); i++ {
+				if top[i].diff < top[worst].diff {
+					worst = i
+				}
+			}
+			if r.diff <= top[worst].diff {
+				continue
+			}
+			top[worst] = r
+		}
+	}
+	for i := 0; i < len(top); i++ {
+		for j := i + 1; j < len(top); j++ {
+			if top[j].diff > top[i].diff {
+				top[i], top[j] = top[j], top[i]
+			}
+		}
+	}
+	lines := make([]string, 0, len(top))
+	for _, r := range top {
+		line := fmt.Sprintf("ch:%03d  occ:%2d→%2d  bad:%2d→%2d", r.ch, r.curOcc, r.cmpOcc, r.curBad, r.cmpBad)
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }

@@ -849,6 +849,16 @@ func (t *Task) menuItemLine(it menuItem) string {
 			return it.label + "  <" + t.replay.name + ">"
 		}
 		return it.label + "  [LIVE]"
+	case menuItemLoadCompareSession:
+		if t.compare != nil {
+			return it.label + "  <" + t.compare.name + ">"
+		}
+		return it.label + "  [OFF]"
+	case menuItemClearCompare:
+		if t.compare == nil {
+			return it.label + "  [N/A]"
+		}
+		return it.label + "  [OK]"
 	case menuItemReplayPlayPause:
 		if !t.replayActive {
 			return it.label + "  [N/A]"
