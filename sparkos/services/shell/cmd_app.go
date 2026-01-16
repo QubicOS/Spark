@@ -162,10 +162,12 @@ func cmdUsers(ctx *kernel.Context, s *Service, args []string, _ redirection) err
 	if len(args) != 0 {
 		return errors.New("usage: users")
 	}
+	arg := ""
 	if s.userRole != userdb.RoleAdmin {
-		return errors.New("users: requires admin")
+		arg = "ro"
+		_ = s.printString(ctx, "users: read-only (use `su root` for admin)\n")
 	}
-	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppUsers, "")); err != nil {
+	if err := s.sendToMux(ctx, proto.MsgAppSelect, proto.AppSelectPayload(proto.AppUsers, arg)); err != nil {
 		return err
 	}
 	return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))
