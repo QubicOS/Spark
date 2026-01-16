@@ -38,6 +38,7 @@ const (
 	menuItemToggleRecording
 	menuItemAddAnnotationNow
 	menuItemAddAnnotationSelected
+	menuItemAutomationArm
 	menuItemResetView
 
 	menuItemLoadSession
@@ -68,6 +69,8 @@ const (
 	menuItemLoadPreset
 
 	menuItemToggleProtoMode
+
+	menuItemAutomationConfig
 
 	menuItemOpenHelp
 )
@@ -109,6 +112,7 @@ func menuItems(cat menuCategory) []menuItem {
 			{id: menuItemToggleRecording, label: "Start/Stop Recording…"},
 			{id: menuItemAddAnnotationNow, label: "Add Annotation @Now…"},
 			{id: menuItemAddAnnotationSelected, label: "Add Annotation @Selected…"},
+			{id: menuItemAutomationArm, label: "Automation Arm/Disarm"},
 			{id: menuItemLoadSession, label: "Load Session (Replay)…"},
 			{id: menuItemLoadCompareSession, label: "Load Compare Session…"},
 			{id: menuItemClearCompare, label: "Clear Compare Session"},
@@ -130,6 +134,7 @@ func menuItems(cat menuCategory) []menuItem {
 		}
 	case menuAdvanced:
 		return []menuItem{
+			{id: menuItemAutomationConfig, label: "Automation / Monitoring…"},
 			{id: menuItemSavePreset, label: "Save Preset…"},
 			{id: menuItemLoadPreset, label: "Load Preset…"},
 		}

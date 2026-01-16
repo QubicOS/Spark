@@ -154,6 +154,11 @@ func (t *Task) activateMenuItem(ctx *kernel.Context, id menuItemID) {
 		t.beginAnnotationAt(tick)
 		t.closeMenu()
 
+	case menuItemAutomationArm:
+		t.toggleAutomationArm(ctx)
+		t.closeMenu()
+		t.invalidate(dirtyStatus | dirtyRFControl | dirtyOverlay)
+
 	case menuItemLoadSession:
 		initial := ""
 		if t.replay != nil {
@@ -319,6 +324,12 @@ func (t *Task) activateMenuItem(ctx *kernel.Context, id menuItemID) {
 		}
 		t.openPrompt(promptLoadPreset, "Load preset name", initial)
 		t.closeMenu()
+
+	case menuItemAutomationConfig:
+		t.showAutomation = true
+		t.autoSel = 0
+		t.closeMenu()
+		t.invalidate(dirtyOverlay | dirtyStatus)
 
 	case menuItemOpenHelp:
 		t.showHelp = true

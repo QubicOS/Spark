@@ -29,6 +29,11 @@ const (
 	promptExportCSV
 	promptExportPCAP
 	promptExportRFPKT
+	promptAutoName
+	promptAutoStartDelay
+	promptAutoDuration
+	promptAutoStopSweeps
+	promptAutoStopPackets
 	promptAnnotTag
 	promptAnnotNote
 	promptAnnotDuration
@@ -131,7 +136,7 @@ func (t *Task) insertPromptRune(r rune) {
 
 func isNumericPrompt(k promptKind) bool {
 	switch k {
-	case promptSetChannel, promptSetRangeLo, promptSetRangeHi, promptSetDwell, promptSetScanStep, promptSetFilterAge, promptSetFilterBurst, promptReplaySeek, promptAnnotDuration:
+	case promptSetChannel, promptSetRangeLo, promptSetRangeHi, promptSetDwell, promptSetScanStep, promptSetFilterAge, promptSetFilterBurst, promptReplaySeek, promptAutoStartDelay, promptAutoDuration, promptAutoStopSweeps, promptAutoStopPackets, promptAnnotDuration:
 		return true
 	default:
 		return false
@@ -415,6 +420,74 @@ func (t *Task) submitPrompt(ctx *kernel.Context) {
 			return
 		}
 		t.closePrompt()
+		return
+
+	case promptAutoName:
+		base := sanitizePresetName(s)
+		if base == "" {
+			t.promptErr = "name: invalid"
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		t.autoSessionBase = base
+		t.closePrompt()
+		t.invalidate(dirtyOverlay | dirtyStatus)
+		return
+
+	case promptAutoStartDelay:
+		n, err := parseIntStrict(s)
+		if err != nil {
+			t.promptErr = "start delay: " + err.Error()
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		t.autoStartDelayMs = clampInt(n, 0, 1_000_000)
+		if t.autoArmed && !t.autoStarted && ctx != nil {
+			t.autoStartTick = ctx.NowTick() + uint64(t.autoStartDelayMs)
+		}
+		t.closePrompt()
+		t.invalidate(dirtyOverlay | dirtyStatus)
+		return
+
+	case promptAutoDuration:
+		n, err := parseIntStrict(s)
+		if err != nil {
+			t.promptErr = "duration: " + err.Error()
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		t.autoDurationMs = clampInt(n, 0, 1_000_000)
+		if t.autoArmed && t.autoStarted && t.autoDurationMs > 0 {
+			t.autoStopTick = t.autoRunStartTick + uint64(t.autoDurationMs)
+		} else if t.autoArmed && t.autoStarted && t.autoDurationMs == 0 {
+			t.autoStopTick = 0
+		}
+		t.closePrompt()
+		t.invalidate(dirtyOverlay | dirtyStatus)
+		return
+
+	case promptAutoStopSweeps:
+		n, err := parseIntStrict(s)
+		if err != nil {
+			t.promptErr = "sweeps: " + err.Error()
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		t.autoStopSweeps = clampInt(n, 0, 1_000_000)
+		t.closePrompt()
+		t.invalidate(dirtyOverlay | dirtyStatus)
+		return
+
+	case promptAutoStopPackets:
+		n, err := parseIntStrict(s)
+		if err != nil {
+			t.promptErr = "packets: " + err.Error()
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		t.autoStopPackets = clampInt(n, 0, 1_000_000)
+		t.closePrompt()
+		t.invalidate(dirtyOverlay | dirtyStatus)
 		return
 
 	case promptAnnotTag:

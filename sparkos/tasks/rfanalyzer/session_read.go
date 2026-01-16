@@ -57,6 +57,8 @@ type session struct {
 	packets     []packetMeta
 	configs     []sessionConfigEvent
 	annotations []annotation
+	bucketMs    uint32
+	bandOccPct  []uint8
 
 	// Aggregated stats (full-session).
 	sweepCount uint32
@@ -199,6 +201,9 @@ func (t *Task) loadSession(ctx *kernel.Context, input string) (*session, error) 
 	}
 
 	var devTrack [maxDevices]sessionDevTrack
+	const bucketMs = uint64(60_000)
+	var bucketOccSum []uint32
+	var bucketSweepCount []uint32
 
 	off := uint32(len(sessionMagic))
 	for off < size {
@@ -236,12 +241,26 @@ func (t *Task) loadSession(ctx *kernel.Context, input string) (*session, error) 
 				s.sweeps = append(s.sweeps, sweepIndex{off: off - 5, tick: tick})
 				s.noteTick(tick)
 				s.sweepCount++
+				occNow := 0
 				for ch := 0; ch < numChannels; ch++ {
 					v := payload[8+ch]
 					s.energySum[ch] += uint64(v)
 					if v >= anaOccThreshold {
 						s.occCount[ch]++
+						occNow++
 					}
+				}
+				if s.startTick != 0 && bucketMs > 0 && tick >= s.startTick {
+					b := int((tick - s.startTick) / bucketMs)
+					if b < 0 {
+						b = 0
+					}
+					for len(bucketOccSum) <= b {
+						bucketOccSum = append(bucketOccSum, 0)
+						bucketSweepCount = append(bucketSweepCount, 0)
+					}
+					bucketOccSum[b] += uint32(occNow)
+					bucketSweepCount[b]++
 				}
 			}
 		case recPacket:
@@ -278,6 +297,26 @@ func (t *Task) loadSession(ctx *kernel.Context, input string) (*session, error) 
 	}
 	if len(s.sweeps) == 0 && len(s.packets) == 0 {
 		return nil, errors.New("empty session")
+	}
+
+	if len(bucketSweepCount) > 0 {
+		s.bucketMs = uint32(bucketMs)
+		s.bandOccPct = make([]uint8, len(bucketSweepCount))
+		for i := range bucketSweepCount {
+			cnt := bucketSweepCount[i]
+			if cnt == 0 {
+				continue
+			}
+			denom := uint64(cnt) * uint64(numChannels)
+			if denom == 0 {
+				continue
+			}
+			pct := uint64(bucketOccSum[i]) * 100 / denom
+			if pct > 100 {
+				pct = 100
+			}
+			s.bandOccPct[i] = uint8(pct)
+		}
 	}
 	return s, nil
 }

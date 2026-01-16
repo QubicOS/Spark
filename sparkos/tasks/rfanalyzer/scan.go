@@ -216,5 +216,15 @@ func (t *Task) statusLine() string {
 	if t.replayActive {
 		extra = fmt.Sprintf("  %s x%d", t.replayTimeText(), clampInt(t.replaySpeed, 1, 32))
 	}
-	return fmt.Sprintf("MODE:%s WF:%s CAP:%s %s%s  SEL:%03d  RATE:%s CRC:%s  PKT/s:%d DROP:%d", mode, wf, cap, recInfo, extra, t.selectedChannel, t.dataRate, t.crcMode, t.pktsPerSec, t.pktDropped)
+	auto := ""
+	if t.autoArmed {
+		if t.autoErr != "" {
+			auto = " AUTO:ERR"
+		} else if t.autoStarted {
+			auto = " AUTO:RUN"
+		} else {
+			auto = " AUTO:ARM"
+		}
+	}
+	return fmt.Sprintf("MODE:%s WF:%s CAP:%s %s%s%s  SEL:%03d  RATE:%s CRC:%s  PKT/s:%d DROP:%d", mode, wf, cap, recInfo, auto, extra, t.selectedChannel, t.dataRate, t.crcMode, t.pktsPerSec, t.pktDropped)
 }

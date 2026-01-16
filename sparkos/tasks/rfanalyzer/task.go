@@ -148,6 +148,25 @@ type Task struct {
 
 	showFilters bool
 
+	showAutomation bool
+	autoSel        int
+
+	autoArmed        bool
+	autoStarted      bool
+	autoStartDelayMs int
+	autoDurationMs   int
+	autoStopSweeps   int
+	autoStopPackets  int
+	autoRecord       bool
+	autoSessionBase  string
+
+	autoStartTick      uint64
+	autoStopTick       uint64
+	autoRunStartTick   uint64
+	autoRunStartSweeps uint64
+	autoRunStartPktSeq uint32
+	autoErr            string
+
 	showPrompt   bool
 	promptKind   promptKind
 	promptTitle  string
@@ -217,6 +236,8 @@ func New(disp hal.Display, ep, vfsCap kernel.Capability) *Task {
 		analysisView:    analysisChannels,
 		filterCRC:       filterCRCAny,
 		filterChannel:   filterChannelAll,
+		autoRecord:      true,
+		autoSessionBase: "auto",
 		menuCat:         menuRF,
 		dirty:           dirtyAll,
 	}
@@ -314,6 +335,7 @@ func (t *Task) Run(ctx *kernel.Context) {
 				continue
 			}
 			t.nowTick = tick
+			t.onAutomationTick(ctx, tick)
 			t.onTick(ctx, tick)
 			if t.replayActive {
 				t.updateReplayPacketCache(ctx)
@@ -374,6 +396,7 @@ func (t *Task) unload() {
 	t.showMenu = false
 	t.showHelp = false
 	t.showFilters = false
+	t.showAutomation = false
 	t.showPrompt = false
 	t.promptTitle = ""
 	t.promptErr = ""
@@ -466,6 +489,11 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) {
 		return
 	}
 
+	if t.showAutomation {
+		t.handleAutomationKey(ctx, k)
+		return
+	}
+
 	switch k.kind {
 	case keyEsc:
 		t.requestExit(ctx)
@@ -537,14 +565,14 @@ func (t *Task) cycleFocus() {
 }
 
 func (t *Task) prevAnalysisView() {
-	t.analysisView = analysisView(wrapEnum(int(t.analysisView)-1, 7))
+	t.analysisView = analysisView(wrapEnum(int(t.analysisView)-1, 8))
 	t.analysisSel = 0
 	t.analysisTop = 0
 	t.invalidate(dirtyAnalysis)
 }
 
 func (t *Task) nextAnalysisView() {
-	t.analysisView = analysisView(wrapEnum(int(t.analysisView)+1, 7))
+	t.analysisView = analysisView(wrapEnum(int(t.analysisView)+1, 8))
 	t.analysisSel = 0
 	t.analysisTop = 0
 	t.invalidate(dirtyAnalysis)
@@ -595,6 +623,54 @@ func (t *Task) handleEnter(ctx *kernel.Context) {
 				t.recordConfig(ctx.NowTick())
 				t.invalidate(dirtySpectrum | dirtyWaterfall | dirtyStatus | dirtyAnalysis)
 			}
+			return
+		}
+		if t.analysisView == analysisMonitoring {
+			if !t.replayActive || t.replay == nil || t.replay.bucketMs == 0 || len(t.replay.bandOccPct) == 0 {
+				return
+			}
+			bucketMs := uint64(t.replay.bucketMs)
+			relNow := uint64(0)
+			if t.replayNowTick >= t.replay.startTick {
+				relNow = t.replayNowTick - t.replay.startTick
+			}
+			cur := int(relNow / bucketMs)
+			if cur < 0 {
+				cur = 0
+			}
+			if cur >= len(t.replay.bandOccPct) {
+				cur = len(t.replay.bandOccPct) - 1
+			}
+			const win = 8
+			start := cur - win/2
+			if start < 0 {
+				start = 0
+			}
+			end := start + win - 1
+			if end >= len(t.replay.bandOccPct) {
+				end = len(t.replay.bandOccPct) - 1
+				start = end - (win - 1)
+				if start < 0 {
+					start = 0
+				}
+			}
+			rows := end - start + 1
+			if t.analysisSel < 0 || t.analysisSel >= rows {
+				return
+			}
+			idx := start + t.analysisSel
+			newTick := t.replay.startTick + uint64(idx)*bucketMs
+			if newTick < t.replay.startTick {
+				newTick = t.replay.startTick
+			}
+			if newTick > t.replay.endTick {
+				newTick = t.replay.endTick
+			}
+			t.replayNowTick = newTick
+			t.replayHostLastTick = 0
+			t.replayPlaying = false
+			t.updateReplayPosition(ctx, t.replayNowTick, true)
+			t.invalidate(dirtyAll)
 			return
 		}
 		if t.analysisView == analysisAnnotations {

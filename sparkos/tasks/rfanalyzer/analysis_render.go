@@ -39,13 +39,15 @@ func (t *Task) renderAnalysis(l layout) {
 		t.renderAnalysisCorrelation(inner, y, maxCols)
 	case analysisComparison:
 		t.renderAnalysisComparison(inner, y, maxCols)
+	case analysisMonitoring:
+		t.renderAnalysisMonitoring(inner, y, maxCols)
 	case analysisAnnotations:
 		t.renderAnalysisAnnotations(inner, y, maxCols)
 	}
 }
 
 func (t *Task) analysisTabsLine() string {
-	labels := []analysisView{analysisChannels, analysisDevices, analysisTiming, analysisCollisions, analysisCorrelation, analysisComparison, analysisAnnotations}
+	labels := []analysisView{analysisChannels, analysisDevices, analysisTiming, analysisCollisions, analysisCorrelation, analysisComparison, analysisMonitoring, analysisAnnotations}
 	out := "tabs:"
 	for _, v := range labels {
 		if v == t.analysisView {
@@ -284,6 +286,100 @@ func (t *Task) renderAnalysisComparison(box rect, y int16, maxCols int) {
 	}
 	for i, line := range lines {
 		t.drawStringClipped(box.x+2, y+int16(i)*t.fontHeight, line, colorFG, maxCols)
+	}
+}
+
+func (t *Task) renderAnalysisMonitoring(box rect, y int16, maxCols int) {
+	if !t.replayActive || t.replay == nil {
+		t.drawStringClipped(box.x+2, y, "(monitoring graph: load session in replay)", colorDim, maxCols)
+		return
+	}
+	if t.replay.bucketMs == 0 || len(t.replay.bandOccPct) == 0 {
+		t.drawStringClipped(box.x+2, y, "(no long-term sweep stats)", colorDim, maxCols)
+		return
+	}
+
+	bucketMs := uint64(t.replay.bucketMs)
+	relNow := uint64(0)
+	if t.replayNowTick >= t.replay.startTick {
+		relNow = t.replayNowTick - t.replay.startTick
+	}
+	cur := int(relNow / bucketMs)
+	if cur < 0 {
+		cur = 0
+	}
+	if cur >= len(t.replay.bandOccPct) {
+		cur = len(t.replay.bandOccPct) - 1
+	}
+
+	hdr := fmt.Sprintf("band occ: %db @%ds  cur:%d", len(t.replay.bandOccPct), bucketMs/1000, cur)
+	t.drawStringClipped(box.x+2, y, hdr, colorDim, maxCols)
+	y += t.fontHeight
+
+	const win = 8
+	start := cur - win/2
+	if start < 0 {
+		start = 0
+	}
+	end := start + win - 1
+	if end >= len(t.replay.bandOccPct) {
+		end = len(t.replay.bandOccPct) - 1
+		start = end - (win - 1)
+		if start < 0 {
+			start = 0
+		}
+	}
+
+	rows := end - start + 1
+	if rows <= 0 {
+		return
+	}
+	if t.analysisSel < 0 {
+		t.analysisSel = 0
+	}
+	if t.analysisSel >= rows {
+		t.analysisSel = rows - 1
+	}
+
+	barW := maxCols - 16
+	if barW < 6 {
+		barW = 6
+	}
+
+	for i := 0; i < rows; i++ {
+		idx := start + i
+		pct := int(t.replay.bandOccPct[idx])
+		if pct < 0 {
+			pct = 0
+		}
+		if pct > 100 {
+			pct = 100
+		}
+		filled := pct * barW / 100
+		if filled > barW {
+			filled = barW
+		}
+		bar := make([]byte, 0, barW)
+		for j := 0; j < barW; j++ {
+			if j < filled {
+				bar = append(bar, '#')
+			} else {
+				bar = append(bar, '.')
+			}
+		}
+		line := fmt.Sprintf("m:%04d %3d%% %s", idx, pct, string(bar))
+
+		fg := colorFG
+		bg := colorPanelBG
+		if idx == cur {
+			fg = colorAccent
+		}
+		if i == t.analysisSel && t.focus == focusAnalysis {
+			fg = colorSelFG
+			bg = colorSelBG
+		}
+		_ = t.d.FillRectangle(box.x+1, y+int16(i)*t.fontHeight, box.w-2, t.fontHeight, bg)
+		t.drawStringClipped(box.x+2, y+int16(i)*t.fontHeight, line, fg, maxCols)
 	}
 }
 
