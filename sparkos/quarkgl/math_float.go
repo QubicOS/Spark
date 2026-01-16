@@ -193,5 +193,11 @@ func Mat4Ortho(left, right, bottom, top, zNear, zFar Scalar) Mat4 {
 	}
 }
 
-func scalarFromF32(v float32) Scalar { return Scalar(v) }
-func scalarToF32(v Scalar) float32   { return float32(v) }
+// ScalarFromFloat32 converts a float32 value to Scalar.
+func ScalarFromFloat32(v float32) Scalar { return Scalar(v) }
+
+// ScalarToFloat32 converts Scalar to float32.
+func ScalarToFloat32(v Scalar) float32 { return float32(v) }
+
+func scalarFromF32(v float32) Scalar { return ScalarFromFloat32(v) }
+func scalarToF32(v Scalar) float32   { return ScalarToFloat32(v) }

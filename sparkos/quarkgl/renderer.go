@@ -91,6 +91,7 @@ func (r *Renderer) renderMesh(t Target, w, h int, proj, view Mat4, m Mesh, light
 	}
 
 	mvp := Mat4Mul(proj, Mat4Mul(view, m.Transform))
+	model := m.Transform
 
 	for i := 0; i+2 < len(m.Indices); i += 3 {
 		i0 := int(m.Indices[i+0])
@@ -103,6 +104,10 @@ func (r *Renderer) renderMesh(t Target, w, h int, proj, view Mat4, m Mesh, light
 		v0 := m.Vertices[i0]
 		v1 := m.Vertices[i1]
 		v2 := m.Vertices[i2]
+
+		w0 := transformPoint(model, v0.Pos)
+		w1 := transformPoint(model, v1.Pos)
+		w2 := transformPoint(model, v2.Pos)
 
 		p0 := Mat4MulV4(mvp, Vec4{X: v0.Pos.X, Y: v0.Pos.Y, Z: v0.Pos.Z, W: 1})
 		p1 := Mat4MulV4(mvp, Vec4{X: v1.Pos.X, Y: v1.Pos.Y, Z: v1.Pos.Z, W: 1})
@@ -127,7 +132,7 @@ func (r *Renderer) renderMesh(t Target, w, h int, proj, view Mat4, m Mesh, light
 
 		base := m.Material.BaseColor
 		if light.Mode == LightAmbientDirectional {
-			n := triangleNormal(v0.Pos, v1.Pos, v2.Pos)
+			n := triangleNormal(w0, w1, w2)
 			intensity := lightIntensity(light, n)
 			base = base.MulScalar(intensity)
 		}
@@ -171,6 +176,11 @@ func ndcToScreen(p ndcPoint, w, h int) (x, y int) {
 
 func triangleNormal(a, b, c Vec3) Vec3 {
 	return Normalize(Cross(b.Sub(a), c.Sub(a)))
+}
+
+func transformPoint(m Mat4, v Vec3) Vec3 {
+	p := Mat4MulV4(m, Vec4{X: v.X, Y: v.Y, Z: v.Z, W: 1})
+	return Vec3{X: p.X, Y: p.Y, Z: p.Z}
 }
 
 func lightIntensity(l Light, n Vec3) Scalar {
