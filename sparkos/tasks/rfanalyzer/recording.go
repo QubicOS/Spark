@@ -249,6 +249,32 @@ func (t *Task) recordPacket(p packet) {
 	t.recordPackets++
 }
 
+func (t *Task) recordAnnotation(a annotation) {
+	start := t.recordStart(recAnnotation)
+	if start < 0 {
+		return
+	}
+
+	t.recordU64(a.startTick)
+	t.recordU64(a.endTick)
+
+	tag := []byte(a.tag)
+	if len(tag) > 32 {
+		tag = tag[:32]
+	}
+	note := []byte(a.note)
+	if len(note) > 64 {
+		note = note[:64]
+	}
+
+	t.recordU8(uint8(len(tag)))
+	t.recordBuf = append(t.recordBuf, tag...)
+	t.recordU8(uint8(len(note)))
+	t.recordBuf = append(t.recordBuf, note...)
+
+	t.recordFinish(start)
+}
+
 func (t *Task) vfsClient() *vfsclient.Client {
 	return t.vfs
 }

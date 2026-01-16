@@ -53,9 +53,10 @@ type session struct {
 	startTick uint64
 	endTick   uint64
 
-	sweeps  []sweepIndex
-	packets []packetMeta
-	configs []sessionConfigEvent
+	sweeps      []sweepIndex
+	packets     []packetMeta
+	configs     []sessionConfigEvent
+	annotations []annotation
 
 	// Aggregated stats (full-session).
 	sweepCount uint32
@@ -258,6 +259,13 @@ func (t *Task) loadSession(ctx *kernel.Context, input string) (*session, error) 
 					}
 				}
 			}
+		case recAnnotation:
+			a, ok := decodeSessionAnnotation(payload)
+			if ok {
+				s.annotations = append(s.annotations, a)
+				s.noteTick(a.startTick)
+				s.noteTick(a.endTick)
+			}
 		default:
 			// ignore unknown record types
 		}
@@ -362,6 +370,38 @@ func decodeSessionConfig(payload []byte) (sessionConfigEvent, bool) {
 	ev.cfg.powerLevel = rfPowerLevel(payload[17])
 	ev.cfg.wfPalette = wfPalette(payload[18])
 	return ev, true
+}
+
+func decodeSessionAnnotation(payload []byte) (annotation, bool) {
+	if len(payload) < 8+8+1+1 {
+		return annotation{}, false
+	}
+	off := 0
+	a := annotation{}
+	a.startTick = binary.LittleEndian.Uint64(payload[off : off+8])
+	off += 8
+	a.endTick = binary.LittleEndian.Uint64(payload[off : off+8])
+	off += 8
+	if off >= len(payload) {
+		return annotation{}, false
+	}
+	tagLen := int(payload[off])
+	off++
+	if tagLen < 0 || off+tagLen > len(payload) {
+		return annotation{}, false
+	}
+	a.tag = string(payload[off : off+tagLen])
+	off += tagLen
+	if off >= len(payload) {
+		return annotation{}, false
+	}
+	noteLen := int(payload[off])
+	off++
+	if noteLen < 0 || off+noteLen > len(payload) {
+		return annotation{}, false
+	}
+	a.note = string(payload[off : off+noteLen])
+	return a, true
 }
 
 func decodeSessionPacketMeta(payload []byte) (packetMeta, bool) {

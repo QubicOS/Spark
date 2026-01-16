@@ -39,11 +39,13 @@ func (t *Task) renderAnalysis(l layout) {
 		t.renderAnalysisCorrelation(inner, y, maxCols)
 	case analysisComparison:
 		t.renderAnalysisComparison(inner, y, maxCols)
+	case analysisAnnotations:
+		t.renderAnalysisAnnotations(inner, y, maxCols)
 	}
 }
 
 func (t *Task) analysisTabsLine() string {
-	labels := []analysisView{analysisChannels, analysisDevices, analysisTiming, analysisCollisions, analysisCorrelation, analysisComparison}
+	labels := []analysisView{analysisChannels, analysisDevices, analysisTiming, analysisCollisions, analysisCorrelation, analysisComparison, analysisAnnotations}
 	out := "tabs:"
 	for _, v := range labels {
 		if v == t.analysisView {
@@ -282,5 +284,61 @@ func (t *Task) renderAnalysisComparison(box rect, y int16, maxCols int) {
 	}
 	for i, line := range lines {
 		t.drawStringClipped(box.x+2, y+int16(i)*t.fontHeight, line, colorFG, maxCols)
+	}
+}
+
+func (t *Task) renderAnalysisAnnotations(box rect, y int16, maxCols int) {
+	now := t.nowTick
+	base := uint64(0)
+	total := t.annotCount
+	if t.replayActive {
+		now = t.replayNowTick
+		if t.replay != nil {
+			base = t.replay.startTick
+			total = len(t.replay.annotations)
+		} else {
+			total = 0
+		}
+	}
+
+	hdr := fmt.Sprintf("annotations:%d  (Capture menu)", total)
+	if t.replayActive {
+		hdr = fmt.Sprintf("annotations:%d  (Enter jump)", total)
+	}
+	t.drawStringClipped(box.x+2, y, hdr, colorDim, maxCols)
+	y += t.fontHeight
+
+	notes := t.visibleAnnotations(now, 8)
+	if len(notes) == 0 {
+		t.drawStringClipped(box.x+2, y, "(none)", colorDim, maxCols)
+		return
+	}
+	if t.analysisSel < 0 {
+		t.analysisSel = 0
+	}
+	if t.analysisSel >= len(notes) {
+		t.analysisSel = len(notes) - 1
+	}
+
+	for i, a := range notes {
+		ts := int64(a.startTick)
+		if base != 0 && a.startTick >= base {
+			ts = int64(a.startTick - base)
+		}
+		dur := a.durationMs()
+		line := fmt.Sprintf("t:%06d +%04d  %s %s", ts, dur, a.tag, a.note)
+
+		fg := colorFG
+		bg := colorPanelBG
+		active := a.startTick != 0 && now >= a.startTick && now <= a.endTick && a.endTick > a.startTick
+		if active {
+			fg = colorAccent
+		}
+		if i == t.analysisSel && t.focus == focusAnalysis {
+			fg = colorSelFG
+			bg = colorSelBG
+		}
+		_ = t.d.FillRectangle(box.x+1, y+int16(i)*t.fontHeight, box.w-2, t.fontHeight, bg)
+		t.drawStringClipped(box.x+2, y+int16(i)*t.fontHeight, line, fg, maxCols)
 	}
 }

@@ -26,6 +26,9 @@ const (
 	promptLoadSession
 	promptLoadCompareSession
 	promptReplaySeek
+	promptAnnotTag
+	promptAnnotNote
+	promptAnnotDuration
 )
 
 func (t *Task) openPrompt(kind promptKind, title, initial string) {
@@ -53,6 +56,9 @@ func (t *Task) closePrompt() {
 func (t *Task) handlePromptKey(ctx *kernel.Context, k key) {
 	switch k.kind {
 	case keyEsc:
+		if t.promptKind == promptAnnotTag || t.promptKind == promptAnnotNote || t.promptKind == promptAnnotDuration {
+			t.annotPending = annotation{}
+		}
 		t.closePrompt()
 		return
 	case keyEnter:
@@ -122,7 +128,7 @@ func (t *Task) insertPromptRune(r rune) {
 
 func isNumericPrompt(k promptKind) bool {
 	switch k {
-	case promptSetChannel, promptSetRangeLo, promptSetRangeHi, promptSetDwell, promptSetScanStep, promptSetFilterAge, promptSetFilterBurst, promptReplaySeek:
+	case promptSetChannel, promptSetRangeLo, promptSetRangeHi, promptSetDwell, promptSetScanStep, promptSetFilterAge, promptSetFilterBurst, promptReplaySeek, promptAnnotDuration:
 		return true
 	default:
 		return false
@@ -378,6 +384,43 @@ func (t *Task) submitPrompt(ctx *kernel.Context) {
 		t.replayHostLastTick = 0
 		t.replayPlaying = false
 		t.updateReplayPosition(ctx, t.replayNowTick, true)
+		t.closePrompt()
+		return
+
+	case promptAnnotTag:
+		t.annotPending.tag = s
+		if strings.TrimSpace(s) == "" {
+			t.promptErr = "tag: empty"
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		t.openPrompt(promptAnnotNote, "Annotation note", t.annotPending.note)
+		return
+
+	case promptAnnotNote:
+		t.annotPending.note = s
+		initial := "0"
+		if t.annotLastDurMs > 0 {
+			initial = fmt.Sprintf("%d", t.annotLastDurMs)
+		}
+		t.openPrompt(promptAnnotDuration, "Annotation duration (ms, 0=point)", initial)
+		return
+
+	case promptAnnotDuration:
+		n, err := parseIntStrict(s)
+		if err != nil {
+			t.promptErr = "duration: " + err.Error()
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		t.annotLastDurMs = clampInt(n, 0, 1_000_000)
+		t.annotPending.endTick = t.annotPending.startTick + uint64(t.annotLastDurMs)
+		if err := t.addAnnotation(ctx, t.annotPending); err != nil {
+			t.promptErr = err.Error()
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		t.annotPending = annotation{}
 		t.closePrompt()
 		return
 

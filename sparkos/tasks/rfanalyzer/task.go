@@ -155,6 +155,13 @@ type Task struct {
 	promptCursor int
 	promptErr    string
 
+	annotations    [64]annotation
+	annotHead      int
+	annotCount     int
+	annotPending   annotation
+	annotLastTag   string
+	annotLastDurMs int
+
 	analysisView analysisView
 	analysisSel  int
 	analysisTop  int
@@ -530,14 +537,14 @@ func (t *Task) cycleFocus() {
 }
 
 func (t *Task) prevAnalysisView() {
-	t.analysisView = analysisView(wrapEnum(int(t.analysisView)-1, 6))
+	t.analysisView = analysisView(wrapEnum(int(t.analysisView)-1, 7))
 	t.analysisSel = 0
 	t.analysisTop = 0
 	t.invalidate(dirtyAnalysis)
 }
 
 func (t *Task) nextAnalysisView() {
-	t.analysisView = analysisView(wrapEnum(int(t.analysisView)+1, 6))
+	t.analysisView = analysisView(wrapEnum(int(t.analysisView)+1, 7))
 	t.analysisSel = 0
 	t.analysisTop = 0
 	t.invalidate(dirtyAnalysis)
@@ -588,6 +595,25 @@ func (t *Task) handleEnter(ctx *kernel.Context) {
 				t.recordConfig(ctx.NowTick())
 				t.invalidate(dirtySpectrum | dirtyWaterfall | dirtyStatus | dirtyAnalysis)
 			}
+			return
+		}
+		if t.analysisView == analysisAnnotations {
+			if !t.replayActive || t.replay == nil {
+				return
+			}
+			notes := t.visibleAnnotations(t.replayNowTick, 8)
+			if t.analysisSel < 0 || t.analysisSel >= len(notes) {
+				return
+			}
+			a := notes[t.analysisSel]
+			if a.startTick == 0 {
+				return
+			}
+			t.replayNowTick = a.startTick
+			t.replayHostLastTick = 0
+			t.replayPlaying = false
+			t.updateReplayPosition(ctx, t.replayNowTick, true)
+			t.invalidate(dirtyAll)
 		}
 		return
 	default:
@@ -608,6 +634,7 @@ func (t *Task) resetView() {
 	t.promptErr = ""
 	t.promptBuf = nil
 	t.promptCursor = 0
+	t.annotPending = annotation{}
 
 	t.scanChan = t.channelRangeLo
 	t.scanNextTick = 0

@@ -36,6 +36,8 @@ const (
 	menuItemToggleWaterfall
 	menuItemToggleCapture
 	menuItemToggleRecording
+	menuItemAddAnnotationNow
+	menuItemAddAnnotationSelected
 	menuItemResetView
 
 	menuItemLoadSession
@@ -102,6 +104,8 @@ func menuItems(cat menuCategory) []menuItem {
 			{id: menuItemToggleWaterfall, label: "Freeze/Resume Waterfall"},
 			{id: menuItemToggleCapture, label: "Pause/Resume Capture"},
 			{id: menuItemToggleRecording, label: "Start/Stop Recording…"},
+			{id: menuItemAddAnnotationNow, label: "Add Annotation @Now…"},
+			{id: menuItemAddAnnotationSelected, label: "Add Annotation @Selected…"},
 			{id: menuItemLoadSession, label: "Load Session (Replay)…"},
 			{id: menuItemLoadCompareSession, label: "Load Compare Session…"},
 			{id: menuItemClearCompare, label: "Clear Compare Session"},

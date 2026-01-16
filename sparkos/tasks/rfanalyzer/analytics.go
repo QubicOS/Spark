@@ -21,6 +21,7 @@ const (
 	analysisCollisions
 	analysisCorrelation
 	analysisComparison
+	analysisAnnotations
 )
 
 func (v analysisView) String() string {
@@ -37,6 +38,8 @@ func (v analysisView) String() string {
 		return "CORR"
 	case analysisComparison:
 		return "COMP"
+	case analysisAnnotations:
+		return "NOTE"
 	default:
 		return "?"
 	}

@@ -135,6 +135,25 @@ func (t *Task) activateMenuItem(ctx *kernel.Context, id menuItemID) {
 		t.openPrompt(promptStartRecording, "Start recording session name", initial)
 		t.closeMenu()
 
+	case menuItemAddAnnotationNow:
+		tick := ctx.NowTick()
+		if t.replayActive {
+			tick = t.replayNowTick
+		}
+		t.beginAnnotationAt(tick)
+		t.closeMenu()
+
+	case menuItemAddAnnotationSelected:
+		tick := ctx.NowTick()
+		if t.replayActive {
+			tick = t.replayNowTick
+		}
+		if pt, ok := t.selectedPacketTick(); ok {
+			tick = pt
+		}
+		t.beginAnnotationAt(tick)
+		t.closeMenu()
+
 	case menuItemLoadSession:
 		initial := ""
 		if t.replay != nil {
