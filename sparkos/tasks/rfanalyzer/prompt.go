@@ -34,6 +34,8 @@ const (
 	promptAutoDuration
 	promptAutoStopSweeps
 	promptAutoStopPackets
+	promptStressPPS
+	promptStressDuration
 	promptAnnotTag
 	promptAnnotNote
 	promptAnnotDuration
@@ -136,7 +138,7 @@ func (t *Task) insertPromptRune(r rune) {
 
 func isNumericPrompt(k promptKind) bool {
 	switch k {
-	case promptSetChannel, promptSetRangeLo, promptSetRangeHi, promptSetDwell, promptSetScanStep, promptSetFilterAge, promptSetFilterBurst, promptReplaySeek, promptAutoStartDelay, promptAutoDuration, promptAutoStopSweeps, promptAutoStopPackets, promptAnnotDuration:
+	case promptSetChannel, promptSetRangeLo, promptSetRangeHi, promptSetDwell, promptSetScanStep, promptSetFilterAge, promptSetFilterBurst, promptReplaySeek, promptAutoStartDelay, promptAutoDuration, promptAutoStopSweeps, promptAutoStopPackets, promptStressPPS, promptStressDuration, promptAnnotDuration:
 		return true
 	default:
 		return false
@@ -488,6 +490,30 @@ func (t *Task) submitPrompt(ctx *kernel.Context) {
 		t.autoStopPackets = clampInt(n, 0, 1_000_000)
 		t.closePrompt()
 		t.invalidate(dirtyOverlay | dirtyStatus)
+		return
+
+	case promptStressPPS:
+		n, err := parseIntStrict(s)
+		if err != nil {
+			t.promptErr = "pps: " + err.Error()
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		t.stressPPS = clampInt(n, 1, 1000)
+		t.closePrompt()
+		t.invalidate(dirtyOverlay | dirtyAnalysis | dirtyStatus)
+		return
+
+	case promptStressDuration:
+		n, err := parseIntStrict(s)
+		if err != nil {
+			t.promptErr = "duration: " + err.Error()
+			t.invalidate(dirtyOverlay)
+			return
+		}
+		t.stressDurationMs = clampInt(n, 0, 1_000_000)
+		t.closePrompt()
+		t.invalidate(dirtyOverlay | dirtyAnalysis | dirtyStatus)
 		return
 
 	case promptAnnotTag:

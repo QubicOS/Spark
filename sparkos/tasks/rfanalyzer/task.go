@@ -109,6 +109,29 @@ type Task struct {
 
 	rng uint32
 
+	tickStatsLast  uint64
+	tickStatsCount uint32
+	tickStatsAvgMs uint32
+	tickStatsMinMs uint32
+	tickStatsMaxMs uint32
+
+	diagLastRunTick    uint64
+	diagRFOK           bool
+	diagSPIOK          bool
+	diagTimingOK       bool
+	diagStabilityScore int
+
+	stressRunning    bool
+	stressPPS        int
+	stressDurationMs int
+	stressNextTick   uint64
+	stressStartTick  uint64
+	stressSent       uint32
+	stressRecv       uint32
+	stressLost       uint32
+	stressLatAvgMs   uint32
+	stressLatMaxMs   uint32
+
 	nextRenderTick uint64
 
 	protoMode protocolMode
@@ -216,30 +239,32 @@ type Task struct {
 
 func New(disp hal.Display, ep, vfsCap kernel.Capability) *Task {
 	return &Task{
-		disp:            disp,
-		ep:              ep,
-		vfsCap:          vfsCap,
-		focus:           focusSpectrum,
-		selectedChannel: 37,
-		channelRangeLo:  0,
-		channelRangeHi:  maxChannel,
-		dwellTimeMs:     5,
-		scanSpeedScalar: 1,
-		dataRate:        rfRate2M,
-		crcMode:         rfCRC2B,
-		autoAck:         false,
-		powerLevel:      rfPwrMax,
-		wfPalette:       wfPaletteCyan,
-		rng:             0xA341316C,
-		replaySpeed:     1,
-		protoMode:       protoDecoded,
-		analysisView:    analysisChannels,
-		filterCRC:       filterCRCAny,
-		filterChannel:   filterChannelAll,
-		autoRecord:      true,
-		autoSessionBase: "auto",
-		menuCat:         menuRF,
-		dirty:           dirtyAll,
+		disp:             disp,
+		ep:               ep,
+		vfsCap:           vfsCap,
+		focus:            focusSpectrum,
+		selectedChannel:  37,
+		channelRangeLo:   0,
+		channelRangeHi:   maxChannel,
+		dwellTimeMs:      5,
+		scanSpeedScalar:  1,
+		dataRate:         rfRate2M,
+		crcMode:          rfCRC2B,
+		autoAck:          false,
+		powerLevel:       rfPwrMax,
+		wfPalette:        wfPaletteCyan,
+		rng:              0xA341316C,
+		stressPPS:        200,
+		stressDurationMs: 10_000,
+		replaySpeed:      1,
+		protoMode:        protoDecoded,
+		analysisView:     analysisChannels,
+		filterCRC:        filterCRCAny,
+		filterChannel:    filterChannelAll,
+		autoRecord:       true,
+		autoSessionBase:  "auto",
+		menuCat:          menuRF,
+		dirty:            dirtyAll,
 	}
 }
 
@@ -331,15 +356,17 @@ func (t *Task) Run(ctx *kernel.Context) {
 			}
 
 		case tick := <-tickCh:
-			if !t.active {
+			if !t.active && !t.backgroundEnabled() {
 				continue
 			}
 			t.nowTick = tick
+			t.updateTickStats(tick)
 			t.onAutomationTick(ctx, tick)
 			t.onTick(ctx, tick)
 			if t.replayActive {
 				t.updateReplayPacketCache(ctx)
 			}
+			t.onStressTick(ctx, tick)
 			t.tickPacketsPerSecond(tick)
 			t.flushRecording(ctx, tick, false)
 			if t.active && t.dirty != 0 && tick >= t.nextRenderTick {
@@ -352,19 +379,23 @@ func (t *Task) Run(ctx *kernel.Context) {
 func (t *Task) setActive(ctx *kernel.Context, active bool) {
 	if active == t.active {
 		if !active {
-			if t.recording {
-				_ = t.stopRecording(ctx)
+			if !t.backgroundEnabled() {
+				if t.recording {
+					_ = t.stopRecording(ctx)
+				}
+				t.unload()
 			}
-			t.unload()
 		}
 		return
 	}
 	t.active = active
 	if !t.active {
-		if t.recording {
-			_ = t.stopRecording(ctx)
+		if !t.backgroundEnabled() {
+			if t.recording {
+				_ = t.stopRecording(ctx)
+			}
+			t.unload()
 		}
-		t.unload()
 		return
 	}
 	if t.vfs == nil && t.vfsCap.Valid() {
@@ -433,6 +464,10 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 
 func (t *Task) invalidate(flags dirtyFlags) {
 	t.dirty |= flags
+}
+
+func (t *Task) backgroundEnabled() bool {
+	return t.autoArmed || t.autoStarted || t.recording || t.scanActive
 }
 
 func (t *Task) renderNow(now uint64) {
@@ -565,14 +600,14 @@ func (t *Task) cycleFocus() {
 }
 
 func (t *Task) prevAnalysisView() {
-	t.analysisView = analysisView(wrapEnum(int(t.analysisView)-1, 8))
+	t.analysisView = analysisView(wrapEnum(int(t.analysisView)-1, 10))
 	t.analysisSel = 0
 	t.analysisTop = 0
 	t.invalidate(dirtyAnalysis)
 }
 
 func (t *Task) nextAnalysisView() {
-	t.analysisView = analysisView(wrapEnum(int(t.analysisView)+1, 8))
+	t.analysisView = analysisView(wrapEnum(int(t.analysisView)+1, 10))
 	t.analysisSel = 0
 	t.analysisTop = 0
 	t.invalidate(dirtyAnalysis)
@@ -690,6 +725,26 @@ func (t *Task) handleEnter(ctx *kernel.Context) {
 			t.replayPlaying = false
 			t.updateReplayPosition(ctx, t.replayNowTick, true)
 			t.invalidate(dirtyAll)
+			return
+		}
+		if t.analysisView == analysisDiagnostics {
+			t.runDiagnostics(ctx.NowTick())
+			return
+		}
+		if t.analysisView == analysisStress {
+			switch t.analysisSel {
+			case 0:
+				if t.stressRunning {
+					t.stopStress()
+				} else {
+					t.startStress(ctx.NowTick())
+				}
+			case 1:
+				t.openPrompt(promptStressPPS, "Stress packets/sec (1..1000)", fmt.Sprintf("%d", clampInt(t.stressPPS, 1, 1000)))
+			case 2:
+				t.openPrompt(promptStressDuration, "Stress duration (ms, 0=manual)", fmt.Sprintf("%d", clampInt(t.stressDurationMs, 0, 1_000_000)))
+			}
+			return
 		}
 		return
 	default:

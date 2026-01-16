@@ -43,11 +43,15 @@ func (t *Task) renderAnalysis(l layout) {
 		t.renderAnalysisMonitoring(inner, y, maxCols)
 	case analysisAnnotations:
 		t.renderAnalysisAnnotations(inner, y, maxCols)
+	case analysisDiagnostics:
+		t.renderAnalysisDiagnostics(inner, y, maxCols)
+	case analysisStress:
+		t.renderAnalysisStress(inner, y, maxCols)
 	}
 }
 
 func (t *Task) analysisTabsLine() string {
-	labels := []analysisView{analysisChannels, analysisDevices, analysisTiming, analysisCollisions, analysisCorrelation, analysisComparison, analysisMonitoring, analysisAnnotations}
+	labels := []analysisView{analysisChannels, analysisDevices, analysisTiming, analysisCollisions, analysisCorrelation, analysisComparison, analysisMonitoring, analysisAnnotations, analysisDiagnostics, analysisStress}
 	out := "tabs:"
 	for _, v := range labels {
 		if v == t.analysisView {
@@ -436,5 +440,87 @@ func (t *Task) renderAnalysisAnnotations(box rect, y int16, maxCols int) {
 		}
 		_ = t.d.FillRectangle(box.x+1, y+int16(i)*t.fontHeight, box.w-2, t.fontHeight, bg)
 		t.drawStringClipped(box.x+2, y+int16(i)*t.fontHeight, line, fg, maxCols)
+	}
+}
+
+func (t *Task) renderAnalysisDiagnostics(box rect, y int16, maxCols int) {
+	age := "never"
+	if t.diagLastRunTick != 0 && t.nowTick > t.diagLastRunTick {
+		age = fmt.Sprintf("%ds ago", int((t.nowTick-t.diagLastRunTick)/1000))
+	}
+	t.drawStringClipped(box.x+2, y, "Enter: run diagnostics  last: "+age, colorDim, maxCols)
+	y += t.fontHeight
+
+	rf := "FAIL"
+	if t.diagRFOK {
+		rf = "OK"
+	}
+	spi := "FAIL"
+	if t.diagSPIOK {
+		spi = "OK"
+	}
+	tim := "FAIL"
+	if t.diagTimingOK {
+		tim = "OK"
+	}
+	stab := t.diagStabilityScore
+
+	lines := []string{
+		fmt.Sprintf("RF      : %s", rf),
+		fmt.Sprintf("SPI     : %s", spi),
+		fmt.Sprintf("TICK    : %s  avg:%d min:%d max:%d", tim, t.tickStatsAvgMs, t.tickStatsMinMs, t.tickStatsMaxMs),
+		fmt.Sprintf("STAB    : %d/100  drop:%d recerr:%v", stab, t.pktDropped, t.recordErr != ""),
+	}
+	for i, line := range lines {
+		if y+int16(i)*t.fontHeight+t.fontHeight > box.y+box.h {
+			return
+		}
+		t.drawStringClipped(box.x+2, y+int16(i)*t.fontHeight, line, colorFG, maxCols)
+	}
+}
+
+func (t *Task) renderAnalysisStress(box rect, y int16, maxCols int) {
+	ch := clampInt(t.selectedChannel, 0, maxChannel)
+	hdr := fmt.Sprintf("stress: ch:%03d rate:%s", ch, t.dataRate.String())
+	t.drawStringClipped(box.x+2, y, hdr, colorDim, maxCols)
+	y += t.fontHeight
+
+	run := "OFF"
+	if t.stressRunning {
+		run = "ON"
+	}
+	dur := "manual"
+	if t.stressDurationMs > 0 {
+		dur = fmt.Sprintf("%dms", t.stressDurationMs)
+	}
+	lossPct := 0
+	if t.stressSent > 0 {
+		lossPct = int(t.stressLost * 100 / t.stressSent)
+	}
+	stats := fmt.Sprintf("sent:%d rx:%d lost:%d (%d%%) lat:%d/%dms", t.stressSent, t.stressRecv, t.stressLost, lossPct, t.stressLatAvgMs, t.stressLatMaxMs)
+
+	lines := []string{
+		fmt.Sprintf("RUN     <%s>", run),
+		fmt.Sprintf("PPS     [%d]", clampInt(t.stressPPS, 1, 1000)),
+		fmt.Sprintf("DURms   [%s]", dur),
+		stats,
+	}
+	if t.analysisSel < 0 {
+		t.analysisSel = 0
+	}
+	if t.analysisSel >= len(lines) {
+		t.analysisSel = len(lines) - 1
+	}
+
+	for i := 0; i < len(lines); i++ {
+		yy := y + int16(i)*t.fontHeight
+		fg := colorFG
+		bg := colorPanelBG
+		if i == t.analysisSel && t.focus == focusAnalysis {
+			fg = colorSelFG
+			bg = colorSelBG
+		}
+		_ = t.d.FillRectangle(box.x+1, yy, box.w-2, t.fontHeight, bg)
+		t.drawStringClipped(box.x+2, yy, lines[i], fg, maxCols)
 	}
 }

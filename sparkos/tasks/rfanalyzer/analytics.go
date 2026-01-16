@@ -23,6 +23,8 @@ const (
 	analysisComparison
 	analysisMonitoring
 	analysisAnnotations
+	analysisDiagnostics
+	analysisStress
 )
 
 func (v analysisView) String() string {
@@ -43,6 +45,10 @@ func (v analysisView) String() string {
 		return "MON"
 	case analysisAnnotations:
 		return "NOTE"
+	case analysisDiagnostics:
+		return "DIAG"
+	case analysisStress:
+		return "STRS"
 	default:
 		return "?"
 	}
