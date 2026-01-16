@@ -24,6 +24,7 @@ const (
 	AppFBTest     AppID = 17
 	AppSerialTerm AppID = 18
 	AppUsers      AppID = 19
+	AppQuarkDonut AppID = 20
 )
 
 // AppSelectPayload encodes an app selection request.

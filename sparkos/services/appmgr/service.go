@@ -14,6 +14,7 @@ import (
 	hexedittask "spark/sparkos/tasks/hexedit"
 	imgviewtask "spark/sparkos/tasks/imgview"
 	mctask "spark/sparkos/tasks/mc"
+	quarkdonuttask "spark/sparkos/tasks/quarkdonut"
 	rfanalyzertask "spark/sparkos/tasks/rfanalyzer"
 	rtdemotask "spark/sparkos/tasks/rtdemo"
 	rtvoxeltask "spark/sparkos/tasks/rtvoxel"
@@ -59,6 +60,7 @@ type Service struct {
 	fbtestProxyCap     kernel.Capability
 	serialtermProxyCap kernel.Capability
 	usersProxyCap      kernel.Capability
+	donutProxyCap      kernel.Capability
 
 	rtdemoCap     kernel.Capability
 	rtvoxelCap    kernel.Capability
@@ -79,6 +81,7 @@ type Service struct {
 	fbtestCap     kernel.Capability
 	serialtermCap kernel.Capability
 	usersCap      kernel.Capability
+	donutCap      kernel.Capability
 
 	rtdemoEP     kernel.Capability
 	rtvoxelEP    kernel.Capability
@@ -99,6 +102,7 @@ type Service struct {
 	fbtestEP     kernel.Capability
 	serialtermEP kernel.Capability
 	usersEP      kernel.Capability
+	donutEP      kernel.Capability
 
 	mu sync.Mutex
 
@@ -121,6 +125,7 @@ type Service struct {
 	fbtestRunning     bool
 	serialtermRunning bool
 	usersRunning      bool
+	donutRunning      bool
 
 	rtdemoActive     bool
 	rtvoxelActive    bool
@@ -141,6 +146,7 @@ type Service struct {
 	fbtestActive     bool
 	serialtermActive bool
 	usersActive      bool
+	donutActive      bool
 
 	rtdemoInactiveSince     uint64
 	rtvoxelInactiveSince    uint64
@@ -161,9 +167,10 @@ type Service struct {
 	fbtestInactiveSince     uint64
 	serialtermInactiveSince uint64
 	usersInactiveSince      uint64
+	donutInactiveSince      uint64
 }
 
-func New(disp hal.Display, vfsCap, audioCap, timeCap, gpioCap, serialCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxyCap, hexProxyCap, snakeProxyCap, tetrisProxyCap, calendarProxyCap, todoProxyCap, archiveProxyCap, viProxyCap, mcProxyCap, vectorProxyCap, teaProxyCap, basicProxyCap, rfAnalyzerProxyCap, gpioscopeProxyCap, fbtestProxyCap, serialtermProxyCap, usersProxyCap, rtdemoCap, rtvoxelCap, imgviewCap, hexCap, snakeCap, tetrisCap, calendarCap, todoCap, archiveCap, viCap, mcCap, vectorCap, teaCap, basicCap, rfAnalyzerCap, gpioscopeCap, fbtestCap, serialtermCap, usersCap, rtdemoEP, rtvoxelEP, imgviewEP, hexEP, snakeEP, tetrisEP, calendarEP, todoEP, archiveEP, viEP, mcEP, vectorEP, teaEP, basicEP, rfAnalyzerEP, gpioscopeEP, fbtestEP, serialtermEP, usersEP kernel.Capability) *Service {
+func New(disp hal.Display, vfsCap, audioCap, timeCap, gpioCap, serialCap, rtdemoProxyCap, rtvoxelProxyCap, imgviewProxyCap, hexProxyCap, snakeProxyCap, tetrisProxyCap, calendarProxyCap, todoProxyCap, archiveProxyCap, viProxyCap, mcProxyCap, vectorProxyCap, teaProxyCap, basicProxyCap, rfAnalyzerProxyCap, gpioscopeProxyCap, fbtestProxyCap, serialtermProxyCap, usersProxyCap, donutProxyCap, rtdemoCap, rtvoxelCap, imgviewCap, hexCap, snakeCap, tetrisCap, calendarCap, todoCap, archiveCap, viCap, mcCap, vectorCap, teaCap, basicCap, rfAnalyzerCap, gpioscopeCap, fbtestCap, serialtermCap, usersCap, donutCap, rtdemoEP, rtvoxelEP, imgviewEP, hexEP, snakeEP, tetrisEP, calendarEP, todoEP, archiveEP, viEP, mcEP, vectorEP, teaEP, basicEP, rfAnalyzerEP, gpioscopeEP, fbtestEP, serialtermEP, usersEP, donutEP kernel.Capability) *Service {
 	return &Service{
 		disp:               disp,
 		vfsCap:             vfsCap,
@@ -190,6 +197,7 @@ func New(disp hal.Display, vfsCap, audioCap, timeCap, gpioCap, serialCap, rtdemo
 		fbtestProxyCap:     fbtestProxyCap,
 		serialtermProxyCap: serialtermProxyCap,
 		usersProxyCap:      usersProxyCap,
+		donutProxyCap:      donutProxyCap,
 		rtdemoCap:          rtdemoCap,
 		rtvoxelCap:         rtvoxelCap,
 		imgviewCap:         imgviewCap,
@@ -209,6 +217,7 @@ func New(disp hal.Display, vfsCap, audioCap, timeCap, gpioCap, serialCap, rtdemo
 		fbtestCap:          fbtestCap,
 		serialtermCap:      serialtermCap,
 		usersCap:           usersCap,
+		donutCap:           donutCap,
 		rtdemoEP:           rtdemoEP,
 		rtvoxelEP:          rtvoxelEP,
 		imgviewEP:          imgviewEP,
@@ -228,6 +237,7 @@ func New(disp hal.Display, vfsCap, audioCap, timeCap, gpioCap, serialCap, rtdemo
 		fbtestEP:           fbtestEP,
 		serialtermEP:       serialtermEP,
 		usersEP:            usersEP,
+		donutEP:            donutEP,
 	}
 }
 
@@ -252,6 +262,7 @@ func (s *Service) Run(ctx *kernel.Context) {
 	go s.runProxy(ctx, s.fbtestProxyCap, proto.AppFBTest)
 	go s.runProxy(ctx, s.serialtermProxyCap, proto.AppSerialTerm)
 	go s.runProxy(ctx, s.usersProxyCap, proto.AppUsers)
+	go s.runProxy(ctx, s.donutProxyCap, proto.AppQuarkDonut)
 	select {}
 }
 
@@ -290,6 +301,7 @@ func (s *Service) shutdownIdle(ctx *kernel.Context, now uint64) {
 	stop = s.appendStopIfIdle(stop, proto.AppFBTest, s.fbtestRunning, s.fbtestActive, s.fbtestInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppSerialTerm, s.serialtermRunning, s.serialtermActive, s.serialtermInactiveSince, now)
 	stop = s.appendStopIfIdle(stop, proto.AppUsers, s.usersRunning, s.usersActive, s.usersInactiveSince, now)
+	stop = s.appendStopIfIdle(stop, proto.AppQuarkDonut, s.donutRunning, s.donutActive, s.donutInactiveSince, now)
 	s.mu.Unlock()
 
 	for _, id := range stop {
@@ -485,6 +497,12 @@ func (s *Service) ensureRunning(ctx *kernel.Context, appID proto.AppID) {
 		s.mu.Lock()
 		s.usersRunning = true
 		s.mu.Unlock()
+
+	case proto.AppQuarkDonut:
+		ctx.AddTask(quarkdonuttask.New(s.disp, s.donutEP))
+		s.mu.Lock()
+		s.donutRunning = true
+		s.mu.Unlock()
 	}
 }
 
@@ -556,6 +574,9 @@ func (s *Service) stop(ctx *kernel.Context, appID proto.AppID) {
 
 	case proto.AppUsers:
 		_ = ctx.SendToCapResult(s.usersCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
+
+	case proto.AppQuarkDonut:
+		_ = ctx.SendToCapResult(s.donutCap, uint16(proto.MsgAppShutdown), nil, kernel.Capability{})
 	}
 }
 
@@ -599,6 +620,8 @@ func (s *Service) appCapByID(appID proto.AppID) kernel.Capability {
 		return s.serialtermCap
 	case proto.AppUsers:
 		return s.usersCap
+	case proto.AppQuarkDonut:
+		return s.donutCap
 	default:
 		return kernel.Capability{}
 	}
@@ -650,6 +673,8 @@ func (s *Service) isRunningLocked(appID proto.AppID) bool {
 		return s.serialtermRunning
 	case proto.AppUsers:
 		return s.usersRunning
+	case proto.AppQuarkDonut:
+		return s.donutRunning
 	default:
 		return false
 	}
@@ -695,6 +720,8 @@ func (s *Service) setRunningLocked(appID proto.AppID, running bool) {
 		s.serialtermRunning = running
 	case proto.AppUsers:
 		s.usersRunning = running
+	case proto.AppQuarkDonut:
+		s.donutRunning = running
 	}
 }
 
@@ -763,6 +790,9 @@ func (s *Service) setActiveLocked(appID proto.AppID, active bool, now uint64) {
 	case proto.AppUsers:
 		s.usersActive = active
 		s.usersInactiveSince = inactiveSince(active, now, s.usersInactiveSince)
+	case proto.AppQuarkDonut:
+		s.donutActive = active
+		s.donutInactiveSince = inactiveSince(active, now, s.donutInactiveSince)
 	}
 }
 
