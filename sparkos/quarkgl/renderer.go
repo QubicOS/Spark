@@ -7,6 +7,7 @@ type Renderer struct {
 	Mode       RenderMode
 	Depth      bool
 	ClearColor Color
+	Workers    int
 
 	depthBuf []float32
 }
@@ -19,6 +20,7 @@ func NewRenderer(w, h int, enableDepth bool) *Renderer {
 		Mode:       RenderSolidFlat,
 		Depth:      enableDepth,
 		ClearColor: RGB(0, 0, 0),
+		Workers:    1,
 	}
 	if enableDepth && w > 0 && h > 0 {
 		r.depthBuf = make([]float32, w*h)
@@ -27,6 +29,17 @@ func NewRenderer(w, h int, enableDepth bool) *Renderer {
 }
 
 func (r *Renderer) SetRenderMode(m RenderMode) { r.Mode = m }
+
+// SetWorkers sets the number of worker goroutines used for rendering.
+//
+// Values <= 1 disable parallel rendering. Currently only 1 or 2 are supported.
+func (r *Renderer) SetWorkers(n int) {
+	if n >= 2 {
+		r.Workers = 2
+		return
+	}
+	r.Workers = 1
+}
 
 func (r *Renderer) EnableDepth(on bool, w, h int) {
 	r.Depth = on
@@ -47,7 +60,7 @@ func (r *Renderer) EnableDepth(on bool, w, h int) {
 
 func (r *Renderer) clearDepth() {
 	for i := range r.depthBuf {
-		r.depthBuf[i] = 1e9
+		r.depthBuf[i] = 2.0
 	}
 }
 
@@ -74,15 +87,30 @@ func (r *Renderer) Render(t Target, s *Scene) {
 	view := s.Camera.View()
 	proj := s.Camera.Projection(aspect)
 
+	if r.Workers >= 2 && h >= 2 {
+		mid := h / 2
+		done := make(chan struct{}, 1)
+		go func() {
+			r.renderSceneBand(t, w, h, proj, view, s, mid, h)
+			done <- struct{}{}
+		}()
+		r.renderSceneBand(t, w, h, proj, view, s, 0, mid)
+		<-done
+		return
+	}
+	r.renderSceneBand(t, w, h, proj, view, s, 0, h)
+}
+
+func (r *Renderer) renderSceneBand(t Target, w, h int, proj, view Mat4, s *Scene, clipY0, clipY1 int) {
 	s.eachMesh(func(m *Mesh) {
 		if m == nil || !m.Enabled {
 			return
 		}
-		r.renderMesh(t, w, h, proj, view, *m, s.Light)
+		r.renderMeshBand(t, w, h, proj, view, *m, s.Light, clipY0, clipY1)
 	})
 }
 
-func (r *Renderer) renderMesh(t Target, w, h int, proj, view Mat4, m Mesh, light Light) {
+func (r *Renderer) renderMeshBand(t Target, w, h int, proj, view Mat4, m Mesh, light Light, clipY0, clipY1 int) {
 	if len(m.Vertices) == 0 || len(m.Indices) < 3 {
 		return
 	}
@@ -114,7 +142,7 @@ func (r *Renderer) renderMesh(t Target, w, h int, proj, view Mat4, m Mesh, light
 		p2 := Mat4MulV4(mvp, Vec4{X: v2.Pos.X, Y: v2.Pos.Y, Z: v2.Pos.Z, W: 1})
 
 		// Trivial clip: if any vertex is behind the near plane (w<=0), drop.
-		if p0.W == 0 || p1.W == 0 || p2.W == 0 {
+		if scalarToF32(p0.W) <= 0 || scalarToF32(p1.W) <= 0 || scalarToF32(p2.W) <= 0 {
 			continue
 		}
 
@@ -140,13 +168,13 @@ func (r *Renderer) renderMesh(t Target, w, h int, proj, view Mat4, m Mesh, light
 		switch r.Mode {
 		case RenderWireframe:
 			c := base
-			r.drawLine(t, x0, y0, x1, y1, c)
-			r.drawLine(t, x1, y1, x2, y2, c)
-			r.drawLine(t, x2, y2, x0, y0, c)
+			r.drawLineDepth(t, w, h, x0, y0, ndc0.Z, x1, y1, ndc1.Z, c, clipY0, clipY1)
+			r.drawLineDepth(t, w, h, x1, y1, ndc1.Z, x2, y2, ndc2.Z, c, clipY0, clipY1)
+			r.drawLineDepth(t, w, h, x2, y2, ndc2.Z, x0, y0, ndc0.Z, c, clipY0, clipY1)
 		case RenderSolidVertexColor:
-			r.fillTriangle(t, w, h, x0, y0, ndc0.Z, v0.Color, x1, y1, ndc1.Z, v1.Color, x2, y2, ndc2.Z, v2.Color)
+			r.fillTriangleClipY(t, w, h, clipY0, clipY1, x0, y0, ndc0.Z, v0.Color, x1, y1, ndc1.Z, v1.Color, x2, y2, ndc2.Z, v2.Color)
 		default:
-			r.fillTriangleFlat(t, w, h, x0, y0, ndc0.Z, x1, y1, ndc1.Z, x2, y2, ndc2.Z, base)
+			r.fillTriangleFlatClipY(t, w, h, clipY0, clipY1, x0, y0, ndc0.Z, x1, y1, ndc1.Z, x2, y2, ndc2.Z, base)
 		}
 	}
 }
@@ -157,7 +185,7 @@ type ndcPoint struct {
 
 func clipToNDC(p Vec4) (ndcPoint, bool) {
 	w := scalarToF32(p.W)
-	if w == 0 {
+	if w <= 0 {
 		return ndcPoint{}, false
 	}
 	invW := 1.0 / w
@@ -197,11 +225,11 @@ func lightIntensity(l Light, n Vec3) Scalar {
 	return Clamp01(amb + d*dir)
 }
 
-func (r *Renderer) depthTest(w int, x, y int, z float32) bool {
+func (r *Renderer) depthTest(w, h int, x, y int, z float32) bool {
 	if !r.Depth || r.depthBuf == nil {
 		return true
 	}
-	if x < 0 || y < 0 || x >= w {
+	if x < 0 || y < 0 || x >= w || y >= h {
 		return false
 	}
 	idx := y*w + x
@@ -223,36 +251,52 @@ func (r *Renderer) depthTest(w int, x, y int, z float32) bool {
 	return true
 }
 
-func (r *Renderer) drawLine(t Target, x0, y0, x1, y1 int, c Color) {
-	dx := absInt(x1 - x0)
-	sx := -1
-	if x0 < x1 {
-		sx = 1
+func (r *Renderer) drawLineDepth(t Target, w, h int, x0, y0 int, z0 float32, x1, y1 int, z1 float32, c Color, clipY0, clipY1 int) {
+	steps := absInt(x1 - x0)
+	if dy := absInt(y1 - y0); dy > steps {
+		steps = dy
 	}
-	dy := -absInt(y1 - y0)
-	sy := -1
-	if y0 < y1 {
-		sy = 1
+	if steps == 0 {
+		if y0 >= clipY0 && y0 < clipY1 && x0 >= 0 && x0 < w && y0 >= 0 && y0 < h {
+			if r.depthTest(w, h, x0, y0, z0) {
+				t.SetPixel(x0, y0, c)
+			}
+		}
+		return
 	}
-	err := dx + dy
-	for {
-		t.SetPixel(x0, y0, c)
-		if x0 == x1 && y0 == y1 {
-			return
+
+	fx := float32(x0)
+	fy := float32(y0)
+	fdx := float32(x1-x0) / float32(steps)
+	fdy := float32(y1-y0) / float32(steps)
+	dz := (z1 - z0) / float32(steps)
+	z := z0
+
+	for i := 0; i <= steps; i++ {
+		x := int(fx + 0.5)
+		y := int(fy + 0.5)
+		if y >= clipY0 && y < clipY1 && x >= 0 && x < w && y >= 0 && y < h {
+			if r.depthTest(w, h, x, y, z) {
+				t.SetPixel(x, y, c)
+			}
 		}
-		e2 := 2 * err
-		if e2 >= dy {
-			err += dy
-			x0 += sx
-		}
-		if e2 <= dx {
-			err += dx
-			y0 += sy
-		}
+		fx += fdx
+		fy += fdy
+		z += dz
 	}
 }
 
-func (r *Renderer) fillTriangleFlat(t Target, w, h int, x0, y0 int, z0 float32, x1, y1 int, z1 float32, x2, y2 int, z2 float32, c Color) {
+func (r *Renderer) fillTriangleFlatClipY(t Target, w, h int, clipY0, clipY1 int, x0, y0 int, z0 float32, x1, y1 int, z1 float32, x2, y2 int, z2 float32, c Color) {
+	if clipY0 < 0 {
+		clipY0 = 0
+	}
+	if clipY1 > h {
+		clipY1 = h
+	}
+	if clipY0 >= clipY1 {
+		return
+	}
+
 	minX, maxX := min3(x0, x1, x2), max3(x0, x1, x2)
 	minY, maxY := min3(y0, y1, y2), max3(y0, y1, y2)
 	if minX < 0 {
@@ -264,32 +308,52 @@ func (r *Renderer) fillTriangleFlat(t Target, w, h int, x0, y0 int, z0 float32, 
 	if maxX >= w {
 		maxX = w - 1
 	}
-	if maxY >= h {
-		maxY = h - 1
+	if maxY >= clipY1 {
+		maxY = clipY1 - 1
+	}
+	if minY < clipY0 {
+		minY = clipY0
 	}
 	if minX > maxX || minY > maxY {
 		return
 	}
 
-	area := edgeFn(x0, y0, x1, y1, x2, y2)
+	area := edgeFnScaled(x0, y0, x1, y1, x2, y2)
 	if area == 0 {
 		return
 	}
+	flip := false
+	if area < 0 {
+		flip = true
+		area = -area
+	}
 	invArea := 1.0 / float32(area)
+
+	topLeft0 := isTopLeftEdge(x1, y1, x2, y2)
+	topLeft1 := isTopLeftEdge(x2, y2, x0, y0)
+	topLeft2 := isTopLeftEdge(x0, y0, x1, y1)
 
 	for y := minY; y <= maxY; y++ {
 		for x := minX; x <= maxX; x++ {
-			w0 := edgeFn(x1, y1, x2, y2, x, y)
-			w1 := edgeFn(x2, y2, x0, y0, x, y)
-			w2 := edgeFn(x0, y0, x1, y1, x, y)
-			if (w0 | w1 | w2) < 0 {
+			w0 := edgeFnScaledPoint(x1, y1, x2, y2, x, y)
+			w1 := edgeFnScaledPoint(x2, y2, x0, y0, x, y)
+			w2 := edgeFnScaledPoint(x0, y0, x1, y1, x, y)
+
+			if flip {
+				w0 = -w0
+				w1 = -w1
+				w2 = -w2
+			}
+
+			if (w0 == 0 && !topLeft0) || (w1 == 0 && !topLeft1) || (w2 == 0 && !topLeft2) || w0 < 0 || w1 < 0 || w2 < 0 {
 				continue
 			}
+
 			a0 := float32(w0) * invArea
 			a1 := float32(w1) * invArea
 			a2 := float32(w2) * invArea
 			z := a0*z0 + a1*z1 + a2*z2
-			if !r.depthTest(w, x, y, z) {
+			if !r.depthTest(w, h, x, y, z) {
 				continue
 			}
 			t.SetPixel(x, y, c)
@@ -297,7 +361,17 @@ func (r *Renderer) fillTriangleFlat(t Target, w, h int, x0, y0 int, z0 float32, 
 	}
 }
 
-func (r *Renderer) fillTriangle(t Target, w, h int, x0, y0 int, z0 float32, c0 Color, x1, y1 int, z1 float32, c1 Color, x2, y2 int, z2 float32, c2 Color) {
+func (r *Renderer) fillTriangleClipY(t Target, w, h int, clipY0, clipY1 int, x0, y0 int, z0 float32, c0 Color, x1, y1 int, z1 float32, c1 Color, x2, y2 int, z2 float32, c2 Color) {
+	if clipY0 < 0 {
+		clipY0 = 0
+	}
+	if clipY1 > h {
+		clipY1 = h
+	}
+	if clipY0 >= clipY1 {
+		return
+	}
+
 	minX, maxX := min3(x0, x1, x2), max3(x0, x1, x2)
 	minY, maxY := min3(y0, y1, y2), max3(y0, y1, y2)
 	if minX < 0 {
@@ -309,18 +383,30 @@ func (r *Renderer) fillTriangle(t Target, w, h int, x0, y0 int, z0 float32, c0 C
 	if maxX >= w {
 		maxX = w - 1
 	}
-	if maxY >= h {
-		maxY = h - 1
+	if maxY >= clipY1 {
+		maxY = clipY1 - 1
+	}
+	if minY < clipY0 {
+		minY = clipY0
 	}
 	if minX > maxX || minY > maxY {
 		return
 	}
 
-	area := edgeFn(x0, y0, x1, y1, x2, y2)
+	area := edgeFnScaled(x0, y0, x1, y1, x2, y2)
 	if area == 0 {
 		return
 	}
+	flip := false
+	if area < 0 {
+		flip = true
+		area = -area
+	}
 	invArea := 1.0 / float32(area)
+
+	topLeft0 := isTopLeftEdge(x1, y1, x2, y2)
+	topLeft1 := isTopLeftEdge(x2, y2, x0, y0)
+	topLeft2 := isTopLeftEdge(x0, y0, x1, y1)
 
 	r0, g0, b0 := float32(c0.R), float32(c0.G), float32(c0.B)
 	r1, g1, b1 := float32(c1.R), float32(c1.G), float32(c1.B)
@@ -328,17 +414,24 @@ func (r *Renderer) fillTriangle(t Target, w, h int, x0, y0 int, z0 float32, c0 C
 
 	for y := minY; y <= maxY; y++ {
 		for x := minX; x <= maxX; x++ {
-			w0 := edgeFn(x1, y1, x2, y2, x, y)
-			w1 := edgeFn(x2, y2, x0, y0, x, y)
-			w2 := edgeFn(x0, y0, x1, y1, x, y)
-			if (w0 | w1 | w2) < 0 {
+			w0 := edgeFnScaledPoint(x1, y1, x2, y2, x, y)
+			w1 := edgeFnScaledPoint(x2, y2, x0, y0, x, y)
+			w2 := edgeFnScaledPoint(x0, y0, x1, y1, x, y)
+
+			if flip {
+				w0 = -w0
+				w1 = -w1
+				w2 = -w2
+			}
+
+			if (w0 == 0 && !topLeft0) || (w1 == 0 && !topLeft1) || (w2 == 0 && !topLeft2) || w0 < 0 || w1 < 0 || w2 < 0 {
 				continue
 			}
 			a0 := float32(w0) * invArea
 			a1 := float32(w1) * invArea
 			a2 := float32(w2) * invArea
 			z := a0*z0 + a1*z1 + a2*z2
-			if !r.depthTest(w, x, y, z) {
+			if !r.depthTest(w, h, x, y, z) {
 				continue
 			}
 			rr := uint8(clampF32(a0*r0+a1*r1+a2*r2, 0, 255))
@@ -349,8 +442,30 @@ func (r *Renderer) fillTriangle(t Target, w, h int, x0, y0 int, z0 float32, c0 C
 	}
 }
 
-func edgeFn(x0, y0, x1, y1, x, y int) int {
-	return (x-x0)*(y1-y0) - (y-y0)*(x1-x0)
+func isTopLeftEdge(x0, y0, x1, y1 int) bool {
+	dy := y1 - y0
+	dx := x1 - x0
+	return dy > 0 || (dy == 0 && dx < 0)
+}
+
+func edgeFnScaled(x0, y0, x1, y1, x, y int) int64 {
+	x0s := int64(x0) * 2
+	y0s := int64(y0) * 2
+	x1s := int64(x1) * 2
+	y1s := int64(y1) * 2
+	xs := int64(x) * 2
+	ys := int64(y) * 2
+	return (xs-x0s)*(y1s-y0s) - (ys-y0s)*(x1s-x0s)
+}
+
+func edgeFnScaledPoint(x0, y0, x1, y1, x, y int) int64 {
+	x0s := int64(x0) * 2
+	y0s := int64(y0) * 2
+	x1s := int64(x1) * 2
+	y1s := int64(y1) * 2
+	xs := int64(x)*2 + 1
+	ys := int64(y)*2 + 1
+	return (xs-x0s)*(y1s-y0s) - (ys-y0s)*(x1s-x0s)
 }
 
 func absInt(v int) int {
