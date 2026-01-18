@@ -68,6 +68,8 @@ func (t *Task) menuItems(c menuCategory) []menuItem {
 			{Label: "Write: LOW", Action: func(ctx *kernel.Context, t *Task) { t.writeLevel(ctx, false) }},
 			{Label: "Write: TOGGLE", Action: func(ctx *kernel.Context, t *Task) { t.toggleLevel(ctx) }},
 			{Label: "Pulse", Action: func(ctx *kernel.Context, t *Task) { t.pulse(ctx) }},
+			{Label: t.toggleLabel("SigGen", t.sigGenActive), Action: func(ctx *kernel.Context, t *Task) { t.toggleSigGen(ctx) }},
+			{Label: fmt.Sprintf("SigGen half: %s", fmtHz(t.sigGenHalfPeriodTicks)), Action: func(_ *kernel.Context, t *Task) { t.stepSigGenHalfPeriod(+1) }},
 		}
 
 	case menuCapture:

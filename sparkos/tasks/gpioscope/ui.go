@@ -173,6 +173,15 @@ func (t *Task) renderSide(x, y, w, h int16) {
 	writeText(t.d, t.font, innerX, innerY+row+t.fontOffset, colorFG, fmt.Sprintf("zoom: %dx", t.samplesPerPx))
 	row += t.fontHeight + 2
 
+	writeText(t.d, t.font, innerX, innerY+row+t.fontOffset, colorDim, "Signal")
+	row += t.fontHeight
+	writeText(t.d, t.font, innerX, innerY+row+t.fontOffset, colorFG, fmt.Sprintf("gen: %v", t.sigGenActive))
+	row += t.fontHeight
+	writeText(t.d, t.font, innerX, innerY+row+t.fontOffset, colorFG, fmt.Sprintf("pin: %d", t.sigGenPinID))
+	row += t.fontHeight
+	writeText(t.d, t.font, innerX, innerY+row+t.fontOffset, colorFG, fmt.Sprintf("half: %s", fmtHz(t.sigGenHalfPeriodTicks)))
+	row += t.fontHeight + 2
+
 	writeText(t.d, t.font, innerX, innerY+row+t.fontOffset, colorDim, "Trigger")
 	row += t.fontHeight
 	writeText(t.d, t.font, innerX, innerY+row+t.fontOffset, colorFG, fmt.Sprintf("%s @ %d", t.triggerName(), t.triggerPinID))

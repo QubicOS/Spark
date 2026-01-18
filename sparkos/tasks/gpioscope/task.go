@@ -166,6 +166,12 @@ type Task struct {
 	pulsePending    bool
 	pulseTicks      uint32
 
+	sigGenActive          bool
+	sigGenPinID           uint8
+	sigGenLevel           bool
+	sigGenHalfPeriodTicks uint32
+	sigGenSleepReqID      uint32
+
 	buf          *ring
 	frozen       []uint32
 	frozenActive bool
@@ -213,28 +219,29 @@ const (
 
 func New(disp hal.Display, ep, timeCap, gpioCap kernel.Capability) *Task {
 	return &Task{
-		disp:           disp,
-		ep:             ep,
-		timeCap:        timeCap,
-		gpioCap:        gpioCap,
-		mode:           modeGPIO,
-		focus:          focusWave,
-		periodTicks:    1,
-		pulseTicks:     10,
-		buf:            newRing(4096),
-		samplesPerPx:   2,
-		cursor:         -1,
-		preSamples:     250,
-		postSamples:    250,
-		uartRX:         -1,
-		uartBaud:       300,
-		spiCLK:         -1,
-		spiMOSI:        -1,
-		spiMISO:        -1,
-		spiCS:          -1,
-		i2cSCL:         -1,
-		i2cSDA:         -1,
-		lastRenderTick: 0,
+		disp:                  disp,
+		ep:                    ep,
+		timeCap:               timeCap,
+		gpioCap:               gpioCap,
+		mode:                  modeGPIO,
+		focus:                 focusWave,
+		periodTicks:           1,
+		pulseTicks:            10,
+		sigGenHalfPeriodTicks: 50,
+		buf:                   newRing(4096),
+		samplesPerPx:          2,
+		cursor:                -1,
+		preSamples:            250,
+		postSamples:           250,
+		uartRX:                -1,
+		uartBaud:              300,
+		spiCLK:                -1,
+		spiMOSI:               -1,
+		spiMISO:               -1,
+		spiCS:                 -1,
+		i2cSCL:                -1,
+		i2cSDA:                -1,
+		lastRenderTick:        0,
 	}
 }
 
@@ -347,6 +354,12 @@ func (t *Task) setActive(ctx *kernel.Context, active bool) {
 	}
 	t.active = active
 	if !t.active {
+		if t.sigGenActive {
+			t.sigGenActive = false
+			t.sigGenSleepReqID = 0
+			t.sigGenLevel = false
+			t.writeLevelPin(ctx, t.sigGenPinID, false)
+		}
 		if t.pulsePending {
 			t.pulsePending = false
 			t.sendGPIO(ctx, proto.MsgGPIOWrite, proto.GPIOWritePayload(t.nextID(), t.pulsePinID, false), t.replySend)
@@ -564,6 +577,14 @@ func (t *Task) handleWake(ctx *kernel.Context, msg kernel.Message) {
 		t.sendGPIO(ctx, proto.MsgGPIOWrite, proto.GPIOWritePayload(t.nextID(), t.pulsePinID, false), t.replySend)
 		return
 	}
+	if reqID == t.sigGenSleepReqID && t.sigGenActive {
+		if t.active {
+			t.sigGenLevel = !t.sigGenLevel
+			t.writeLevelPin(ctx, t.sigGenPinID, t.sigGenLevel)
+		}
+		t.scheduleSigGen(ctx)
+		return
+	}
 }
 
 func (t *Task) scheduleWake(ctx *kernel.Context) {
@@ -575,6 +596,25 @@ func (t *Task) scheduleWake(ctx *kernel.Context) {
 	res := ctx.SendToCapRetry(t.timeCap, uint16(proto.MsgSleep), payload, t.sleepSendCap, 500)
 	if res != kernel.SendOK {
 		t.msg = fmt.Sprintf("time send: %s", res)
+	}
+}
+
+func (t *Task) scheduleSigGen(ctx *kernel.Context) {
+	if !t.sigGenActive {
+		return
+	}
+	if !t.timeCap.Valid() || !t.sleepSendCap.Valid() {
+		t.sigGenActive = false
+		t.msg = "siggen: no time capability"
+		return
+	}
+
+	t.sigGenSleepReqID = t.nextID()
+	payload := proto.SleepPayload(t.sigGenSleepReqID, t.sigGenHalfPeriodTicks)
+	res := ctx.SendToCapRetry(t.timeCap, uint16(proto.MsgSleep), payload, t.sleepSendCap, 500)
+	if res != kernel.SendOK {
+		t.msg = fmt.Sprintf("time send: %s", res)
+		t.sigGenActive = false
 	}
 }
 
@@ -695,6 +735,38 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) (exit bool) {
 		case 'q':
 			t.requestExit(ctx)
 			return true
+		case 'o':
+			t.setMode(ctx, proto.GPIOModeOutput)
+			t.msg = "gpio: mode output"
+		case 'i':
+			t.setMode(ctx, proto.GPIOModeInput)
+			t.msg = "gpio: mode input"
+		case '0':
+			t.setMode(ctx, proto.GPIOModeOutput)
+			t.writeLevel(ctx, false)
+		case '1':
+			t.setMode(ctx, proto.GPIOModeOutput)
+			t.writeLevel(ctx, true)
+		case 't':
+			t.setMode(ctx, proto.GPIOModeOutput)
+			t.toggleLevel(ctx)
+		case 'p':
+			t.setMode(ctx, proto.GPIOModeOutput)
+			t.pulse(ctx)
+		case 'g':
+			t.toggleSigGen(ctx)
+		case '[':
+			t.stepSigGenHalfPeriod(-1)
+			t.msg = fmt.Sprintf("siggen half=%s ([/] rate, g toggle)", fmtHz(t.sigGenHalfPeriodTicks))
+			if t.sigGenActive {
+				t.scheduleSigGen(ctx)
+			}
+		case ']':
+			t.stepSigGenHalfPeriod(+1)
+			t.msg = fmt.Sprintf("siggen half=%s ([/] rate, g toggle)", fmtHz(t.sigGenHalfPeriodTicks))
+			if t.sigGenActive {
+				t.scheduleSigGen(ctx)
+			}
 		case ' ':
 			t.toggleSelected()
 		}
@@ -901,8 +973,7 @@ func (t *Task) writeLevel(ctx *kernel.Context, level bool) {
 		return
 	}
 	p := t.pins[t.sel]
-	reqID := t.nextID()
-	t.sendGPIO(ctx, proto.MsgGPIOWrite, proto.GPIOWritePayload(reqID, p.id, level), t.replySend)
+	t.writeLevelPin(ctx, p.id, level)
 }
 
 func (t *Task) toggleLevel(ctx *kernel.Context) {
@@ -911,6 +982,11 @@ func (t *Task) toggleLevel(ctx *kernel.Context) {
 	}
 	p := t.pins[t.sel]
 	t.writeLevel(ctx, !p.level)
+}
+
+func (t *Task) writeLevelPin(ctx *kernel.Context, pinID uint8, level bool) {
+	reqID := t.nextID()
+	t.sendGPIO(ctx, proto.MsgGPIOWrite, proto.GPIOWritePayload(reqID, pinID, level), t.replySend)
 }
 
 func (t *Task) pulse(ctx *kernel.Context) {
@@ -933,6 +1009,62 @@ func (t *Task) pulse(ctx *kernel.Context) {
 		t.msg = fmt.Sprintf("time send: %s", res)
 		t.pulsePending = false
 	}
+}
+
+func (t *Task) toggleSigGen(ctx *kernel.Context) {
+	if t.sigGenActive {
+		t.sigGenActive = false
+		t.sigGenSleepReqID = 0
+		t.sigGenLevel = false
+		t.writeLevelPin(ctx, t.sigGenPinID, false)
+		t.msg = "siggen: stopped"
+		return
+	}
+
+	if t.sel < 0 || t.sel >= len(t.pins) {
+		return
+	}
+	if !t.timeCap.Valid() {
+		t.msg = "siggen: no time capability"
+		return
+	}
+
+	p := t.pins[t.sel]
+	t.sigGenPinID = p.id
+	t.sigGenLevel = false
+	t.sigGenActive = true
+
+	// Best-effort: drive the pin and make it visible in the wave view.
+	t.setMode(ctx, proto.GPIOModeOutput)
+	t.writeLevelPin(ctx, t.sigGenPinID, false)
+	for i := range t.pins {
+		if t.pins[i].id == t.sigGenPinID {
+			t.pins[i].selected = true
+			break
+		}
+	}
+
+	t.scheduleSigGen(ctx)
+	t.msg = fmt.Sprintf("siggen: pin=%d half=%s (g stop, [/] rate)", t.sigGenPinID, fmtHz(t.sigGenHalfPeriodTicks))
+}
+
+func (t *Task) stepSigGenHalfPeriod(dir int) {
+	steps := []uint32{1, 2, 5, 10, 20, 50, 100, 200, 500, 1000}
+	cur := 0
+	for i, v := range steps {
+		if v == t.sigGenHalfPeriodTicks {
+			cur = i
+			break
+		}
+	}
+	cur += dir
+	if cur < 0 {
+		cur = len(steps) - 1
+	}
+	if cur >= len(steps) {
+		cur = 0
+	}
+	t.sigGenHalfPeriodTicks = steps[cur]
 }
 
 func (t *Task) toggleCursor() {
