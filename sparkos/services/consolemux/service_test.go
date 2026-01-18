@@ -13,6 +13,7 @@ const testTimeout = 1 * time.Second
 type sendReq struct {
 	kind    proto.Kind
 	payload []byte
+	xfer    kernel.Capability
 	done    chan<- kernel.SendResult
 }
 
@@ -23,7 +24,7 @@ type senderTask struct {
 
 func (t *senderTask) Run(ctx *kernel.Context) {
 	for req := range t.reqs {
-		res := ctx.SendToCapResult(t.to, uint16(req.kind), req.payload, kernel.Capability{})
+		res := ctx.SendToCapResult(t.to, uint16(req.kind), req.payload, req.xfer)
 		req.done <- res
 	}
 }
@@ -63,10 +64,10 @@ func recvWithTimeout[T any](t *testing.T, ch <-chan T) T {
 	}
 }
 
-func sendTo(t *testing.T, ch chan<- sendReq, kind proto.Kind, payload []byte) {
+func sendTo(t *testing.T, ch chan<- sendReq, kind proto.Kind, payload []byte, xfer kernel.Capability) {
 	t.Helper()
 	done := make(chan kernel.SendResult, 1)
-	ch <- sendReq{kind: kind, payload: payload, done: done}
+	ch <- sendReq{kind: kind, payload: payload, xfer: xfer, done: done}
 	res := recvWithTimeout(t, done)
 	if res != kernel.SendOK {
 		t.Fatalf("send %s: %s", kind, res)
@@ -130,7 +131,7 @@ func TestCtrlGTogglesFocus(t *testing.T) {
 	k.AddTask(&senderTask{to: muxEP.Restrict(kernel.RightSend), reqs: sendReqCh})
 
 	// Shell is active by default.
-	sendTo(t, sendReqCh, proto.MsgTermInput, []byte("hello"))
+	sendTo(t, sendReqCh, proto.MsgTermInput, []byte("hello"), kernel.Capability{})
 	msg := recvWithTimeout(t, shellOut)
 	if proto.Kind(msg.Kind) != proto.MsgTermInput {
 		t.Fatalf("expected MsgTermInput, got %s", proto.Kind(msg.Kind))
@@ -140,7 +141,7 @@ func TestCtrlGTogglesFocus(t *testing.T) {
 	}
 
 	// Ctrl+G activates the app and transfers the control cap.
-	sendTo(t, sendReqCh, proto.MsgTermInput, []byte{interruptByte})
+	sendTo(t, sendReqCh, proto.MsgTermInput, []byte{interruptByte}, kernel.Capability{})
 	msg = recvWithTimeout(t, appOut)
 	if proto.Kind(msg.Kind) != proto.MsgAppControl {
 		t.Fatalf("expected MsgAppControl to app, got %s", proto.Kind(msg.Kind))
@@ -165,7 +166,7 @@ func TestCtrlGTogglesFocus(t *testing.T) {
 	}
 
 	// Now input goes to the app.
-	sendTo(t, sendReqCh, proto.MsgTermInput, []byte("x"))
+	sendTo(t, sendReqCh, proto.MsgTermInput, []byte("x"), kernel.Capability{})
 	msg = recvWithTimeout(t, appOut)
 	if proto.Kind(msg.Kind) != proto.MsgTermInput {
 		t.Fatalf("expected MsgTermInput to app, got %s", proto.Kind(msg.Kind))
@@ -175,7 +176,7 @@ func TestCtrlGTogglesFocus(t *testing.T) {
 	}
 
 	// Ctrl+G toggles back to shell; remaining bytes go to shell.
-	sendTo(t, sendReqCh, proto.MsgTermInput, []byte{interruptByte, 'y'})
+	sendTo(t, sendReqCh, proto.MsgTermInput, []byte{interruptByte, 'y'}, kernel.Capability{})
 
 	msg = recvWithTimeout(t, appOut)
 	if proto.Kind(msg.Kind) != proto.MsgAppControl {
@@ -207,5 +208,88 @@ func TestCtrlGTogglesFocus(t *testing.T) {
 	}
 	if got := string(msg.Payload()); got != "y" {
 		t.Fatalf("expected shell payload %q, got %q", "y", got)
+	}
+}
+
+func TestMuxStatus(t *testing.T) {
+	k := kernel.New()
+
+	muxEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	shellEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	appEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+
+	muxIn := muxEP.Restrict(kernel.RightRecv)
+	muxCtl := muxEP.Restrict(kernel.RightSend)
+
+	shellSend := shellEP.Restrict(kernel.RightSend)
+	shellRecv := shellEP.Restrict(kernel.RightRecv)
+
+	appSend := appEP.Restrict(kernel.RightSend)
+
+	replyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	replySend := replyEP.Restrict(kernel.RightSend)
+	replyRecv := replyEP.Restrict(kernel.RightRecv)
+
+	if !muxIn.Valid() || !muxCtl.Valid() || !shellSend.Valid() || !shellRecv.Valid() || !appSend.Valid() || !replySend.Valid() || !replyRecv.Valid() {
+		t.Fatal("expected valid capabilities")
+	}
+
+	svc := New(
+		muxIn,
+		muxCtl,
+		shellSend,
+		appSend,
+		kernel.Capability{},
+		kernel.Capability{},
+		kernel.Capability{},
+		kernel.Capability{},
+		kernel.Capability{},
+		kernel.Capability{},
+		kernel.Capability{},
+		kernel.Capability{},
+		kernel.Capability{},
+		kernel.Capability{},
+		kernel.Capability{},
+		kernel.Capability{},
+		kernel.Capability{},
+		kernel.Capability{},
+		kernel.Capability{},
+		kernel.Capability{},
+		kernel.Capability{},
+		kernel.Capability{},
+		kernel.Capability{},
+		kernel.Capability{},
+	)
+	k.AddTask(&serviceTask{svc: svc})
+
+	replyOut := make(chan kernel.Message, 16)
+	k.AddTask(&recvTask{cap: replyRecv, out: replyOut})
+
+	sendReqCh := make(chan sendReq, 16)
+	k.AddTask(&senderTask{to: muxEP.Restrict(kernel.RightSend), reqs: sendReqCh})
+
+	const requestID = 123
+	sendTo(t, sendReqCh, proto.MsgMuxStatus, proto.MuxStatusPayload(requestID), replySend)
+
+	msg := recvWithTimeout(t, replyOut)
+	if proto.Kind(msg.Kind) != proto.MsgMuxStatusResp {
+		t.Fatalf("expected MsgMuxStatusResp, got %s", proto.Kind(msg.Kind))
+	}
+
+	gotReqID, appID, focusApp, hasApp, ok := proto.DecodeMuxStatusRespPayload(msg.Payload())
+	if !ok {
+		t.Fatal("expected valid mux status payload")
+	}
+	if gotReqID != requestID {
+		t.Fatalf("expected requestID=%d, got %d", requestID, gotReqID)
+	}
+	if appID != proto.AppRTDemo {
+		t.Fatalf("expected active app %v, got %v", proto.AppRTDemo, appID)
+	}
+	if focusApp {
+		t.Fatal("expected default focus= shell")
+	}
+	if !hasApp {
+		t.Fatal("expected hasApp=true (app capability provided)")
 	}
 }

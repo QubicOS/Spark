@@ -7,8 +7,10 @@ import (
 	"strconv"
 
 	"spark/internal/buildinfo"
+	consolemuxclient "spark/sparkos/client/consolemux"
 	timeclient "spark/sparkos/client/time"
 	"spark/sparkos/kernel"
+	"spark/sparkos/proto"
 )
 
 func registerSysCommands(r *registry) error {
@@ -19,6 +21,8 @@ func registerSysCommands(r *registry) error {
 		{Name: "version", Usage: "version", Desc: "Show build version.", Run: cmdVersion},
 		{Name: "uname", Usage: "uname [-a]", Desc: "Show system information.", Run: cmdUname},
 		{Name: "free", Usage: "free [-h]", Desc: "Show memory usage.", Run: cmdFree},
+		{Name: "mux", Usage: "mux", Desc: "Show consolemux status (active app + focus).", Run: cmdMux},
+		{Name: "focus", Usage: "focus [app|shell|toggle]", Desc: "Switch focus between shell and app.", Run: cmdFocus},
 	} {
 		if err := r.register(cmd); err != nil {
 			return err
@@ -99,6 +103,117 @@ func cmdFree(ctx *kernel.Context, s *Service, args []string, _ redirection) erro
 	_ = s.printString(ctx, fmt.Sprintf("heap %11s %10s %10s\n", fmtVal(heapTotal), fmtVal(heapUsed), fmtVal(heapFree)))
 	_ = s.printString(ctx, fmt.Sprintf("sys  %11s %10s %10s\n", fmtVal(ms.Sys), fmtVal(ms.Alloc), fmtVal(sysFree)))
 	return nil
+}
+
+func cmdMux(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	if len(args) != 0 {
+		return errors.New("usage: mux")
+	}
+	st, err := consolemuxclient.GetStatus(ctx, s.muxCap)
+	if err != nil {
+		return err
+	}
+
+	focus := "shell"
+	if st.FocusApp {
+		focus = "app"
+	}
+	app := appLabel(st.ActiveApp)
+	if !st.HasApp {
+		app += " (unavailable)"
+	}
+
+	_ = s.printString(ctx, fmt.Sprintf("active=%s focus=%s\n", app, focus))
+	return nil
+}
+
+func cmdFocus(ctx *kernel.Context, s *Service, args []string, _ redirection) error {
+	if len(args) == 0 {
+		st, err := consolemuxclient.GetStatus(ctx, s.muxCap)
+		if err != nil {
+			return err
+		}
+		focus := "shell"
+		if st.FocusApp {
+			focus = "app"
+		}
+		_ = s.printString(ctx, fmt.Sprintf("focus=%s (toggle with Ctrl+G)\n", focus))
+		return nil
+	}
+	if len(args) != 1 {
+		return errors.New("usage: focus [app|shell|toggle]")
+	}
+
+	switch args[0] {
+	case "app":
+		return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(true))
+	case "shell":
+		return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(false))
+	case "toggle":
+		st, err := consolemuxclient.GetStatus(ctx, s.muxCap)
+		if err != nil {
+			return err
+		}
+		return s.sendToMux(ctx, proto.MsgAppControl, proto.AppControlPayload(!st.FocusApp))
+	default:
+		return errors.New("usage: focus [app|shell|toggle]")
+	}
+}
+
+func appLabel(id proto.AppID) string {
+	if name := appCommandName(id); name != "" {
+		return fmt.Sprintf("%s(%d)", name, id)
+	}
+	return fmt.Sprintf("app(%d)", id)
+}
+
+func appCommandName(id proto.AppID) string {
+	switch id {
+	case proto.AppNone:
+		return "none"
+	case proto.AppRTDemo:
+		return "rtdemo"
+	case proto.AppVi:
+		return "vi"
+	case proto.AppRTVoxel:
+		return "rtvoxel"
+	case proto.AppImgView:
+		return "imgview"
+	case proto.AppMC:
+		return "mc"
+	case proto.AppHex:
+		return "hex"
+	case proto.AppVector:
+		return "vector"
+	case proto.AppSnake:
+		return "snake"
+	case proto.AppTetris:
+		return "tetris"
+	case proto.AppCalendar:
+		return "cal"
+	case proto.AppTodo:
+		return "todo"
+	case proto.AppArchive:
+		return "arc"
+	case proto.AppTEA:
+		return "tea"
+	case proto.AppBasic:
+		return "basic"
+	case proto.AppRFAnalyzer:
+		return "rf"
+	case proto.AppGPIOScope:
+		return "gpio"
+	case proto.AppFBTest:
+		return "fbtest"
+	case proto.AppSerialTerm:
+		return "serial"
+	case proto.AppUsers:
+		return "users"
+	case proto.AppQuarkDonut:
+		return "donut"
+	default:
+		return ""
+	}
 }
 
 func fmtBytes(v uint64) string {

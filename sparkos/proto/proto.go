@@ -51,6 +51,8 @@ const (
 	MsgSerialSubscribe
 	MsgSerialWrite
 	MsgSerialData
+	MsgMuxStatus
+	MsgMuxStatusResp
 )
 
 // ErrCode is a generic error category for MsgError responses.
@@ -186,6 +188,10 @@ func (k Kind) String() string {
 		return "serial_write"
 	case MsgSerialData:
 		return "serial_data"
+	case MsgMuxStatus:
+		return "mux_status"
+	case MsgMuxStatusResp:
+		return "mux_status_resp"
 	default:
 		return "unknown"
 	}

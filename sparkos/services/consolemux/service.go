@@ -92,6 +92,8 @@ func (s *Service) Run(ctx *kernel.Context) {
 				continue
 			}
 			s.handleAppSelect(ctx, appID, arg)
+		case proto.MsgMuxStatus:
+			s.handleStatus(ctx, msg)
 		}
 	}
 }
@@ -155,6 +157,32 @@ func (s *Service) handleAppSelect(ctx *kernel.Context, id proto.AppID, arg strin
 	}
 	s.activeApp = id
 	_ = sendWithRetry(ctx, appCap, proto.MsgAppSelect, proto.AppSelectPayload(id, arg), kernel.Capability{})
+}
+
+func (s *Service) handleStatus(ctx *kernel.Context, msg kernel.Message) {
+	requestID, ok := proto.DecodeMuxStatusPayload(msg.Payload())
+	if !ok {
+		if msg.Cap.Valid() {
+			_ = sendWithRetry(
+				ctx,
+				msg.Cap,
+				proto.MsgError,
+				proto.ErrorPayload(proto.ErrBadMessage, proto.MsgMuxStatus, nil),
+				kernel.Capability{},
+			)
+		}
+		return
+	}
+
+	if !msg.Cap.Valid() {
+		return
+	}
+
+	activeApp := s.activeApp
+	focusApp := s.appActive
+	hasApp := s.selectedAppCap().Valid()
+	payload := proto.MuxStatusRespPayload(requestID, activeApp, focusApp, hasApp)
+	_ = sendWithRetry(ctx, msg.Cap, proto.MsgMuxStatusResp, payload, kernel.Capability{})
 }
 
 func (s *Service) selectedAppCap() kernel.Capability {
