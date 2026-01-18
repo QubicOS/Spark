@@ -48,6 +48,10 @@ type Service struct {
 	cands []string
 	best  string
 
+	compMode       completionMode
+	compTokenStart int
+	compToken      string
+
 	suppressPromptOnce bool
 
 	authed bool
