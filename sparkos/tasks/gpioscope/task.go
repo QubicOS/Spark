@@ -200,6 +200,8 @@ type Task struct {
 	i2cSDA int
 
 	decoded []string
+
+	lastRenderTick uint64
 }
 
 type focusPanel uint8
@@ -211,27 +213,28 @@ const (
 
 func New(disp hal.Display, ep, timeCap, gpioCap kernel.Capability) *Task {
 	return &Task{
-		disp:         disp,
-		ep:           ep,
-		timeCap:      timeCap,
-		gpioCap:      gpioCap,
-		mode:         modeGPIO,
-		focus:        focusWave,
-		periodTicks:  1,
-		pulseTicks:   10,
-		buf:          newRing(4096),
-		samplesPerPx: 2,
-		cursor:       -1,
-		preSamples:   250,
-		postSamples:  250,
-		uartRX:       -1,
-		uartBaud:     300,
-		spiCLK:       -1,
-		spiMOSI:      -1,
-		spiMISO:      -1,
-		spiCS:        -1,
-		i2cSCL:       -1,
-		i2cSDA:       -1,
+		disp:           disp,
+		ep:             ep,
+		timeCap:        timeCap,
+		gpioCap:        gpioCap,
+		mode:           modeGPIO,
+		focus:          focusWave,
+		periodTicks:    1,
+		pulseTicks:     10,
+		buf:            newRing(4096),
+		samplesPerPx:   2,
+		cursor:         -1,
+		preSamples:     250,
+		postSamples:    250,
+		uartRX:         -1,
+		uartBaud:       300,
+		spiCLK:         -1,
+		spiMOSI:        -1,
+		spiMISO:        -1,
+		spiCS:          -1,
+		i2cSCL:         -1,
+		i2cSDA:         -1,
+		lastRenderTick: 0,
 	}
 }
 
@@ -355,6 +358,7 @@ func (t *Task) setActive(ctx *kernel.Context, active bool) {
 		return
 	}
 	t.msg = "m menu | arrows navigate | q/ESC exit | Ctrl+G focus"
+	t.lastRenderTick = 0
 }
 
 func (t *Task) unload() {
@@ -437,9 +441,11 @@ func (t *Task) handleGPIOReply(ctx *kernel.Context, msg kernel.Message) {
 				t.sel = 0
 			}
 			t.msg = "m menu | arrows navigate | q/ESC exit | Ctrl+G focus"
+			t.maybeRender(ctx, true)
 			return
 		}
 		t.pins = append(t.pins, pin{id: pinID, caps: caps, mode: mode, pull: pull, level: level})
+		t.maybeRender(ctx, false)
 
 	case proto.MsgGPIOConfigResp:
 		_, pinID, mode, pull, level, ok := proto.DecodeGPIOConfigRespPayload(msg.Payload())
@@ -447,6 +453,7 @@ func (t *Task) handleGPIOReply(ctx *kernel.Context, msg kernel.Message) {
 			return
 		}
 		t.updatePinState(pinID, mode, pull, level)
+		t.maybeRender(ctx, true)
 
 	case proto.MsgGPIOWriteResp:
 		_, pinID, level, ok := proto.DecodeGPIOWriteRespPayload(msg.Payload())
@@ -454,6 +461,7 @@ func (t *Task) handleGPIOReply(ctx *kernel.Context, msg kernel.Message) {
 			return
 		}
 		t.updatePinLevel(pinID, level)
+		t.maybeRender(ctx, true)
 
 	case proto.MsgGPIOReadResp:
 		reqID, mask, levels, ok := proto.DecodeGPIOReadRespPayload(msg.Payload())
@@ -462,7 +470,11 @@ func (t *Task) handleGPIOReply(ctx *kernel.Context, msg kernel.Message) {
 			return
 		}
 		_ = mask
+		wasFrozen := t.frozenActive
+		wasRunning := t.running
 		t.onSample(levels)
+		force := (!wasFrozen && t.frozenActive) || (wasRunning && !t.running)
+		t.maybeRender(ctx, force)
 
 	case proto.MsgError:
 		code, ref, detail, ok := proto.DecodeErrorPayload(msg.Payload())
@@ -474,9 +486,25 @@ func (t *Task) handleGPIOReply(ctx *kernel.Context, msg kernel.Message) {
 			detail = rest
 		}
 		t.msg = fmt.Sprintf("gpio error: code=%s ref=%s %s", code, ref, string(detail))
+		t.maybeRender(ctx, true)
 	}
 
 	_ = ctx
+}
+
+func (t *Task) maybeRender(ctx *kernel.Context, force bool) {
+	if !t.active || t.fb == nil || t.d == nil {
+		return
+	}
+
+	const renderEveryTicks = 16
+	now := ctx.NowTick()
+	if !force && now-t.lastRenderTick < renderEveryTicks {
+		return
+	}
+
+	t.lastRenderTick = now
+	t.render()
 }
 
 func (t *Task) updatePinState(pinID uint8, mode proto.GPIOMode, pull proto.GPIOPull, level bool) {
