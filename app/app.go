@@ -15,6 +15,7 @@ import (
 	timesvc "spark/sparkos/services/time"
 	"spark/sparkos/services/ui"
 	"spark/sparkos/services/vfs"
+	"spark/sparkos/tasks/bootmsg"
 	"spark/sparkos/tasks/termdemo"
 )
 
@@ -117,6 +118,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 
 	if cfg.Shell {
 		k.AddTask(term.New(h.Display(), termEP.Restrict(kernel.RightRecv)))
+		k.AddTask(bootmsg.New(termEP.Restrict(kernel.RightSend)))
 		k.AddTask(appmgr.New(
 			h.Display(),
 			vfsEP.Restrict(kernel.RightSend),
