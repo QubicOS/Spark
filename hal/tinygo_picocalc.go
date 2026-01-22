@@ -40,12 +40,8 @@ func New() HAL {
 		disp = newPicoCalcDisplayStub()
 	}
 
-	var kbd Keyboard
-	if kb, err := newPicoCalcKeyboard(); err == nil {
-		kbd = kb
-	} else {
-		kbd = &stubKeyboard{}
-	}
+	// Disable PicoCalc keyboard to minimize boot risk during bring-up.
+	var kbd Keyboard = &stubKeyboard{}
 
 	return &picoCalcHAL{
 		logger: &uartLogger{uart: uart},
