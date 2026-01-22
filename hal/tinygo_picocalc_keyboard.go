@@ -23,6 +23,13 @@ const (
 	picoCalcKeyF1        byte = 0x81
 	picoCalcKeyF2        byte = 0x82
 	picoCalcKeyF3        byte = 0x83
+	picoCalcKeyF4        byte = 0x84
+	picoCalcKeyF5        byte = 0x85
+	picoCalcKeyF6        byte = 0x86
+	picoCalcKeyF7        byte = 0x87
+	picoCalcKeyF8        byte = 0x88
+	picoCalcKeyF9        byte = 0x89
+	picoCalcKeyF10       byte = 0x90 // Oddly not 0x8A on PicoCalc.
 	picoCalcKeyHome      byte = 0xD2
 	picoCalcKeyIns       byte = 0xD1
 	picoCalcKeyLeft      byte = 0xB4
@@ -97,7 +104,21 @@ func (k *i2cKeyboard) readEvent() (KeyEvent, bool) {
 		}
 		return KeyEvent{}, false
 	case 0x03: // key up
-		return k.translate(key, false)
+		// PicoCalc firmware reports key-up mostly for modifier keys.
+		// Emit release events only for special keys so termkbd can stop repeats.
+		switch key {
+		case picoCalcKeyAlt:
+			k.altDown = false
+			return KeyEvent{}, false
+		case picoCalcKeyCtrl:
+			k.ctrlDown = false
+			return KeyEvent{}, false
+		default:
+			if kc := k.mapSpecial(key); kc != KeyUnknown {
+				return KeyEvent{Press: false, Code: kc}, true
+			}
+			return KeyEvent{}, false
+		}
 	default:
 		// key held or unknown: ignore (repeat handled in termkbd).
 		return KeyEvent{}, false
@@ -168,6 +189,9 @@ func (k *i2cKeyboard) mapSpecial(code byte) KeyCode {
 		return KeyF2
 	case picoCalcKeyF3:
 		return KeyF3
+	case picoCalcKeyF4, picoCalcKeyF5, picoCalcKeyF6, picoCalcKeyF7, picoCalcKeyF8, picoCalcKeyF9, picoCalcKeyF10:
+		// Not mapped currently (termkbd provides VT100 mappings for F1..F3 only).
+		return KeyUnknown
 	case picoCalcKeyIns:
 		// No direct VT100 mapping in termkbd; treat as Tab for now.
 		return KeyTab

@@ -3,10 +3,7 @@ package app
 import (
 	"spark/hal"
 	"spark/sparkos/kernel"
-	audiosvc "spark/sparkos/services/audio"
-	gpiosvc "spark/sparkos/services/gpio"
 	"spark/sparkos/services/logger"
-	serialsvc "spark/sparkos/services/serial"
 	"spark/sparkos/services/shell"
 	"spark/sparkos/services/term"
 	"spark/sparkos/services/termkbd"
@@ -65,26 +62,19 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	audioEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	gpioEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	serialEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
-	// Additional app endpoints (appmgr/consolemux) are allocated lazily only when enabled.
 
 	k.AddTask(logger.New(h.Logger(), logEP.Restrict(kernel.RightRecv)))
 	k.AddTask(timesvc.New(timeEP))
 	k.AddTask(vfs.New(h.Flash(), vfsEP.Restrict(kernel.RightRecv)))
-	k.AddTask(gpiosvc.New(h.GPIO(), gpioEP.Restrict(kernel.RightRecv)))
-	k.AddTask(serialsvc.New(h.Serial(), serialEP.Restrict(kernel.RightRecv)))
-	if ha := h.Audio(); ha != nil {
-		k.AddTask(audiosvc.New(audioEP.Restrict(kernel.RightRecv), vfsEP.Restrict(kernel.RightSend), ha.PWM()))
-	} else {
-		k.AddTask(audiosvc.New(audioEP.Restrict(kernel.RightRecv), vfsEP.Restrict(kernel.RightSend), nil))
-	}
+	_ = audioEP
+	_ = gpioEP
+	_ = serialEP
 
 	if cfg.Shell {
 		bootScreen(h, "init: term")
 		k.AddTask(term.New(h.Display(), termEP.Restrict(kernel.RightRecv)))
 		k.AddTask(bootmsg.New(termEP.Restrict(kernel.RightSend)))
-		bootScreen(h, "init: termkbd/shell")
-		// Minimal shell mode: connect keyboard directly to shell input,
-		// bypass consolemux+appmgr to reduce memory pressure.
+		bootScreen(h, "init: termkbd")
 		k.AddTask(termkbd.NewInput(h.Input(), shellEP.Restrict(kernel.RightSend)))
 		k.AddTask(shell.New(
 			shellEP.Restrict(kernel.RightRecv),

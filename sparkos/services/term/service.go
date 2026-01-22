@@ -76,14 +76,10 @@ func (s *Service) Run(ctx *kernel.Context) {
 			switch proto.Kind(msg.Kind) {
 			case proto.MsgTermWrite:
 				_, _ = s.t.Write(msg.Payload())
-				// Display immediately to avoid relying on tick scheduling.
-				// This keeps the shell responsive during early boot on baremetal.
-				s.t.Display()
-				dirty = false
+				dirty = true
 			case proto.MsgTermClear:
 				s.reset()
-				s.t.Display()
-				dirty = false
+				dirty = true
 			case proto.MsgTermRefresh:
 				s.t.Display()
 				dirty = false
@@ -102,6 +98,5 @@ func (s *Service) reset() {
 		UseSoftwareScroll: true,
 	})
 	s.fb.ClearRGB(0, 0, 0)
-	_, _ = s.t.Write([]byte("term: ready\n"))
 	_ = s.fb.Present()
 }

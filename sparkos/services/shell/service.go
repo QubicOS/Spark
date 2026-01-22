@@ -95,7 +95,15 @@ func (s *Service) Run(ctx *kernel.Context) {
 
 	s.initTabsIfNeeded()
 	if s.reg == nil {
-		if err := s.initRegistry(); err != nil {
+		// In minimal mode (no VFS, no consolemux) keep the registry smaller to reduce
+		// memory pressure on baremetal bring-up.
+		var err error
+		if !s.vfsCap.Valid() && !s.muxCap.Valid() {
+			err = s.initRegistryMinimal()
+		} else {
+			err = s.initRegistry()
+		}
+		if err != nil {
 			_ = s.printString(ctx, "shell: init: "+err.Error()+"\n")
 			return
 		}
