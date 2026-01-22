@@ -11,6 +11,7 @@ import (
 	"spark/sparkos/services/ui"
 	"spark/sparkos/services/vfs"
 	"spark/sparkos/tasks/bootmsg"
+	"spark/sparkos/tasks/kbdprobe"
 	"spark/sparkos/tasks/termdemo"
 )
 
@@ -74,6 +75,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 		bootScreen(h, "init: term")
 		k.AddTask(term.New(h.Display(), termEP.Restrict(kernel.RightRecv)))
 		k.AddTask(bootmsg.New(termEP.Restrict(kernel.RightSend)))
+		k.AddTask(kbdprobe.New(termEP.Restrict(kernel.RightSend)))
 		bootScreen(h, "init: termkbd")
 		k.AddTask(termkbd.NewInput(h.Input(), shellEP.Restrict(kernel.RightSend)))
 		k.AddTask(shell.New(
