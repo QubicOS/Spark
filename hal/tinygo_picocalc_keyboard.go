@@ -5,6 +5,7 @@ package hal
 import (
 	"fmt"
 	"machine"
+	"time"
 )
 
 const (
@@ -47,22 +48,27 @@ func initI2CKeyboard() (*i2cKeyboard, error) {
 		if bus == nil {
 			continue
 		}
-		if err := bus.Configure(machine.I2CConfig{
-			SCL:       machine.GP7,
-			SDA:       machine.GP6,
-			Frequency: 100_000,
-		}); err != nil {
-			continue
+		for _, freq := range []uint32{100_000, 400_000} {
+			if err := bus.Configure(machine.I2CConfig{
+				SCL:       machine.GP7,
+				SDA:       machine.GP6,
+				Frequency: freq,
+			}); err != nil {
+				continue
+			}
+
+			k := &i2cKeyboard{i2c: bus, write: write}
+
+			// Probe the device to ensure the selected I2C instance works.
+			// On boot the keyboard MCU can be slow to respond, so retry briefly.
+			const probeTries = 50
+			for i := 0; i < probeTries; i++ {
+				if err := k.i2c.Tx(picoCalcKbdAddr, k.write[:], k.read[:]); err == nil {
+					return k, nil
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
 		}
-
-		k := &i2cKeyboard{i2c: bus, write: write}
-
-		// Probe the device to ensure the selected I2C instance works.
-		if err := k.i2c.Tx(picoCalcKbdAddr, k.write[:], k.read[:]); err != nil {
-			continue
-		}
-
-		return k, nil
 	}
 
 	return nil, fmt.Errorf("keyboard: I2C unavailable")
