@@ -54,7 +54,9 @@ func (s *Service) writeBytes(ctx *kernel.Context, b []byte) error {
 }
 
 func (s *Service) sendToTerm(ctx *kernel.Context, kind proto.Kind, payload []byte) error {
-	res := ctx.SendToCapRetry(s.termCap, uint16(kind), payload, kernel.Capability{}, 500)
+	// Shell startup can race the terminal task init; tolerate longer backpressure
+	// to avoid dropping the initial banner/login prompt.
+	res := ctx.SendToCapRetry(s.termCap, uint16(kind), payload, kernel.Capability{}, 5000)
 	switch res {
 	case kernel.SendOK:
 		return nil

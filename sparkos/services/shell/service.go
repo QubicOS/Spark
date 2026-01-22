@@ -90,6 +90,9 @@ func (s *Service) Run(ctx *kernel.Context) {
 		return
 	}
 
+	// Give the terminal task a moment to initialize (framebuffer, tinyterm config).
+	ctx.BlockOnTick()
+
 	s.initTabsIfNeeded()
 	if s.reg == nil {
 		if err := s.initRegistry(); err != nil {
