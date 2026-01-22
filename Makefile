@@ -84,14 +84,14 @@ vfs: make-vfs
 
 tinygo-uf2:
 	mkdir -p $(DIST_DIR)
-	$(TINYGO) build -target=pico2 -size=full -tags=shell -o $(UF2) .
+	$(TINYGO) build -target=pico2 -size=full -o $(UF2) .
 
 tinygo-flash:
 	$(TINYGO) flash -target=pico2 .
 
 tinygo-uf2-picocalc:
 	mkdir -p $(DIST_DIR)
-	$(TINYGO) build -target=pico2 -size=full -tags=picocalc,shell,spark_vi -o dist/spark-picocalc.uf2 .
+	$(TINYGO) build -target=pico2 -size=full -tags=picocalc,spark_vi -o dist/spark-picocalc.uf2 .
 
 tinygo-flash-picocalc:
 	$(TINYGO) flash -target=pico -tags=picocalc .
