@@ -45,6 +45,10 @@ type i2cKeyboard struct {
 
 	altDown  bool
 	ctrlDown bool
+
+	freq        uint32
+	ignoreUntil time.Time
+	errStreak   int
 }
 
 func initI2CKeyboard() (*i2cKeyboard, error) {
@@ -64,7 +68,12 @@ func initI2CKeyboard() (*i2cKeyboard, error) {
 				continue
 			}
 
-			k := &i2cKeyboard{i2c: bus, write: write}
+			k := &i2cKeyboard{
+				i2c:         bus,
+				write:       write,
+				freq:        freq,
+				ignoreUntil: time.Now().Add(300 * time.Millisecond),
+			}
 
 			// Probe the device to ensure the selected I2C instance works.
 			// On boot the keyboard MCU can be slow to respond, so retry briefly.
@@ -82,9 +91,27 @@ func initI2CKeyboard() (*i2cKeyboard, error) {
 }
 
 func (k *i2cKeyboard) readEvent() (KeyEvent, bool) {
-	if err := k.i2c.Tx(picoCalcKbdAddr, k.write[:], k.read[:]); err != nil {
+	// Ignore any garbage/queued events while the keyboard MCU is still booting.
+	if time.Now().Before(k.ignoreUntil) {
+		_ = k.i2c.Tx(picoCalcKbdAddr, k.write[:], k.read[:])
 		return KeyEvent{}, false
 	}
+
+	if err := k.i2c.Tx(picoCalcKbdAddr, k.write[:], k.read[:]); err != nil {
+		k.errStreak++
+		// Reconfigure periodically to recover from transient bus glitches.
+		if k.errStreak >= 200 {
+			_ = k.i2c.Configure(machine.I2CConfig{
+				SCL:       machine.GP7,
+				SDA:       machine.GP6,
+				Frequency: k.freq,
+			})
+			k.errStreak = 0
+			k.ignoreUntil = time.Now().Add(50 * time.Millisecond)
+		}
+		return KeyEvent{}, false
+	}
+	k.errStreak = 0
 	if k.read[0] == 0 && k.read[1] == 0 {
 		return KeyEvent{}, false
 	}
