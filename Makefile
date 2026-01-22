@@ -91,7 +91,7 @@ tinygo-flash:
 
 tinygo-uf2-picocalc:
 	mkdir -p $(DIST_DIR)
-	$(TINYGO) build -target=pico -size=full -tags=picocalc -o dist/spark-picocalc.uf2 .
+	$(TINYGO) build -target=pico2 -size=full -tags=picocalc,shell,spark_vi -o dist/spark-picocalc.uf2 .
 
 tinygo-flash-picocalc:
 	$(TINYGO) flash -target=pico -tags=picocalc .
