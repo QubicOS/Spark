@@ -98,10 +98,13 @@ func (s *Service) Run(ctx *kernel.Context) {
 		}
 	}
 
+	_ = s.sendToTerm(ctx, proto.MsgTermClear, nil)
 	_ = s.printString(ctx, "\x1b[0m")
 	_ = s.printString(ctx, s.banner())
+	_ = s.sendToTerm(ctx, proto.MsgTermRefresh, nil)
 	s.authBanner = true
 	s.beginAuth(ctx)
+	_ = s.sendToTerm(ctx, proto.MsgTermRefresh, nil)
 
 	for msg := range ch {
 		switch proto.Kind(msg.Kind) {
