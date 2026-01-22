@@ -222,6 +222,9 @@ func newSystem(h hal.HAL, cfg Config) *system {
 		))
 		bootScreen(h, "init: termkbd/shell")
 		k.AddTask(termkbd.NewInput(h.Input(), muxEP.Restrict(kernel.RightSend)))
+		if in := h.Input(); in == nil || in.Keyboard() == nil || in.Keyboard().Events() == nil {
+			bootScreen(h, "kbd: no events")
+		}
 		k.AddTask(shell.New(
 			shellEP.Restrict(kernel.RightRecv),
 			termEP.Restrict(kernel.RightSend),

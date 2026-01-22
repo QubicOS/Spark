@@ -47,7 +47,11 @@ func initI2CKeyboard() (*i2cKeyboard, error) {
 		if bus == nil {
 			continue
 		}
-		if err := bus.Configure(machine.I2CConfig{SCL: machine.GP7, SDA: machine.GP6}); err != nil {
+		if err := bus.Configure(machine.I2CConfig{
+			SCL:       machine.GP7,
+			SDA:       machine.GP6,
+			Frequency: 100_000,
+		}); err != nil {
 			continue
 		}
 
@@ -78,6 +82,14 @@ func (k *i2cKeyboard) readEvent() (KeyEvent, bool) {
 	switch eventType {
 	case 0x01: // key down
 		return k.translate(key, true)
+	case 0x02: // key held (mostly modifiers)
+		switch key {
+		case picoCalcKeyAlt:
+			k.altDown = true
+		case picoCalcKeyCtrl:
+			k.ctrlDown = true
+		}
+		return KeyEvent{}, false
 	case 0x03: // key up
 		return k.translate(key, false)
 	default:
