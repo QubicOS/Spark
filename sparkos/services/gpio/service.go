@@ -72,7 +72,7 @@ func (s *Service) handleList(ctx *kernel.Context, msg kernel.Message) {
 	if !reply.Valid() {
 		return
 	}
-	requestID, ok := proto.DecodeGPIOListPayload(msg.Payload())
+	requestID, ok := proto.DecodeGPIOListPayload(msg.Data[:msg.Len])
 	if !ok {
 		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgGPIOList, 0, "decode list")
 		return
@@ -106,7 +106,7 @@ func (s *Service) handleConfig(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	requestID, pinID, mode, pull, ok := proto.DecodeGPIOConfigPayload(msg.Payload())
+	requestID, pinID, mode, pull, ok := proto.DecodeGPIOConfigPayload(msg.Data[:msg.Len])
 	if !ok {
 		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgGPIOConfig, 0, "decode config")
 		return
@@ -140,7 +140,7 @@ func (s *Service) handleWrite(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	requestID, pinID, level, ok := proto.DecodeGPIOWritePayload(msg.Payload())
+	requestID, pinID, level, ok := proto.DecodeGPIOWritePayload(msg.Data[:msg.Len])
 	if !ok {
 		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgGPIOWrite, 0, "decode write")
 		return
@@ -168,7 +168,7 @@ func (s *Service) handleRead(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	requestID, mask, ok := proto.DecodeGPIOReadPayload(msg.Payload())
+	requestID, mask, ok := proto.DecodeGPIOReadPayload(msg.Data[:msg.Len])
 	if !ok {
 		_ = s.sendErr(ctx, reply, proto.ErrBadMessage, proto.MsgGPIORead, 0, "decode read")
 		return
@@ -196,11 +196,17 @@ func (s *Service) handleRead(ctx *kernel.Context, msg kernel.Message) {
 }
 
 func (s *Service) send(ctx *kernel.Context, reply kernel.Capability, kind proto.Kind, payload []byte) error {
-	res := ctx.SendToCapRetry(reply, uint16(kind), payload, kernel.Capability{}, 500)
-	if res == kernel.SendOK {
-		return nil
+	for {
+		res := ctx.SendToCapResult(reply, uint16(kind), payload, kernel.Capability{})
+		switch res {
+		case kernel.SendOK:
+			return nil
+		case kernel.SendErrQueueFull:
+			ctx.BlockOnTick()
+		default:
+			return fmt.Errorf("gpio send: %s", res)
+		}
 	}
-	return fmt.Errorf("gpio send: %s", res)
 }
 
 func (s *Service) sendErr(
