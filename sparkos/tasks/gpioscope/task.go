@@ -131,7 +131,14 @@ type Task struct {
 
 	inbuf []byte
 
-	mode mode
+	mode  mode
+	focus focusPanel
+
+	showMenu bool
+	menuCat  menuCategory
+	menuSel  int
+	showHelp bool
+	showGrid bool
 
 	pins []pin
 	sel  int
@@ -202,6 +209,13 @@ type Task struct {
 
 	lastRenderTick uint64
 }
+
+type focusPanel uint8
+
+const (
+	focusPins focusPanel = iota
+	focusWave
+)
 
 func New(disp hal.Display, ep, timeCap, gpioCap kernel.Capability) *Task {
 	return &Task{
@@ -304,17 +318,17 @@ func (t *Task) handleAppMsg(ctx *kernel.Context, msg kernel.Message) {
 		if msg.Cap.Valid() {
 			t.muxCap = msg.Cap
 		}
-		active, ok := proto.DecodeAppControlPayload(msg.Data[:msg.Len])
+		active, ok := proto.DecodeAppControlPayload(msg.Payload())
 		if !ok {
 			return
 		}
-		t.setActive(active)
+		t.setActive(ctx, active)
 		if t.active {
 			t.render()
 		}
 
 	case proto.MsgAppSelect:
-		appID, _, ok := proto.DecodeAppSelectPayload(msg.Data[:msg.Len])
+		appID, _, ok := proto.DecodeAppSelectPayload(msg.Payload())
 		if !ok || appID != proto.AppGPIOScope {
 			return
 		}
@@ -327,18 +341,15 @@ func (t *Task) handleAppMsg(ctx *kernel.Context, msg kernel.Message) {
 		if !t.active {
 			return
 		}
-		t.handleInput(ctx, msg.Data[:msg.Len])
+		t.handleInput(ctx, msg.Payload())
 		if t.active {
 			t.render()
 		}
 	}
 }
 
-func (t *Task) setActive(active bool) {
+func (t *Task) setActive(ctx *kernel.Context, active bool) {
 	if active == t.active {
-		if !active {
-			t.unload()
-		}
 		return
 	}
 	t.active = active
@@ -382,17 +393,20 @@ func (t *Task) requestExit(ctx *kernel.Context) {
 	if !t.muxCap.Valid() {
 		return
 	}
-	for {
-		res := ctx.SendToCapResult(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{})
-		switch res {
-		case kernel.SendOK:
-			return
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			return
-		}
+	_ = ctx.SendToCapRetry(t.muxCap, uint16(proto.MsgAppControl), proto.AppControlPayload(false), kernel.Capability{}, 500)
+}
+
+func (t *Task) openMenu() {
+	t.showMenu = true
+	if t.menuCat > menuHelp {
+		t.menuCat = menuView
 	}
+	t.menuSel = 0
+}
+
+func (t *Task) closeOverlays() {
+	t.showMenu = false
+	t.showHelp = false
 }
 
 func (t *Task) nextID() uint32 {
@@ -417,24 +431,16 @@ func (t *Task) sendGPIO(ctx *kernel.Context, kind proto.Kind, payload []byte, re
 		t.msg = "gpio: no capability"
 		return
 	}
-	for {
-		res := ctx.SendToCapResult(t.gpioCap, uint16(kind), payload, reply)
-		switch res {
-		case kernel.SendOK:
-			return
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			t.msg = fmt.Sprintf("gpio send: %s", res)
-			return
-		}
+	res := ctx.SendToCapRetry(t.gpioCap, uint16(kind), payload, reply, 500)
+	if res != kernel.SendOK {
+		t.msg = fmt.Sprintf("gpio send: %s", res)
 	}
 }
 
 func (t *Task) handleGPIOReply(ctx *kernel.Context, msg kernel.Message) {
 	switch proto.Kind(msg.Kind) {
 	case proto.MsgGPIOListResp:
-		reqID, done, pinID, caps, mode, pull, level, ok := proto.DecodeGPIOListRespPayload(msg.Data[:msg.Len])
+		reqID, done, pinID, caps, mode, pull, level, ok := proto.DecodeGPIOListRespPayload(msg.Payload())
 		if !ok || !t.listPending || reqID != t.listReqID {
 			return
 		}
@@ -455,7 +461,7 @@ func (t *Task) handleGPIOReply(ctx *kernel.Context, msg kernel.Message) {
 		t.maybeRender(ctx, false)
 
 	case proto.MsgGPIOConfigResp:
-		_, pinID, mode, pull, level, ok := proto.DecodeGPIOConfigRespPayload(msg.Data[:msg.Len])
+		_, pinID, mode, pull, level, ok := proto.DecodeGPIOConfigRespPayload(msg.Payload())
 		if !ok {
 			return
 		}
@@ -463,7 +469,7 @@ func (t *Task) handleGPIOReply(ctx *kernel.Context, msg kernel.Message) {
 		t.maybeRender(ctx, true)
 
 	case proto.MsgGPIOWriteResp:
-		_, pinID, level, ok := proto.DecodeGPIOWriteRespPayload(msg.Data[:msg.Len])
+		_, pinID, level, ok := proto.DecodeGPIOWriteRespPayload(msg.Payload())
 		if !ok {
 			return
 		}
@@ -471,7 +477,7 @@ func (t *Task) handleGPIOReply(ctx *kernel.Context, msg kernel.Message) {
 		t.maybeRender(ctx, true)
 
 	case proto.MsgGPIOReadResp:
-		reqID, mask, levels, ok := proto.DecodeGPIOReadRespPayload(msg.Data[:msg.Len])
+		reqID, mask, levels, ok := proto.DecodeGPIOReadRespPayload(msg.Payload())
 		if !ok {
 			_ = reqID
 			return
@@ -484,7 +490,7 @@ func (t *Task) handleGPIOReply(ctx *kernel.Context, msg kernel.Message) {
 		t.maybeRender(ctx, force)
 
 	case proto.MsgError:
-		code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
+		code, ref, detail, ok := proto.DecodeErrorPayload(msg.Payload())
 		if !ok {
 			return
 		}
@@ -540,7 +546,7 @@ func (t *Task) handleWake(ctx *kernel.Context, msg kernel.Message) {
 	switch proto.Kind(msg.Kind) {
 	case proto.MsgWake:
 	case proto.MsgError:
-		code, ref, detail, ok := proto.DecodeErrorPayload(msg.Data[:msg.Len])
+		code, ref, detail, ok := proto.DecodeErrorPayload(msg.Payload())
 		if !ok {
 			return
 		}
@@ -554,7 +560,7 @@ func (t *Task) handleWake(ctx *kernel.Context, msg kernel.Message) {
 		return
 	}
 
-	reqID, ok := proto.DecodeWakePayload(msg.Data[:msg.Len])
+	reqID, ok := proto.DecodeWakePayload(msg.Payload())
 	if !ok {
 		return
 	}
@@ -587,17 +593,9 @@ func (t *Task) scheduleWake(ctx *kernel.Context) {
 	}
 	t.sampleSleepReqID = t.nextID()
 	payload := proto.SleepPayload(t.sampleSleepReqID, t.periodTicks)
-	for {
-		res := ctx.SendToCapResult(t.timeCap, uint16(proto.MsgSleep), payload, t.sleepSendCap)
-		switch res {
-		case kernel.SendOK:
-			return
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			t.msg = fmt.Sprintf("time send: %s", res)
-			return
-		}
+	res := ctx.SendToCapRetry(t.timeCap, uint16(proto.MsgSleep), payload, t.sleepSendCap, 500)
+	if res != kernel.SendOK {
+		t.msg = fmt.Sprintf("time send: %s", res)
 	}
 }
 
@@ -704,18 +702,36 @@ func (t *Task) handleInput(ctx *kernel.Context, b []byte) {
 }
 
 func (t *Task) handleKey(ctx *kernel.Context, k key) (exit bool) {
+	if t.showHelp {
+		switch k.kind {
+		case keyEsc:
+			t.showHelp = false
+		case keyRune:
+			if k.r == 'q' {
+				t.requestExit(ctx)
+				return true
+			}
+		}
+		return false
+	}
+
+	if t.showMenu {
+		return t.handleMenuKey(ctx, k)
+	}
+
 	switch k.kind {
 	case keyEsc:
-		if t.running {
-			t.running = false
-			t.msg = "stopped"
-			return false
-		}
 		t.requestExit(ctx)
 		return true
 
 	case keyRune:
 		switch k.r {
+		case 'm':
+			t.openMenu()
+			return false
+		case 'h':
+			t.showHelp = true
+			return false
 		case 'q':
 			t.requestExit(ctx)
 			return true
@@ -753,82 +769,15 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) (exit bool) {
 			}
 		case ' ':
 			t.toggleSelected()
-		case 't':
-			t.cycleTrigger()
-		case 's':
-			t.singleShot = !t.singleShot
-		case 'i':
-			t.setMode(ctx, proto.GPIOModeInput)
-		case 'o':
-			t.setMode(ctx, proto.GPIOModeOutput)
-		case 'u':
-			t.setPull(ctx, proto.GPIOPullUp)
-		case 'd':
-			if t.mode == modeProtocol {
-				t.decode()
-				return false
-			}
-			t.setPull(ctx, proto.GPIOPullDown)
-		case 'n':
-			t.setPull(ctx, proto.GPIOPullNone)
-		case 'h':
-			t.writeLevel(ctx, true)
-		case 'l':
-			t.writeLevel(ctx, false)
-		case 'x':
-			t.toggleLevel(ctx)
-		case 'p':
-			t.pulse(ctx)
-		case ',':
-			if t.periodTicks > 1 {
-				t.periodTicks--
-			}
-		case '.':
-			if t.periodTicks < 1000 {
-				t.periodTicks++
-			}
-		case '+':
-			t.samplesPerPx = clampInt(t.samplesPerPx-1, 1, 64)
-		case '-':
-			t.samplesPerPx = clampInt(t.samplesPerPx+1, 1, 64)
-		case 'c':
-			t.toggleCursor()
-		case '[':
-			t.moveCursor(-t.samplesPerPx)
-		case ']':
-			t.moveCursor(t.samplesPerPx)
-		case '1':
-			t.pk = protoNone
-		case '2':
-			t.pk = protoUART
-		case '3':
-			t.pk = protoSPI
-		case '4':
-			t.pk = protoI2C
-		case 'R':
-			t.assignUARTRX()
-		case 'C':
-			t.assignSPI("clk")
-		case 'M':
-			t.assignSPI("mosi")
-		case 'I':
-			t.assignSPI("miso")
-		case 'S':
-			t.assignSPI("cs")
-		case 'P':
-			t.spiCPOL = !t.spiCPOL
-		case 'H':
-			t.spiCPHA = !t.spiCPHA
-		case 'A':
-			t.assignI2C("scl")
-		case 'D':
-			t.assignI2C("sda")
 		}
 
 	case keyTab:
-		t.mode++
-		if t.mode > modeProtocol {
-			t.mode = modeGPIO
+		if t.focus == focusPins {
+			t.focus = focusWave
+			t.msg = "focus: wave"
+		} else {
+			t.focus = focusPins
+			t.msg = "focus: pins"
 		}
 
 	case keyUp:
@@ -842,27 +791,119 @@ func (t *Task) handleKey(ctx *kernel.Context, k key) (exit bool) {
 		}
 
 	case keyLeft:
-		if t.scroll < 1_000_000 {
-			t.scroll += t.samplesPerPx
+		if t.mode != modeGPIO {
+			if t.scroll < 1_000_000 {
+				t.scroll += t.samplesPerPx
+			}
 		}
 
 	case keyRight:
-		t.scroll -= t.samplesPerPx
-		if t.scroll < 0 {
-			t.scroll = 0
+		if t.mode != modeGPIO {
+			t.scroll -= t.samplesPerPx
+			if t.scroll < 0 {
+				t.scroll = 0
+			}
 		}
 
 	case keyPageUp:
-		t.scroll += 200 * t.samplesPerPx
+		if t.mode != modeGPIO {
+			t.scroll += 200 * t.samplesPerPx
+		}
 
 	case keyPageDown:
-		t.scroll -= 200 * t.samplesPerPx
-		if t.scroll < 0 {
-			t.scroll = 0
+		if t.mode != modeGPIO {
+			t.scroll -= 200 * t.samplesPerPx
+			if t.scroll < 0 {
+				t.scroll = 0
+			}
+		}
+
+	case keyEnter:
+		if t.mode == modeGPIO || t.focus == focusPins {
+			t.toggleSelected()
 		}
 	}
 
 	_ = ctx
+	return false
+}
+
+func (t *Task) handleMenuKey(ctx *kernel.Context, k key) (exit bool) {
+	items := t.menuItems(t.menuCat)
+	if len(items) == 0 {
+		t.showMenu = false
+		return false
+	}
+	if t.menuSel < 0 {
+		t.menuSel = 0
+	}
+	if t.menuSel >= len(items) {
+		t.menuSel = len(items) - 1
+	}
+
+	switch k.kind {
+	case keyEsc:
+		t.showMenu = false
+		return false
+
+	case keyRune:
+		switch k.r {
+		case 'm':
+			t.showMenu = false
+			return false
+		case 'q':
+			t.requestExit(ctx)
+			return true
+		}
+
+	case keyLeft:
+		cats := t.menuCats()
+		cur := 0
+		for i, c := range cats {
+			if c == t.menuCat {
+				cur = i
+				break
+			}
+		}
+		cur--
+		if cur < 0 {
+			cur = len(cats) - 1
+		}
+		t.menuCat = cats[cur]
+		t.menuSel = 0
+
+	case keyRight:
+		cats := t.menuCats()
+		cur := 0
+		for i, c := range cats {
+			if c == t.menuCat {
+				cur = i
+				break
+			}
+		}
+		cur++
+		if cur >= len(cats) {
+			cur = 0
+		}
+		t.menuCat = cats[cur]
+		t.menuSel = 0
+
+	case keyUp:
+		if t.menuSel > 0 {
+			t.menuSel--
+		}
+
+	case keyDown:
+		if t.menuSel+1 < len(items) {
+			t.menuSel++
+		}
+
+	case keyEnter:
+		if t.menuSel >= 0 && t.menuSel < len(items) && items[t.menuSel].Action != nil {
+			items[t.menuSel].Action(ctx, t)
+		}
+	}
+
 	return false
 }
 
@@ -871,6 +912,26 @@ func (t *Task) toggleSelected() {
 		return
 	}
 	t.pins[t.sel].selected = !t.pins[t.sel].selected
+}
+
+func (t *Task) setRunning(ctx *kernel.Context, on bool) {
+	if on == t.running {
+		return
+	}
+	t.running = on
+	if !t.running {
+		t.msg = "stopped"
+		return
+	}
+
+	t.frozenActive = false
+	t.decoded = nil
+	t.triggered = false
+	t.msg = "running"
+	if t.active {
+		t.sendRead(ctx)
+		t.scheduleWake(ctx)
+	}
 }
 
 func (t *Task) cycleTrigger() {
@@ -943,18 +1004,10 @@ func (t *Task) pulse(ctx *kernel.Context) {
 
 	t.pulseSleepReqID = t.nextID()
 	payload := proto.SleepPayload(t.pulseSleepReqID, t.pulseTicks)
-	for {
-		res := ctx.SendToCapResult(t.timeCap, uint16(proto.MsgSleep), payload, t.sleepSendCap)
-		switch res {
-		case kernel.SendOK:
-			return
-		case kernel.SendErrQueueFull:
-			ctx.BlockOnTick()
-		default:
-			t.msg = fmt.Sprintf("time send: %s", res)
-			t.pulsePending = false
-			return
-		}
+	res := ctx.SendToCapRetry(t.timeCap, uint16(proto.MsgSleep), payload, t.sleepSendCap, 500)
+	if res != kernel.SendOK {
+		t.msg = fmt.Sprintf("time send: %s", res)
+		t.pulsePending = false
 	}
 }
 
@@ -1104,51 +1157,7 @@ func (t *Task) render() {
 	if t.fb == nil || t.d == nil {
 		return
 	}
-	t.d.FillRectangle(0, 0, int16(t.fb.Width()), int16(t.fb.Height()), colorBG)
-
-	leftPx := int16(18) * t.fontWidth
-	if leftPx < t.fontWidth*12 {
-		leftPx = t.fontWidth * 12
-	}
-	if leftPx > int16(t.fb.Width())/2 {
-		leftPx = int16(t.fb.Width()) / 2
-	}
-
-	headerH := t.fontHeight + 2
-	footerH := t.fontHeight + 2
-
-	t.d.FillRectangle(0, 0, int16(t.fb.Width()), headerH, colorHeaderBG)
-	t.d.FillRectangle(0, int16(t.fb.Height())-footerH, int16(t.fb.Width()), footerH, colorHeaderBG)
-	t.d.FillRectangle(0, headerH, leftPx, int16(t.fb.Height())-headerH-footerH, colorPanelBG)
-
-	writeText(t.d, t.font, 2, t.fontOffset+1, colorFG, "GPIO / Signal / Protocol Viewer")
-
-	modeName := "GPIO"
-	switch t.mode {
-	case modeSignal:
-		modeName = "Signal"
-	case modeProtocol:
-		modeName = "Protocol"
-	}
-	runName := "stop"
-	if t.running {
-		runName = "run"
-	}
-	trig := "trig:none"
-	if t.triggerArmed {
-		trig = fmt.Sprintf("trig:%s@%d", t.triggerName(), t.triggerPinID)
-	}
-	footer := fmt.Sprintf("%s | %s | %s | zoom:%d | %s", modeName, runName, fmtHz(t.periodTicks), t.samplesPerPx, trig)
-	writeText(t.d, t.font, 2, int16(t.fb.Height())-footerH+t.fontOffset, colorFG, fitText(footer, t.cols))
-
-	if t.msg != "" {
-		writeText(t.d, t.font, 2, int16(t.fb.Height())-footerH-t.fontHeight+t.fontOffset, colorDim, fitText(t.msg, t.cols))
-	}
-
-	t.renderPins(headerH, leftPx, footerH)
-	t.renderWave(headerH, leftPx, footerH)
-
-	_ = t.fb.Present()
+	t.renderUI()
 }
 
 func (t *Task) triggerName() string {
