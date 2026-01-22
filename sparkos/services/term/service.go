@@ -76,10 +76,14 @@ func (s *Service) Run(ctx *kernel.Context) {
 			switch proto.Kind(msg.Kind) {
 			case proto.MsgTermWrite:
 				_, _ = s.t.Write(msg.Payload())
-				dirty = true
+				// Display immediately to avoid relying on tick scheduling.
+				// This keeps the shell responsive during early boot on baremetal.
+				s.t.Display()
+				dirty = false
 			case proto.MsgTermClear:
 				s.reset()
-				dirty = true
+				s.t.Display()
+				dirty = false
 			case proto.MsgTermRefresh:
 				s.t.Display()
 				dirty = false
