@@ -102,5 +102,6 @@ func (s *Service) reset() {
 		UseSoftwareScroll: true,
 	})
 	s.fb.ClearRGB(0, 0, 0)
+	_, _ = s.t.Write([]byte("term: ready\n"))
 	_ = s.fb.Present()
 }
