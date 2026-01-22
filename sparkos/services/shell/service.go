@@ -121,6 +121,9 @@ func (s *Service) Run(ctx *kernel.Context) {
 		_ = s.sendToTerm(ctx, proto.MsgTermClear, nil)
 		_ = s.printString(ctx, "\x1b[0m")
 		_ = s.printString(ctx, s.banner())
+		if line := memStatusLine(); line != "" {
+			_ = s.printString(ctx, line)
+		}
 		_ = s.prompt(ctx)
 		_ = s.sendToTerm(ctx, proto.MsgTermRefresh, nil)
 	} else {

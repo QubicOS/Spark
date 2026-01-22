@@ -5,7 +5,6 @@ package hal
 import (
 	"fmt"
 	"machine"
-	"time"
 )
 
 const (
@@ -45,73 +44,26 @@ type i2cKeyboard struct {
 
 	altDown  bool
 	ctrlDown bool
-
-	freq        uint32
-	ignoreUntil time.Time
-	errStreak   int
 }
 
 func initI2CKeyboard() (*i2cKeyboard, error) {
-	write := [1]byte{picoCalcKbdCmd}
-
-	// Prefer I2C1 (original PicoCalc wiring), but some TinyGo targets expose only I2C0.
-	for _, bus := range []*machine.I2C{machine.I2C1, machine.I2C0} {
-		if bus == nil {
-			continue
-		}
-		for _, freq := range []uint32{100_000, 400_000} {
-			if err := bus.Configure(machine.I2CConfig{
-				SCL:       machine.GP7,
-				SDA:       machine.GP6,
-				Frequency: freq,
-			}); err != nil {
-				continue
-			}
-
-			k := &i2cKeyboard{
-				i2c:         bus,
-				write:       write,
-				freq:        freq,
-				ignoreUntil: time.Now().Add(300 * time.Millisecond),
-			}
-
-			// Probe the device to ensure the selected I2C instance works.
-			// On boot the keyboard MCU can be slow to respond, so retry briefly.
-			const probeTries = 50
-			for i := 0; i < probeTries; i++ {
-				if err := k.i2c.Tx(picoCalcKbdAddr, k.write[:], k.read[:]); err == nil {
-					return k, nil
-				}
-				time.Sleep(10 * time.Millisecond)
-			}
-		}
+	k := &i2cKeyboard{
+		i2c:   machine.I2C1,
+		write: [1]byte{picoCalcKbdCmd},
 	}
-
-	return nil, fmt.Errorf("keyboard: I2C unavailable")
+	if k.i2c == nil {
+		return nil, fmt.Errorf("keyboard: I2C1 unavailable")
+	}
+	if err := k.i2c.Configure(machine.I2CConfig{SCL: machine.GP7, SDA: machine.GP6}); err != nil {
+		return nil, err
+	}
+	return k, nil
 }
 
 func (k *i2cKeyboard) readEvent() (KeyEvent, bool) {
-	// Ignore any garbage/queued events while the keyboard MCU is still booting.
-	if time.Now().Before(k.ignoreUntil) {
-		_ = k.i2c.Tx(picoCalcKbdAddr, k.write[:], k.read[:])
-		return KeyEvent{}, false
-	}
-
 	if err := k.i2c.Tx(picoCalcKbdAddr, k.write[:], k.read[:]); err != nil {
-		k.errStreak++
-		// Reconfigure periodically to recover from transient bus glitches.
-		if k.errStreak >= 200 {
-			_ = k.i2c.Configure(machine.I2CConfig{
-				SCL:       machine.GP7,
-				SDA:       machine.GP6,
-				Frequency: k.freq,
-			})
-			k.errStreak = 0
-			k.ignoreUntil = time.Now().Add(50 * time.Millisecond)
-		}
 		return KeyEvent{}, false
 	}
-	k.errStreak = 0
 	if k.read[0] == 0 && k.read[1] == 0 {
 		return KeyEvent{}, false
 	}
@@ -131,21 +83,13 @@ func (k *i2cKeyboard) readEvent() (KeyEvent, bool) {
 		}
 		return KeyEvent{}, false
 	case 0x03: // key up
-		// PicoCalc firmware reports key-up mostly for modifier keys.
-		// Emit release events only for special keys so termkbd can stop repeats.
 		switch key {
 		case picoCalcKeyAlt:
 			k.altDown = false
-			return KeyEvent{}, false
 		case picoCalcKeyCtrl:
 			k.ctrlDown = false
-			return KeyEvent{}, false
-		default:
-			if kc := k.mapSpecial(key); kc != KeyUnknown {
-				return KeyEvent{Press: false, Code: kc}, true
-			}
-			return KeyEvent{}, false
 		}
+		return KeyEvent{}, false
 	default:
 		// key held or unknown: ignore (repeat handled in termkbd).
 		return KeyEvent{}, false
