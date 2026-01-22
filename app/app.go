@@ -74,6 +74,8 @@ func newSystem(h hal.HAL, cfg Config) *system {
 		bootScreen(h, "init: term")
 		k.AddTask(term.New(h.Display(), termEP.Restrict(kernel.RightRecv)))
 		k.AddTask(bootmsg.New(termEP.Restrict(kernel.RightSend)))
+		bootScreen(h, "init: termkbd")
+		k.AddTask(termkbd.NewInput(h.Input(), shellEP.Restrict(kernel.RightSend)))
 		k.AddTask(shell.New(
 			shellEP.Restrict(kernel.RightRecv),
 			termEP.Restrict(kernel.RightSend),
