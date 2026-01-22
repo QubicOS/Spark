@@ -40,9 +40,12 @@ func New() HAL {
 		disp = newPicoCalcDisplayStub()
 	}
 
-	// PicoCalc keyboard is optional; keep it disabled by default for now.
-	// (It is handled via I2C and may not be available/desired in all setups.)
-	var kbd Keyboard = &stubKeyboard{}
+	var kbd Keyboard
+	if kb, err := newPicoCalcKeyboard(); err == nil {
+		kbd = kb
+	} else {
+		kbd = &stubKeyboard{}
+	}
 
 	return &picoCalcHAL{
 		logger: &uartLogger{uart: uart},

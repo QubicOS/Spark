@@ -3,7 +3,9 @@ package app
 import (
 	"spark/hal"
 	"spark/sparkos/kernel"
+	"spark/sparkos/services/appmgr"
 	audiosvc "spark/sparkos/services/audio"
+	"spark/sparkos/services/consolemux"
 	gpiosvc "spark/sparkos/services/gpio"
 	"spark/sparkos/services/logger"
 	serialsvc "spark/sparkos/services/serial"
@@ -65,7 +67,16 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	audioEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	gpioEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	serialEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
-	// Additional app endpoints (appmgr/consolemux) are allocated lazily only when enabled.
+	muxEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+
+	// Minimal set of foreground apps to keep RAM usage down.
+	vectorEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	rfAnalyzerEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	gpioscopeEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+
+	vectorProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	rfAnalyzerProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
+	gpioscopeProxyEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 
 	k.AddTask(logger.New(h.Logger(), logEP.Restrict(kernel.RightRecv)))
 	k.AddTask(timesvc.New(timeEP))
@@ -83,16 +94,110 @@ func newSystem(h hal.HAL, cfg Config) *system {
 		k.AddTask(term.New(h.Display(), termEP.Restrict(kernel.RightRecv)))
 		k.AddTask(bootmsg.New(termEP.Restrict(kernel.RightSend)))
 		bootScreen(h, "init: termkbd/shell")
-		// Minimal shell mode: connect keyboard directly to shell input,
-		// bypass consolemux+appmgr to reduce memory pressure.
-		k.AddTask(termkbd.NewInput(h.Input(), shellEP.Restrict(kernel.RightSend)))
+		k.AddTask(termkbd.NewInput(h.Input(), muxEP.Restrict(kernel.RightSend)))
+		bootScreen(h, "init: appmgr/mux")
+		k.AddTask(appmgr.New(
+			h.Display(),
+			kernel.Capability{}, // VFS disabled
+			audioEP.Restrict(kernel.RightSend),
+			timeEP.Restrict(kernel.RightSend),
+			gpioEP.Restrict(kernel.RightSend),
+			serialEP.Restrict(kernel.RightSend),
+			kernel.Capability{}, // rtdemo proxy
+			kernel.Capability{}, // rtvoxel proxy
+			kernel.Capability{}, // imgview proxy
+			kernel.Capability{}, // hex proxy
+			kernel.Capability{}, // snake proxy
+			kernel.Capability{}, // tetris proxy
+			kernel.Capability{}, // calendar proxy
+			kernel.Capability{}, // todo proxy
+			kernel.Capability{}, // archive proxy
+			kernel.Capability{}, // vi proxy
+			kernel.Capability{}, // mc proxy
+			vectorProxyEP.Restrict(kernel.RightRecv),
+			kernel.Capability{}, // tea proxy
+			kernel.Capability{}, // basic proxy
+			rfAnalyzerProxyEP.Restrict(kernel.RightRecv),
+			gpioscopeProxyEP.Restrict(kernel.RightRecv),
+			kernel.Capability{}, // fbtest proxy
+			kernel.Capability{}, // serialterm proxy
+			kernel.Capability{}, // users proxy
+			kernel.Capability{}, // donut proxy
+			kernel.Capability{}, // rtdemo
+			kernel.Capability{}, // rtvoxel
+			kernel.Capability{}, // imgview
+			kernel.Capability{}, // hex
+			kernel.Capability{}, // snake
+			kernel.Capability{}, // tetris
+			kernel.Capability{}, // calendar
+			kernel.Capability{}, // todo
+			kernel.Capability{}, // archive
+			kernel.Capability{}, // vi
+			kernel.Capability{}, // mc
+			vectorEP.Restrict(kernel.RightSend|kernel.RightRecv),
+			kernel.Capability{}, // tea
+			kernel.Capability{}, // basic
+			rfAnalyzerEP.Restrict(kernel.RightSend|kernel.RightRecv),
+			gpioscopeEP.Restrict(kernel.RightSend|kernel.RightRecv),
+			kernel.Capability{}, // fbtest
+			kernel.Capability{}, // serialterm
+			kernel.Capability{}, // users
+			kernel.Capability{}, // donut
+			kernel.Capability{}, // rtdemo EP
+			kernel.Capability{}, // rtvoxel EP
+			kernel.Capability{}, // imgview EP
+			kernel.Capability{}, // hex EP
+			kernel.Capability{}, // snake EP
+			kernel.Capability{}, // tetris EP
+			kernel.Capability{}, // calendar EP
+			kernel.Capability{}, // todo EP
+			kernel.Capability{}, // archive EP
+			kernel.Capability{}, // vi EP
+			kernel.Capability{}, // mc EP
+			vectorEP.Restrict(kernel.RightSend|kernel.RightRecv),
+			kernel.Capability{}, // tea EP
+			kernel.Capability{}, // basic EP
+			rfAnalyzerEP.Restrict(kernel.RightSend|kernel.RightRecv),
+			gpioscopeEP.Restrict(kernel.RightSend|kernel.RightRecv),
+			kernel.Capability{}, // fbtest EP
+			kernel.Capability{}, // serialterm EP
+			kernel.Capability{}, // users EP
+			kernel.Capability{}, // donut EP
+		))
+		bootScreen(h, "init: consolemux")
+		k.AddTask(consolemux.New(
+			muxEP.Restrict(kernel.RightRecv),
+			muxEP.Restrict(kernel.RightSend),
+			shellEP.Restrict(kernel.RightSend),
+			kernel.Capability{}, // rtdemo proxy
+			kernel.Capability{}, // rtvoxel proxy
+			kernel.Capability{}, // imgview proxy
+			kernel.Capability{}, // vi proxy
+			kernel.Capability{}, // mc proxy
+			kernel.Capability{}, // hex proxy
+			vectorProxyEP.Restrict(kernel.RightSend),
+			kernel.Capability{}, // snake proxy
+			kernel.Capability{}, // tetris proxy
+			kernel.Capability{}, // calendar proxy
+			kernel.Capability{}, // todo proxy
+			kernel.Capability{}, // archive proxy
+			kernel.Capability{}, // tea proxy
+			kernel.Capability{}, // basic proxy
+			rfAnalyzerProxyEP.Restrict(kernel.RightSend),
+			gpioscopeProxyEP.Restrict(kernel.RightSend),
+			kernel.Capability{}, // fbtest proxy
+			kernel.Capability{}, // serialterm proxy
+			kernel.Capability{}, // users proxy
+			kernel.Capability{}, // donut proxy
+			termEP.Restrict(kernel.RightSend),
+		))
 		k.AddTask(shell.New(
 			shellEP.Restrict(kernel.RightRecv),
 			termEP.Restrict(kernel.RightSend),
 			logEP.Restrict(kernel.RightSend),
 			kernel.Capability{}, // no VFS
 			timeEP.Restrict(kernel.RightSend),
-			kernel.Capability{}, // no consolemux
+			muxEP.Restrict(kernel.RightSend),
 		))
 	} else if cfg.TermDemo {
 		k.AddTask(term.New(h.Display(), termEP.Restrict(kernel.RightRecv)))
