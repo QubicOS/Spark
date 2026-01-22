@@ -56,6 +56,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	installPanicHandler(h)
 
 	if cfg.Shell {
+		bootDiagStart(h)
 		bootScreen(h, "init: kernel")
 	}
 

@@ -12,6 +12,7 @@ import (
 )
 
 func bootScreen(h hal.HAL, msg string) {
+	bootDiagSetStep(msg)
 	if h == nil {
 		return
 	}
