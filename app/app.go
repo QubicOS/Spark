@@ -17,6 +17,7 @@ import (
 	"spark/sparkos/services/vfs"
 	"spark/sparkos/tasks/bootmsg"
 	"spark/sparkos/tasks/termdemo"
+	"spark/sparkos/tasks/termspam"
 )
 
 type system struct {
@@ -124,6 +125,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 		bootScreen(h, "init: term")
 		k.AddTask(term.New(h.Display(), termEP.Restrict(kernel.RightRecv)))
 		k.AddTask(bootmsg.New(termEP.Restrict(kernel.RightSend)))
+		k.AddTask(termspam.New(termEP.Restrict(kernel.RightSend)))
 		bootScreen(h, "init: appmgr/mux")
 		k.AddTask(appmgr.New(
 			h.Display(),
