@@ -9,7 +9,7 @@ import (
 )
 
 type ili9488 struct {
-	spi machine.SPI
+	spi *machine.SPI
 	cs  machine.Pin
 	dc  machine.Pin
 	rst machine.Pin
@@ -18,11 +18,15 @@ type ili9488 struct {
 }
 
 func initILI9488() (*ili9488, error) {
-	if machine.SPI1 == nil {
-		return nil, errors.New("SPI1 unavailable")
+	spi := machine.SPI1
+	if spi == nil {
+		spi = machine.SPI0
+	}
+	if spi == nil {
+		return nil, errors.New("SPI unavailable")
 	}
 
-	machine.SPI1.Configure(machine.SPIConfig{
+	spi.Configure(machine.SPIConfig{
 		SCK:       machine.GP10,
 		SDO:       machine.GP11,
 		SDI:       machine.GP12,
@@ -30,7 +34,7 @@ func initILI9488() (*ili9488, error) {
 	})
 
 	lcd := &ili9488{
-		spi:   *machine.SPI1,
+		spi:   spi,
 		cs:    machine.GP13,
 		dc:    machine.GP14,
 		rst:   machine.GP15,
