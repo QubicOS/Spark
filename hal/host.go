@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 )
 
 type hostHAL struct {
@@ -30,6 +31,13 @@ func New() HAL {
 	for i := 0; i < 7; i++ {
 		pins = append(pins, newVirtualPin(fmt.Sprintf("GPIO%d", i+1), GPIOCapInput|GPIOCapOutput|GPIOCapPullUp|GPIOCapPullDown))
 	}
+	// Dummy signal sources for the GPIO scope app on host.
+	pins = append(pins,
+		newSignalPin("SIG1HZ", 1*time.Second, 500*time.Millisecond),
+		newSignalPin("SIG5HZ", 200*time.Millisecond, 100*time.Millisecond),
+		newSignalPin("SIGPULSE", 1*time.Second, 50*time.Millisecond),
+		newSignalPin("SIGPWM25", 200*time.Millisecond, 50*time.Millisecond),
+	)
 	gpio := newVirtualGPIO(pins)
 	return &hostHAL{
 		logger: logger,

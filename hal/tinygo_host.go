@@ -28,12 +28,18 @@ func New() HAL {
 	return &tinyGoHostHAL{
 		logger: l,
 		led:    led,
-		gpio:   newVirtualGPIO([]GPIOPin{newLEDPin("LED", led)}),
-		fb:     newTinyGoHostFramebuffer(320, 320),
-		kbd:    newTinyGoHostKeyboard(),
-		t:      newTinyGoHostTime(),
-		flash:  stubFlash{},
-		net:    nullNetwork{},
+		gpio: newVirtualGPIO([]GPIOPin{
+			newLEDPin("LED", led),
+			newSignalPin("SIG1HZ", 1*time.Second, 500*time.Millisecond),
+			newSignalPin("SIG5HZ", 200*time.Millisecond, 100*time.Millisecond),
+			newSignalPin("SIGPULSE", 1*time.Second, 50*time.Millisecond),
+			newSignalPin("SIGPWM25", 200*time.Millisecond, 50*time.Millisecond),
+		}),
+		fb:    newTinyGoHostFramebuffer(320, 320),
+		kbd:   newTinyGoHostKeyboard(),
+		t:     newTinyGoHostTime(),
+		flash: stubFlash{},
+		net:   nullNetwork{},
 	}
 }
 

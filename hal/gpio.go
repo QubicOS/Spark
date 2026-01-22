@@ -2,7 +2,9 @@ package hal
 
 import (
 	"fmt"
+	"strings"
 	"sync"
+	"time"
 )
 
 // GPIOMode selects whether a pin is an input or output.
@@ -153,6 +155,95 @@ func (p *virtualPin) Write(level bool) error {
 	}
 	p.level = level
 	return nil
+}
+
+type signalPin struct {
+	mu   sync.Mutex
+	name string
+
+	mode GPIOMode
+	pull GPIOPull
+
+	t0     time.Time
+	now    func() time.Time
+	period time.Duration
+	high   time.Duration
+}
+
+func newSignalPin(name string, period, high time.Duration) GPIOPin {
+	return newSignalPinWithClock(name, period, high, time.Now)
+}
+
+func newSignalPinWithClock(name string, period, high time.Duration, now func() time.Time) GPIOPin {
+	if strings.TrimSpace(name) == "" {
+		return nil
+	}
+	if now == nil {
+		now = time.Now
+	}
+	if period <= 0 {
+		period = 1 * time.Second
+	}
+	if high < 0 {
+		high = 0
+	}
+	if high > period {
+		high = period
+	}
+	return &signalPin{
+		name:   name,
+		mode:   GPIOModeInput,
+		pull:   GPIOPullNone,
+		t0:     now(),
+		now:    now,
+		period: period,
+		high:   high,
+	}
+}
+
+func (p *signalPin) Name() string   { return p.name }
+func (p *signalPin) Caps() GPIOCaps { return GPIOCapInput }
+
+func (p *signalPin) Configure(mode GPIOMode, pull GPIOPull) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if mode != GPIOModeInput {
+		return fmt.Errorf("gpio: pin %s: only input supported", p.name)
+	}
+	if pull != GPIOPullNone {
+		return fmt.Errorf("gpio: pin %s: pull unsupported", p.name)
+	}
+	p.mode = mode
+	p.pull = pull
+	return nil
+}
+
+func (p *signalPin) Read() (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.mode != GPIOModeInput {
+		return false, fmt.Errorf("gpio: pin %s: not configured for input", p.name)
+	}
+	if p.now == nil {
+		return false, fmt.Errorf("gpio: pin %s: no clock", p.name)
+	}
+	if p.period <= 0 {
+		return false, fmt.Errorf("gpio: pin %s: invalid period", p.name)
+	}
+
+	elapsed := p.now().Sub(p.t0)
+	if elapsed < 0 {
+		elapsed = -elapsed
+	}
+	phase := elapsed % p.period
+	return phase < p.high, nil
+}
+
+func (p *signalPin) Write(level bool) error {
+	_ = level
+	return fmt.Errorf("gpio: pin %s: output unsupported", p.name)
 }
 
 type ledPin struct {
