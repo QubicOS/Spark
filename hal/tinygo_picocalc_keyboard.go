@@ -40,14 +40,28 @@ type i2cKeyboard struct {
 }
 
 func initI2CKeyboard() (*i2cKeyboard, error) {
-	k := &i2cKeyboard{
-		i2c:   machine.I2C1,
-		write: [1]byte{picoCalcKbdCmd},
+	write := [1]byte{picoCalcKbdCmd}
+
+	// Prefer I2C1 (original PicoCalc wiring), but some TinyGo targets expose only I2C0.
+	for _, bus := range []*machine.I2C{machine.I2C1, machine.I2C0} {
+		if bus == nil {
+			continue
+		}
+		if err := bus.Configure(machine.I2CConfig{SCL: machine.GP7, SDA: machine.GP6}); err != nil {
+			continue
+		}
+
+		k := &i2cKeyboard{i2c: bus, write: write}
+
+		// Probe the device to ensure the selected I2C instance works.
+		if err := k.i2c.Tx(picoCalcKbdAddr, k.write[:], k.read[:]); err != nil {
+			continue
+		}
+
+		return k, nil
 	}
-	if err := k.i2c.Configure(machine.I2CConfig{SCL: machine.GP7, SDA: machine.GP6}); err != nil {
-		return nil, err
-	}
-	return k, nil
+
+	return nil, fmt.Errorf("keyboard: I2C unavailable")
 }
 
 func (k *i2cKeyboard) readEvent() (KeyEvent, bool) {
