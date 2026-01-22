@@ -54,6 +54,10 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	k := kernel.New()
 	installPanicHandler(h)
 
+	if cfg.Shell {
+		bootScreen(h, "init: kernel")
+	}
+
 	logEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	timeEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
 	termEP := k.NewEndpoint(kernel.RightSend | kernel.RightRecv)
@@ -117,8 +121,10 @@ func newSystem(h hal.HAL, cfg Config) *system {
 	}
 
 	if cfg.Shell {
+		bootScreen(h, "init: term")
 		k.AddTask(term.New(h.Display(), termEP.Restrict(kernel.RightRecv)))
 		k.AddTask(bootmsg.New(termEP.Restrict(kernel.RightSend)))
+		bootScreen(h, "init: appmgr/mux")
 		k.AddTask(appmgr.New(
 			h.Display(),
 			vfsEP.Restrict(kernel.RightSend),
@@ -187,6 +193,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			usersEP.Restrict(kernel.RightRecv),
 			donutEP.Restrict(kernel.RightRecv),
 		))
+		bootScreen(h, "init: consolemux")
 		k.AddTask(consolemux.New(
 			muxEP.Restrict(kernel.RightRecv),
 			muxEP.Restrict(kernel.RightSend),
@@ -213,6 +220,7 @@ func newSystem(h hal.HAL, cfg Config) *system {
 			donutProxyEP.Restrict(kernel.RightSend),
 			termEP.Restrict(kernel.RightSend),
 		))
+		bootScreen(h, "init: termkbd/shell")
 		k.AddTask(termkbd.NewInput(h.Input(), muxEP.Restrict(kernel.RightSend)))
 		k.AddTask(shell.New(
 			shellEP.Restrict(kernel.RightRecv),
