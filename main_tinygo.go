@@ -1,4 +1,4 @@
-//go:build tinygo && !shell
+//go:build tinygo
 
 package main
 
@@ -8,5 +8,5 @@ import (
 )
 
 func main() {
-	app.RunWithConfig(hal.New(), app.Config{TermDemo: true})
+	app.RunWithConfig(hal.New(), app.Config{Shell: true})
 }

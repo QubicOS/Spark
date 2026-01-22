@@ -90,6 +90,9 @@ func (s *Service) Run(ctx *kernel.Context) {
 		return
 	}
 
+	// Give the terminal task a moment to initialize (framebuffer, tinyterm config).
+	ctx.BlockOnTick()
+
 	s.initTabsIfNeeded()
 	if s.reg == nil {
 		if err := s.initRegistry(); err != nil {
@@ -98,10 +101,29 @@ func (s *Service) Run(ctx *kernel.Context) {
 		}
 	}
 
-	_ = s.printString(ctx, "\x1b[0m")
-	_ = s.printString(ctx, s.banner())
-	s.authBanner = true
-	s.beginAuth(ctx)
+	// If VFS isn't available (or intentionally disabled), fall back to a no-auth shell.
+	// This avoids heavy crypto and filesystem access during early bring-up.
+	if s.vfsCap.Valid() == false {
+		s.authed = true
+		s.user = "guest"
+		s.userRole = userdb.RoleUser
+		s.userHome = "/"
+		s.cwd = "/"
+
+		_ = s.sendToTerm(ctx, proto.MsgTermClear, nil)
+		_ = s.printString(ctx, "\x1b[0m")
+		_ = s.printString(ctx, s.banner())
+		_ = s.prompt(ctx)
+		_ = s.sendToTerm(ctx, proto.MsgTermRefresh, nil)
+	} else {
+		_ = s.sendToTerm(ctx, proto.MsgTermClear, nil)
+		_ = s.printString(ctx, "\x1b[0m")
+		_ = s.printString(ctx, s.banner())
+		_ = s.sendToTerm(ctx, proto.MsgTermRefresh, nil)
+		s.authBanner = true
+		s.beginAuth(ctx)
+		_ = s.sendToTerm(ctx, proto.MsgTermRefresh, nil)
+	}
 
 	for msg := range ch {
 		switch proto.Kind(msg.Kind) {

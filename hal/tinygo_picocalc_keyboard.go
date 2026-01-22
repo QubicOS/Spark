@@ -5,6 +5,7 @@ package hal
 import (
 	"fmt"
 	"machine"
+	"time"
 )
 
 const (
@@ -40,14 +41,37 @@ type i2cKeyboard struct {
 }
 
 func initI2CKeyboard() (*i2cKeyboard, error) {
-	k := &i2cKeyboard{
-		i2c:   machine.I2C1,
-		write: [1]byte{picoCalcKbdCmd},
+	write := [1]byte{picoCalcKbdCmd}
+
+	// Prefer I2C1 (original PicoCalc wiring), but some TinyGo targets expose only I2C0.
+	for _, bus := range []*machine.I2C{machine.I2C1, machine.I2C0} {
+		if bus == nil {
+			continue
+		}
+		for _, freq := range []uint32{100_000, 400_000} {
+			if err := bus.Configure(machine.I2CConfig{
+				SCL:       machine.GP7,
+				SDA:       machine.GP6,
+				Frequency: freq,
+			}); err != nil {
+				continue
+			}
+
+			k := &i2cKeyboard{i2c: bus, write: write}
+
+			// Probe the device to ensure the selected I2C instance works.
+			// On boot the keyboard MCU can be slow to respond, so retry briefly.
+			const probeTries = 50
+			for i := 0; i < probeTries; i++ {
+				if err := k.i2c.Tx(picoCalcKbdAddr, k.write[:], k.read[:]); err == nil {
+					return k, nil
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		}
 	}
-	if err := k.i2c.Configure(machine.I2CConfig{SCL: machine.GP7, SDA: machine.GP6}); err != nil {
-		return nil, err
-	}
-	return k, nil
+
+	return nil, fmt.Errorf("keyboard: I2C unavailable")
 }
 
 func (k *i2cKeyboard) readEvent() (KeyEvent, bool) {
@@ -64,6 +88,14 @@ func (k *i2cKeyboard) readEvent() (KeyEvent, bool) {
 	switch eventType {
 	case 0x01: // key down
 		return k.translate(key, true)
+	case 0x02: // key held (mostly modifiers)
+		switch key {
+		case picoCalcKeyAlt:
+			k.altDown = true
+		case picoCalcKeyCtrl:
+			k.ctrlDown = true
+		}
+		return KeyEvent{}, false
 	case 0x03: // key up
 		return k.translate(key, false)
 	default:
